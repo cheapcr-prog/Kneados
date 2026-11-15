@@ -1,5 +1,6 @@
 import { Banknote, Check, CreditCard, Delete, Gift, LogOut, Minus, PackageCheck, Plus, Timer, Trash2, X } from 'lucide-react';
 import { useMemo, useState } from 'react';
+import { BreakButton, BreakScreen } from '../components/Breaks';
 import { ItemArt } from '../components/ItemArt';
 import { PickupQueue, useTodaysPickups, useWorkload } from '../components/PickupQueue';
 import { MENU, MENU_BY_ID, SHOP, STAFF } from '../data/shop';
@@ -16,7 +17,12 @@ type Stage = 'ticket' | 'tip' | 'done';
 export function Register() {
   const [staff, setStaff] = useState<StaffMember | null>(null);
   if (!staff) return <PinLogin onLogin={setStaff} />;
-  return <Till staff={staff} onLogout={() => setStaff(null)} />;
+  return (
+    <div className="relative">
+      <Till staff={staff} onLogout={() => setStaff(null)} />
+      <BreakScreen staff={staff} />
+    </div>
+  );
 }
 
 function PinLogin({ onLogin }: { onLogin: (s: StaffMember) => void }) {
@@ -184,6 +190,7 @@ function Till({ staff, onLogout }: { staff: StaffMember; onLogout: () => void })
             <PackageCheck size={14} /> {mineNow > 0 ? 'Pack now' : 'Pickup orders'}
             {pickups.open.length > 0 && <span className="tabular rounded-full bg-ink-900 px-1.5 text-[11px] font-bold text-white">{pickups.open.length}</span>}
           </button>
+          <BreakButton staffId={staff.id} />
           <button onClick={() => demo.clockToggle(staff.id)} className={`flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold ${onClock ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-800'}`}>
             <Timer size={14} /> {onClock ? 'On the clock' : 'Clock in'}
           </button>

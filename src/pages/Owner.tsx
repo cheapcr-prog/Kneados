@@ -1,6 +1,7 @@
 import { CloudRain, Gift, MessageSquareText, Sun } from 'lucide-react';
 import { useMemo, useState, type ReactNode } from 'react';
 import { Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { BreakPlanCard, TONE, breakSummary, tracksBreaks, useTick } from '../components/Breaks';
 import { ItemArt } from '../components/ItemArt';
 import { MENU, MENU_BY_ID, SCHEDULE, SHOP, STAFF, STAFF_BY_ID, shiftHours } from '../data/shop';
 import { useDemo, type Demo } from '../data/store';
@@ -222,6 +223,7 @@ function BakePlan({ demo }: { demo: Demo }) {
 }
 
 function StaffTips({ demo }: { demo: Demo }) {
+  useTick();
   const { state } = demo;
   const dow = dowOf(state.today);
   const tips = demo.todayOrders.reduce((a, o) => a + o.tip, 0);
@@ -241,12 +243,14 @@ function StaffTips({ demo }: { demo: Demo }) {
         <Stat label="Tip pool today" value={state.tippingEnabled ? money(tips) : 'Off'} />
       </div>
 
-      <Card title="Today's time clock and tip split" note="Tips are pooled for the day and split by hours worked. Owners and managers are left out of the pool, as California Labor Code 351 requires.">
+      <BreakPlanCard />
+
+      <Card title="Today's time clock, breaks and tip split" note="Hours are paid hours: the 30 minute lunch is off the clock, 10 minute breaks are paid. Break rules follow California law (a 10 minute break per 4 hours, lunch before the 5th hour ends). Tips are pooled and split by hours worked, with owners and managers left out, as Labor Code 351 requires. This is a helper, not legal advice.">
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[520px] text-sm">
+          <table className="w-full min-w-[760px] text-sm">
             <thead>
               <tr className="text-left text-[11px] uppercase tracking-wider text-slate-500">
-                <th className="pb-2 font-semibold">Name</th><th className="pb-2 font-semibold">Role</th><th className="pb-2 font-semibold">Status</th>
+                <th className="pb-2 font-semibold">Name</th><th className="pb-2 font-semibold">Role</th><th className="pb-2 font-semibold">Status</th><th className="pb-2 font-semibold">Breaks and lunch</th>
                 <th className="pb-2 text-right font-semibold">Hours</th><th className="pb-2 text-right font-semibold">Tip share</th>
               </tr>
             </thead>
@@ -262,6 +266,26 @@ function StaffTips({ demo }: { demo: Demo }) {
                       <button onClick={() => demo.clockToggle(s.id)} className={`rounded-full px-2.5 py-1 text-xs font-semibold ${on ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'}`}>
                         {on ? 'Clocked in' : hours > 0 ? 'Clocked out' : 'Off today'}
                       </button>
+                    </td>
+                    <td className="py-2.5 text-xs">
+                      {(() => {
+                        if (!tracksBreaks(s)) return <span className="text-slate-400">Owner, not tracked</span>;
+                        const b = demo.breakOf(s.id);
+                        if (!b) {
+                          const taken = demo.breaksToday(s.id);
+                          return <span className="text-slate-500">{taken.length ? `${taken.filter((x) => x.kind === 'rest').length} break${taken.filter((x) => x.kind === 'rest').length === 1 ? '' : 's'}${taken.some((x) => x.kind === 'meal') ? ', lunch taken' : ''}` : ''}</span>;
+                        }
+                        const sum = breakSummary(b);
+                        return (
+                          <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                            <span className={TONE[sum.tone]}>{sum.text}</span>
+                            {b.premiumOwed && <span className="rounded-full bg-rose-100 px-2 py-0.5 font-semibold text-rose-700">1 hour premium pay owed</span>}
+                            {b.state === 'on-break'
+                              ? <button onClick={() => demo.endBreak(s.id)} className="rounded-full bg-slate-100 px-2 py-0.5 font-semibold text-slate-700 hover:bg-slate-200">End</button>
+                              : b.next && <button onClick={() => demo.startBreak(s.id, b.next!)} className="rounded-full bg-ink-900 px-2 py-0.5 font-semibold text-white">Start {b.next === 'meal' ? 'lunch' : 'break'}</button>}
+                          </span>
+                        );
+                      })()}
                     </td>
                     <td className="tabular py-2.5 text-right">{hours > 0 ? hours.toFixed(1) : ''}</td>
                     <td className="tabular py-2.5 text-right font-semibold">

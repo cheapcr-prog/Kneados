@@ -58,7 +58,8 @@ function PackRow({ icon, label, items }: { icon: ReactNode; label: string; items
 export function useWorkload(): Workload {
   const demo = useDemo();
   const { open } = useTodaysPickups();
-  const onClock = STAFF.filter((s) => demo.state.clock[s.id]?.inAt);
+  // People on a break or at lunch get no packing until they are back.
+  const onClock = STAFF.filter((s) => demo.state.clock[s.id]?.inAt && demo.breakOf(s.id)?.state !== 'on-break');
   return planWorkload(open, onClock, MENU_BY_ID, new Date());
 }
 

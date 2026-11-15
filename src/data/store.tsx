@@ -1,18 +1,21 @@
 import { createContext, useContext, useEffect, useMemo, useReducer, type ReactNode } from 'react';
+import { MEAL_MINUTES, REST_MINUTES, breakStatus, unpaidHours, type Break, type BreakKind, type BreakStatus } from '../lib/breaks';
 import { addDays, dowOf, holidayFor, isoDate } from '../lib/dates';
 import { forecastItem, type ItemDayObservation, type ItemForecast } from '../lib/forecast';
 import { addVisit, redeemReward, rewardText } from '../lib/rewards';
 import { buildHistory, buildPreorders, buildTodayOrders } from './history';
-import { MENU, SCHEDULE, SEED_MEMBERS, SHOP, STAFF } from './shop';
+import { MENU, SCHEDULE, SEED_MEMBERS, SHOP, STAFF, shiftHours } from './shop';
 import type { BakeProgress, DayHistory, Order, OrderStatus, RewardsMember } from './types';
 
-const STORAGE_KEY = 'kneados-demo-v1';
+const STORAGE_KEY = 'kneados-demo-v2';
 
 interface ClockState {
   /** ISO time the person clocked in, when they are on the clock. */
   inAt?: string;
-  /** Hours already finished today. */
+  /** Paid hours already finished today. Unpaid meal breaks are left out. */
   hours: number;
+  /** Rest and meal breaks taken today. */
+  breaks?: Break[];
 }
 
 export interface SentText {
@@ -41,6 +44,7 @@ type Action =
   | { type: 'toggleSoldOut'; itemId: string }
   | { type: 'setMembers'; members: RewardsMember[]; text?: SentText }
   | { type: 'clock'; staffId: string; now: string }
+  | { type: 'break'; staffId: string; now: string; kind?: BreakKind }
   | { type: 'setRain'; rain: boolean }
   | { type: 'setTipping'; on: boolean }
   | { type: 'reset'; state: DemoState };
@@ -64,10 +68,23 @@ function reducer(state: DemoState, a: Action): DemoState {
     case 'clock': {
       const cur = state.clock[a.staffId] ?? { hours: 0 };
       if (cur.inAt) {
-        const worked = (new Date(a.now).getTime() - new Date(cur.inAt).getTime()) / 3600_000;
-        return { ...state, clock: { ...state.clock, [a.staffId]: { hours: cur.hours + Math.max(0, worked) } } };
+        // Clocking out ends any break that is still running.
+        const breaks = (cur.breaks ?? []).map((b) => (b.end ? b : { ...b, end: a.now }));
+        const worked = (new Date(a.now).getTime() - new Date(cur.inAt).getTime()) / 3600_000 - unpaidHours(breaks, new Date(a.now), cur.inAt);
+        return { ...state, clock: { ...state.clock, [a.staffId]: { hours: cur.hours + Math.max(0, worked), breaks } } };
       }
       return { ...state, clock: { ...state.clock, [a.staffId]: { ...cur, inAt: a.now } } };
+    }
+    case 'break': {
+      const cur = state.clock[a.staffId];
+      if (!cur?.inAt) return state;
+      const breaks = cur.breaks ?? [];
+      const running = breaks.some((b) => !b.end);
+      // With a kind it starts a break, without one it ends the running break.
+      const next = a.kind
+        ? running ? breaks : [...breaks, { kind: a.kind, start: a.now }]
+        : breaks.map((b) => (b.end ? b : { ...b, end: a.now }));
+      return { ...state, clock: { ...state.clock, [a.staffId]: { ...cur, breaks: next } } };
     }
     case 'setRain':
       return { ...state, tomorrowRain: a.rain };
@@ -125,8 +142,20 @@ function freshState(now: Date): DemoState {
     const start = new Date(now); start.setHours(sh, sm, 0, 0);
     const end = new Date(now); end.setHours(eh, em, 0, 0);
     if (now < start) continue;
-    if (now >= end) clock[s.staffId] = { hours: (end.getTime() - start.getTime()) / 3600_000 };
-    else clock[s.staffId] = { inAt: start.toISOString(), hours: 0 };
+    // Breaks already taken by this point in the shift: a rest break 2 hours in, lunch at 4 hours, a second rest at 6.
+    const breaks: Break[] = [];
+    const until = Math.min(now.getTime(), end.getTime());
+    const length = shiftHours(s);
+    const plan: [BreakKind, number, number][] = [['rest', 2, REST_MINUTES], ['meal', 4, MEAL_MINUTES], ['rest', 6, REST_MINUTES]];
+    for (const [kind, atHour, minutes] of plan) {
+      if (kind === 'meal' && length <= 5) continue;
+      if (kind === 'rest' && atHour === 6 && length <= 6) continue;
+      const from = start.getTime() + atHour * 3600_000;
+      const to = from + minutes * 60_000;
+      if (to <= until) breaks.push({ kind, start: new Date(from).toISOString(), end: new Date(to).toISOString() });
+    }
+    if (now >= end) clock[s.staffId] = { hours: (end.getTime() - start.getTime()) / 3600_000 - unpaidHours(breaks, end), breaks };
+    else clock[s.staffId] = { inAt: start.toISOString(), hours: 0, breaks };
   }
   return { today, orders, nextNumber: 1001, bake, members: SEED_MEMBERS, clock, texts: [], tomorrowRain: false, tippingEnabled: SHOP.tippingEnabled };
 }
@@ -154,7 +183,13 @@ export interface Demo {
   tomorrow: string;
   forecastToday: (itemId: string) => ItemForecast;
   forecastTomorrow: (itemId: string) => ItemForecast;
+  /** Paid hours today. Unpaid meal breaks are left out. */
   hoursToday: (staffId: string) => number;
+  /** Where this person stands on breaks. Undefined when they are not clocked in. */
+  breakOf: (staffId: string) => BreakStatus | undefined;
+  breaksToday: (staffId: string) => Break[];
+  startBreak: (staffId: string, kind: BreakKind) => void;
+  endBreak: (staffId: string) => void;
   placeOrder: (o: Omit<Order, 'id' | 'number' | 'createdAt'>) => Order;
   setStatus: (id: string, status: OrderStatus) => void;
   bumpMade: (itemId: string, delta: number) => void;
@@ -199,9 +234,18 @@ export function DemoProvider({ children }: { children: ReactNode }) {
       hoursToday: (staffId) => {
         const c = state.clock[staffId];
         if (!c) return 0;
-        const live = c.inAt ? Math.max(0, (Date.now() - new Date(c.inAt).getTime()) / 3600_000) : 0;
+        const live = c.inAt ? Math.max(0, (Date.now() - new Date(c.inAt).getTime()) / 3600_000 - unpaidHours(c.breaks ?? [], new Date(), c.inAt)) : 0;
         return c.hours + live;
       },
+      breakOf: (staffId) => {
+        const c = state.clock[staffId];
+        if (!c?.inAt) return undefined;
+        const shift = SCHEDULE.find((x) => x.staffId === staffId && x.dow === dowOf(state.today));
+        return breakStatus(new Date(c.inAt), shift ? shiftHours(shift) : 0, c.breaks ?? [], new Date());
+      },
+      breaksToday: (staffId) => state.clock[staffId]?.breaks ?? [],
+      startBreak: (staffId, kind) => dispatch({ type: 'break', staffId, kind, now: new Date().toISOString() }),
+      endBreak: (staffId) => dispatch({ type: 'break', staffId, now: new Date().toISOString() }),
       placeOrder: (o) => {
         const order: Order = { ...o, id: `o-${state.nextNumber}`, number: state.nextNumber, createdAt: new Date().toISOString() };
         dispatch({ type: 'addOrder', order });

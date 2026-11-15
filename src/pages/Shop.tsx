@@ -1,12 +1,14 @@
-import { Check, Clock, MapPin, Minus, Phone, Plus, ShoppingBag, X } from 'lucide-react';
+import { Check, Clock, MapPin, Minus, Phone, Plus, ShoppingBag, Trash2, X } from 'lucide-react';
 import { useMemo, useState } from 'react';
+import { BoxBuilder } from '../components/BoxBuilder';
 import { ItemArt } from '../components/ItemArt';
 import { MENU, MENU_BY_ID, SHOP } from '../data/shop';
 import { useDemo } from '../data/store';
 import type { Category, MenuItem, Order } from '../data/types';
 import { longDate, timeLabel } from '../lib/dates';
 import { formatPhone, money } from '../lib/money';
-import { linePrice, totals } from '../lib/pricing';
+import { boxCounts, boxPrice, cartLines, linePrice, totals } from '../lib/pricing';
+import type { OrderLine } from '../data/types';
 import { PUNCHES_PER_REWARD } from '../lib/rewards';
 
 const CATEGORIES: Category[] = ['Classics', 'Filled', 'Specialty', 'Drinks'];
@@ -33,12 +35,17 @@ export function Shop() {
   const [open, setOpen] = useState(false);
   const [placed, setPlaced] = useState<Order | null>(null);
 
-  const lines = useMemo(
+  const [boxes, setBoxes] = useState<string[][]>([]);
+
+  /** Loose items are shown one per row. Boxes are shown as boxes. The order itself gets one merged line per item. */
+  const loose = useMemo(
     () => Object.entries(cart).filter(([, q]) => q > 0).map(([itemId, qty]) => ({ itemId, qty, lineCents: linePrice(MENU_BY_ID[itemId], qty) })),
     [cart],
   );
+  const lines = useMemo(() => cartLines(cart, boxes, MENU_BY_ID), [cart, boxes]);
   const count = lines.reduce((a, l) => a + l.qty, 0);
   const t = totals(lines, MENU_BY_ID);
+  const soldOut = (id: string) => demo.state.bake[id]?.soldOut ?? false;
   const add = (id: string, n: number) => setCart((c) => ({ ...c, [id]: Math.max(0, (c[id] ?? 0) + n) }));
 
   return (
@@ -59,9 +66,14 @@ export function Shop() {
             <span className="flex items-center gap-1.5"><MapPin size={15} /> {SHOP.address}</span>
             <span className="flex items-center gap-1.5"><Phone size={15} /> {SHOP.phone}</span>
           </div>
-          <a href="#menu" className="mt-8 inline-flex rounded-full bg-white px-6 py-3 text-sm font-bold text-box-600 shadow-lg shadow-box-700/30 hover:bg-box-50">
-            Order for pickup
-          </a>
+          <div className="mt-8 flex flex-wrap gap-3">
+            <a href="#box" className="inline-flex rounded-full bg-white px-6 py-3 text-sm font-bold text-box-600 shadow-lg shadow-box-700/30 hover:bg-box-50">
+              Build your dozen
+            </a>
+            <a href="#menu" className="inline-flex rounded-full border border-white/50 px-6 py-3 text-sm font-bold text-white hover:bg-white/10">
+              See the menu
+            </a>
+          </div>
         </div>
       </header>
 
@@ -72,13 +84,15 @@ export function Shop() {
         </div>
       </section>
 
+      <BoxBuilder isSoldOut={soldOut} onAdd={(box) => setBoxes((b) => [...b, box])} />
+
       <main id="menu" className="mx-auto max-w-6xl px-5 pb-32 pt-10">
         {CATEGORIES.map((cat) => (
           <section key={cat} className="mb-10">
             <h2 className="font-display text-2xl font-bold tracking-tight text-slate-900">{cat}</h2>
             <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {MENU.filter((m) => m.category === cat).map((item) => (
-                <MenuCard key={item.id} item={item} qty={cart[item.id] ?? 0} soldOut={demo.state.bake[item.id]?.soldOut ?? false} add={add} />
+                <MenuCard key={item.id} item={item} qty={cart[item.id] ?? 0} soldOut={soldOut(item.id)} add={add} />
               ))}
             </div>
           </section>
@@ -97,10 +111,13 @@ export function Shop() {
 
       {open && (
         <Checkout
+          loose={loose}
+          boxes={boxes}
           lines={lines}
           add={add}
+          removeBox={(i) => setBoxes((b) => b.filter((_, k) => k !== i))}
           onClose={() => setOpen(false)}
-          onPlaced={(o) => { setPlaced(o); setCart({}); setOpen(false); }}
+          onPlaced={(o) => { setPlaced(o); setCart({}); setBoxes([]); setOpen(false); }}
         />
       )}
       {placed && <Confirmation order={placed} onClose={() => setPlaced(null)} />}
@@ -143,9 +160,12 @@ function MenuCard({ item, qty, soldOut, add }: { item: MenuItem; qty: number; so
   );
 }
 
-function Checkout({ lines, add, onClose, onPlaced }: {
-  lines: { itemId: string; qty: number; lineCents: number }[];
+function Checkout({ loose, boxes, lines, add, removeBox, onClose, onPlaced }: {
+  loose: OrderLine[];
+  boxes: string[][];
+  lines: OrderLine[];
   add: (id: string, n: number) => void;
+  removeBox: (index: number) => void;
   onClose: () => void;
   onPlaced: (o: Order) => void;
 }) {
@@ -168,6 +188,7 @@ function Checkout({ lines, add, onClose, onPlaced }: {
     const order = demo.placeOrder({
       source: 'online', pickupAt: pickup, customerName: name.trim(), phone: digits, lines,
       subtotal: t.subtotal, tax: t.tax, tip: 0, total: t.total, payment: 'online', status: 'new',
+      ...(boxes.length ? { boxes } : {}),
     });
     if (rewards) demo.punchVisit(digits, name.trim());
     onPlaced(order);
@@ -182,7 +203,22 @@ function Checkout({ lines, add, onClose, onPlaced }: {
         </div>
         <div className="flex-1 space-y-5 overflow-y-auto px-5 py-4">
           <ul className="divide-y divide-slate-100">
-            {lines.map((l) => {
+            {boxes.map((box, i) => (
+              <li key={`box-${i}`} className="py-2.5">
+                <div className="flex items-center gap-3">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-semibold">Your dozen box{boxes.length > 1 ? ` ${i + 1}` : ''}</p>
+                    <p className="text-xs text-slate-500">{boxCounts(box).map(([id, n]) => `${n} ${MENU_BY_ID[id].name}`).join(', ')}</p>
+                  </div>
+                  <button aria-label="Remove this box" onClick={() => removeBox(i)} className="flex h-7 w-7 items-center justify-center rounded-full border border-slate-200 text-slate-500"><Trash2 size={13} /></button>
+                  <span className="tabular w-16 text-right text-sm font-semibold">{money(boxPrice(box, MENU_BY_ID).cents)}</span>
+                </div>
+                <div className="mt-2 grid w-fit grid-cols-6 gap-1 rounded-xl bg-box-50 p-1.5">
+                  {box.map((id, k) => <ItemArt key={k} item={MENU_BY_ID[id]} size={26} />)}
+                </div>
+              </li>
+            ))}
+            {loose.map((l) => {
               const item = MENU_BY_ID[l.itemId];
               return (
                 <li key={l.itemId} className="flex items-center gap-3 py-2.5">

@@ -73,6 +73,8 @@ export interface Order {
   payment: 'card' | 'cash' | 'online';
   status: OrderStatus;
   rewardRedeemed?: boolean;
+  /** Mixed dozen boxes the customer built online. Their donuts are already counted in `lines`. */
+  boxes?: string[][];
 }
 
 export interface DayItemSales {

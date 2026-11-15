@@ -1,7 +1,8 @@
-import { Banknote, Check, CreditCard, Delete, Gift, LogOut, Minus, PackageCheck, Plus, Timer, Trash2, X } from 'lucide-react';
+import { Banknote, Check, ClipboardCheck, CreditCard, Delete, Gift, LogOut, Minus, PackageCheck, Plus, Timer, Trash2, X } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { BreakButton, BreakScreen } from '../components/Breaks';
 import { ItemArt } from '../components/ItemArt';
+import { ShopTasksPanel, useUpkeep } from '../components/Upkeep';
 import { PickupQueue, useTodaysPickups, useWorkload } from '../components/PickupQueue';
 import { MENU, MENU_BY_ID, SHOP, STAFF } from '../data/shop';
 import { useDemo } from '../data/store';
@@ -93,6 +94,9 @@ function Till({ staff, onLogout }: { staff: StaffMember; onLogout: () => void })
   const [tip, setTip] = useState(0);
   const [result, setResult] = useState<{ number: number; total: number; payment: 'card' | 'cash'; earned: boolean } | null>(null);
   const [pickupsOpen, setPickupsOpen] = useState(false);
+  const [tasksOpen, setTasksOpen] = useState(false);
+  const upkeep = useUpkeep();
+  const myTasks = upkeep.statuses.filter((t) => (t.state === 'due' || t.state === 'overdue') && upkeep.assigned[t.task.id] === staff.id).length;
   const pickups = useTodaysPickups();
   const work = useWorkload();
   /** Orders this person should be packing right now. The button turns amber for these. */
@@ -189,6 +193,10 @@ function Till({ staff, onLogout }: { staff: StaffMember; onLogout: () => void })
           >
             <PackageCheck size={14} /> {mineNow > 0 ? 'Pack now' : 'Pickup orders'}
             {pickups.open.length > 0 && <span className="tabular rounded-full bg-ink-900 px-1.5 text-[11px] font-bold text-white">{pickups.open.length}</span>}
+          </button>
+          <button onClick={() => setTasksOpen(true)} className="flex shrink-0 items-center gap-1.5 rounded-lg bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-200">
+            <ClipboardCheck size={14} /> Tasks
+            {myTasks > 0 && <span className="tabular rounded-full bg-ink-900 px-1.5 text-[11px] font-bold text-white">{myTasks}</span>}
           </button>
           <BreakButton staffId={staff.id} />
           <button onClick={() => demo.clockToggle(staff.id)} className={`flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold ${onClock ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-800'}`}>
@@ -288,6 +296,22 @@ function Till({ staff, onLogout }: { staff: StaffMember; onLogout: () => void })
         </div>
       </aside>
 
+      {tasksOpen && (
+        <div className="fixed inset-0 z-50 flex justify-end bg-ink-900/50" onClick={() => setTasksOpen(false)}>
+          <div className="flex h-full w-full max-w-lg flex-col bg-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
+              <div>
+                <h2 className="font-display text-xl font-bold">Shop tasks</h2>
+                <p className="text-xs text-slate-500">Signed in as {staff.name} · Check each one off when it is done.</p>
+              </div>
+              <button aria-label="Close shop tasks" onClick={() => setTasksOpen(false)} className="rounded-full p-1.5 text-slate-500 hover:bg-slate-100"><X size={20} /></button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4">
+              <ShopTasksPanel me={staff.id} />
+            </div>
+          </div>
+        </div>
+      )}
       {pickupsOpen && (
         <div className="fixed inset-0 z-50 flex justify-end bg-ink-900/50" onClick={() => setPickupsOpen(false)}>
           <div className="flex h-full w-full max-w-lg flex-col bg-slate-100 shadow-2xl" onClick={(e) => e.stopPropagation()}>

@@ -1,5 +1,6 @@
-import { Sparkles } from 'lucide-react';
-import { useMemo } from 'react';
+import { ClipboardList, Sparkles } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { useShopState } from '../../data/local';
 import { MENU } from '../../data/shop';
 import { forecastFor, type Demo } from '../../data/store';
 import { RECIPES, SUPPLIES } from '../../data/supplies';
@@ -8,6 +9,10 @@ import { money } from '../../lib/money';
 import { delivered, onOrder } from '../../lib/purchasing';
 import { PurchasingPanel, useAutoPurchasing } from './Purchasing';
 import { planSupply, SAFETY_DAYS, supplyUsage, type SupplyPlan } from '../../lib/supplies';
+
+/** A hand count of one supply: what was counted, when, and what KneadOS expected to find. */
+interface StockCount { qty: number; at: string; expected: number }
+const useStockCounts = () => useShopState<Record<string, StockCount>>('stock-counts', () => ({}));
 
 /** How many days of the bake plan to look ahead. */
 const HORIZON = 21;
@@ -35,7 +40,17 @@ function dayName(today: string) {
 export function useSupplyPlans(demo: Demo): SupplyPlan[] {
   const { today, orders, tomorrowRain, pos } = demo.state;
   const ordered = useMemo(() => onOrder(pos), [pos]);
-  const got = useMemo(() => delivered(pos), [pos]);
+  const [counts] = useStockCounts();
+  // A hand count replaces the book number. Deliveries received after the count are added on top.
+  const got = useMemo(() => {
+    const all = delivered(pos);
+    const out: Record<string, number> = {};
+    for (const s of SUPPLIES) {
+      const c = counts[s.id];
+      out[s.id] = c ? c.qty - s.onHand + (delivered(pos.filter((p) => (p.receivedAt ?? '') > c.at))[s.id] ?? 0) : all[s.id] ?? 0;
+    }
+    return out;
+  }, [pos, counts]);
   const usage = useMemo(() => {
     return Array.from({ length: HORIZON }, (_, d) => {
       const date = addDays(today, d);
@@ -58,6 +73,21 @@ export { useAutoPurchasing };
 export function Supplies({ demo, plans }: { demo: Demo; plans: SupplyPlan[] }) {
   const today = demo.state.today;
   const name = dayName(today);
+  const [counts, setCounts] = useStockCounts();
+  const [counting, setCounting] = useState(false);
+  const [entered, setEntered] = useState<Record<string, string>>({});
+  const saveCount = () => {
+    const at = new Date().toISOString();
+    const next = { ...counts };
+    for (const p of plans) {
+      const raw = entered[p.supply.id];
+      if (raw === undefined || raw.trim() === '' || Number.isNaN(Number(raw))) continue;
+      next[p.supply.id] = { qty: Number(raw), at, expected: p.stock - (onOrder(demo.state.pos)[p.supply.id] ?? 0) };
+    }
+    setCounts(next);
+    setEntered({});
+    setCounting(false);
+  };
   const sentToday = demo.state.pos.filter((p) => p.date === today && p.status !== 'draft').length;
   const due = plans.filter((p) => p.status === 'order-now');
   const soon = plans.filter((p) => p.status === 'order-soon');
@@ -80,8 +110,18 @@ export function Supplies({ demo, plans }: { demo: Demo; plans: SupplyPlan[] }) {
 
       <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
         <div className="px-4 pb-2 pt-4">
-          <h3 className="font-display text-lg font-bold tracking-tight">All supplies</h3>
-          <p className="text-xs text-slate-500">Sorted by what runs out first.</p>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h3 className="font-display text-lg font-bold tracking-tight">All supplies</h3>
+            {counting ? (
+              <span className="flex gap-2">
+                <button onClick={() => { setCounting(false); setEntered({}); }} className="rounded-full bg-slate-100 px-3 py-1.5 text-xs font-bold text-slate-700">Cancel</button>
+                <button onClick={saveCount} className="rounded-full bg-ink-900 px-3 py-1.5 text-xs font-bold text-white">Save count</button>
+              </span>
+            ) : (
+              <button onClick={() => setCounting(true)} className="flex items-center gap-1.5 rounded-full bg-slate-100 px-3 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-200"><ClipboardList size={14} /> Count stock</button>
+            )}
+          </div>
+          <p className="text-xs text-slate-500">{counting ? 'Type what is on the shelf for anything you counted. Leave the rest blank.' : 'Sorted by what runs out first. A weekly count keeps the numbers honest.'}</p>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full min-w-[640px] text-left text-sm">
@@ -101,8 +141,23 @@ export function Supplies({ demo, plans }: { demo: Demo; plans: SupplyPlan[] }) {
                   <td className="px-4 py-2.5">
                     <span className="font-semibold text-slate-900">{p.supply.name}</span>
                     <span className="block text-xs text-slate-500">{p.supply.supplier} · {p.supply.packLabel} {money(p.supply.packCents)}</span>
+                    {(() => {
+                      const c = counts[p.supply.id];
+                      if (!c) return null;
+                      const diff = c.qty - c.expected;
+                      const big = Math.abs(diff) >= Math.max(1, c.expected * 0.05);
+                      return (
+                        <span className={`block text-xs ${big && diff < 0 ? 'font-semibold text-rose-700' : 'text-slate-500'}`}>
+                          Counted {shortDate(c.at.slice(0, 10))}: {big ? `${qtyLabel(Math.abs(diff), p.supply.unit)} ${diff < 0 ? 'short of' : 'over'} what the bake plan says should be there.${diff < 0 ? ' Check for waste, spills or heavy portions.' : ''}` : 'matches the books.'}
+                        </span>
+                      );
+                    })()}
                   </td>
-                  <td className="tabular px-3 py-2.5 text-right">{qtyLabel(p.stock, p.supply.unit)}</td>
+                  <td className="tabular px-3 py-2.5 text-right">
+                    {counting
+                      ? <input value={entered[p.supply.id] ?? ''} onChange={(e) => setEntered((v) => ({ ...v, [p.supply.id]: e.target.value.replace(/[^\d.]/g, '') }))} placeholder={String(Math.round(p.stock))} inputMode="decimal" aria-label={`Counted ${p.supply.name}`} className="w-20 rounded-lg border border-slate-300 px-2 py-1 text-right text-sm" />
+                      : qtyLabel(p.stock, p.supply.unit)}
+                  </td>
                   <td className="tabular px-3 py-2.5 text-right text-slate-600">{qtyLabel(p.dailyUse, p.supply.unit)}</td>
                   <td className="px-3 py-2.5">{p.runOut ? <>{name(p.runOut)}<span className="block text-xs text-slate-500">{p.daysLeft === 0 ? 'today' : `${p.daysLeft} day${p.daysLeft === 1 ? '' : 's'} left`}</span></> : <span className="text-slate-500">More than {HORIZON} days</span>}</td>
                   <td className="px-3 py-2.5">{p.orderBy ? name(p.orderBy) : <span className="text-slate-400">Not yet</span>}</td>

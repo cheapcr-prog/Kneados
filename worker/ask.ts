@@ -17,7 +17,8 @@ export interface AskReply {
 
 export type AskError = 'off' | 'capped' | 'limit' | 'bad' | 'refused' | 'busy';
 
-export const MODEL = 'claude-opus-5-5';
+/** The model that answers the chat. Elias chose Sonnet 5.5 for the chat and briefing on 2026-11-15. */
+export const MODEL = 'claude-sonnet-5-5';
 export const MAX_QUESTION = 400;
 export const MAX_BODY_BYTES = 60_000;
 export const MAX_OUTPUT_TOKENS = 3000;
@@ -85,12 +86,19 @@ export interface Usage {
 }
 
 /**
- * What a reply cost, in millionths of a dollar, at the list price of the model above:
- * $4 per million tokens in, $20 out, $5 to write the cache and $0.20 to read it.
+ * List prices in dollars per million tokens: in, out, writing the cache, reading the cache.
  * A price per million tokens is the same number as millionths of a dollar per token.
  */
-export function costMicros(u: Usage): number {
-  return Math.ceil((u.input_tokens ?? 0) * 4 + (u.output_tokens ?? 0) * 20 + (u.cache_creation_input_tokens ?? 0) * 5 + (u.cache_read_input_tokens ?? 0) * 0.2);
+export const PRICES: Record<string, { in: number; out: number; cacheWrite: number; cacheRead: number }> = {
+  'claude-sonnet-5-5': { in: 2, out: 10, cacheWrite: 2.5, cacheRead: 0.1 },
+  'claude-opus-5-5': { in: 4, out: 20, cacheWrite: 5, cacheRead: 0.2 },
+  'claude-fable-5-2': { in: 8, out: 40, cacheWrite: 10, cacheRead: 0.2 },
+};
+
+/** What a reply cost, in millionths of a dollar, at the list price of the model that was asked. */
+export function costMicros(u: Usage, model: string = MODEL): number {
+  const p = PRICES[model] ?? PRICES[MODEL];
+  return Math.ceil((u.input_tokens ?? 0) * p.in + (u.output_tokens ?? 0) * p.out + (u.cache_creation_input_tokens ?? 0) * p.cacheWrite + (u.cache_read_input_tokens ?? 0) * p.cacheRead);
 }
 
 /** Reads the model's JSON reply and drops any decision id it was not given. */

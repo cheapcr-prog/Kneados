@@ -50,8 +50,9 @@ describe('the reply', () => {
 
 describe('the daily budget', () => {
   it('prices a reply at the list price', () => {
-    // 3,000 tokens in at $4 per million and 400 out at $20 per million is 2 cents.
-    expect(costMicros({ input_tokens: 3000, output_tokens: 400 })).toBe(20_000);
+    // 3,000 tokens in at $2 per million and 400 out at $10 per million is 1 cent.
+    expect(costMicros({ input_tokens: 3000, output_tokens: 400 })).toBe(10_000);
+    expect(costMicros({ input_tokens: 3000, output_tokens: 400 }, 'claude-fable-5-2')).toBe(40_000);
   });
   it('starts over at midnight in the shop, not in London', () => {
     expect(budgetDay(new Date('2026-11-16T07:30:00Z'))).toBe('2026-11-15');
@@ -64,7 +65,7 @@ describe('/api/ask', () => {
     const e = env();
     const res = await handleAsk(post(good), e, reply('Send the flour order.', ['po:flour']), now);
     expect(await res.json()).toEqual({ text: 'Send the flour order.', decisionIds: ['po:flour'] });
-    expect(await e.USAGE!.get('spend:2026-11-15')).toBe('20000');
+    expect(await e.USAGE!.get('spend:2026-11-15')).toBe('10000');
     expect(await e.USAGE!.get('asks:2026-11-15:1.2.3.4')).toBe('1');
   });
   it('stops for the day once the cap is spent, without calling Claude', async () => {
@@ -96,7 +97,7 @@ describe('/api/ask', () => {
     const e = env();
     const res = await handleAsk(post(good), e, async () => ({ stop_reason: 'refusal', content: [], usage: { input_tokens: 1000, output_tokens: 0 } }), now);
     expect(await res.json()).toEqual({ error: 'refused' });
-    expect(await e.USAGE!.get('spend:2026-11-15')).toBe('4000');
+    expect(await e.USAGE!.get('spend:2026-11-15')).toBe('2000');
   });
   it('reports a failed request without charging the budget', async () => {
     const e = env();

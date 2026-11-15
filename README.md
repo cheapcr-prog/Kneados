@@ -15,7 +15,7 @@ the browser. Nothing is charged, texted, or saved to a server yet.
 | Product page | `/` | What KneadOS is, with links into the demo |
 | Shop website | `/demo/shop` | Menu, cart, pickup and pre-orders, Dough Rewards sign-up |
 | Register | `/demo/register` | PIN login, one-tap items, dozen pricing, tips, rewards, clock in |
-| Kitchen | `/demo/kitchen` | Pickup orders, tomorrow's pre-orders, today's bake list, sold-out switch |
+| Kitchen | `/demo/kitchen` | Bakers' screen: today's bake list, tomorrow's pre-orders, sold-out switch |
 | Owner | `/demo/owner` | Today, tomorrow's bake plan, time clock and tip split, rewards, reports |
 
 The parts that are real, tested logic (in `src/lib`, with tests beside them):

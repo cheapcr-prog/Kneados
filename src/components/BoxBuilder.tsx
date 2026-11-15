@@ -1,7 +1,7 @@
 import { ChevronDown, ChevronUp, Shuffle, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent, ReactNode } from 'react';
-import { MENU, MENU_BY_ID, SHOP } from '../data/shop';
+import { MENU, MENU_BY_ID, SHOP, isDrink } from '../data/shop';
 import { money } from '../lib/money';
 import { BOX_SIZE, boxPrice, isBoxable } from '../lib/pricing';
 import { ItemArt } from './ItemArt';
@@ -160,8 +160,8 @@ export function OrderTray({ box, boxOpen, onOpenBox, onCloseBox, closedBoxes, on
   const [small, setSmall] = useState(false);
   const visible = count > 0 || boxOpen;
   const loose = Object.entries(cart).filter(([, q]) => q > 0).map(([id, q]) => ({ item: MENU_BY_ID[id], qty: q }));
-  const bag = loose.filter((l) => l.item.category !== 'Drinks');
-  const cups = loose.filter((l) => l.item.category === 'Drinks').flatMap((l) => Array<typeof l.item>(l.qty).fill(l.item));
+  const bag = loose.filter((l) => !isDrink(l.item));
+  const cups = loose.filter((l) => isDrink(l.item) && !l.item.addon).flatMap((l) => Array<typeof l.item>(l.qty).fill(l.item));
   const boxHot = drag !== null && (over === 'box' || typeof over === 'number');
 
   return (

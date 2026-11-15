@@ -7,7 +7,7 @@ export function ItemArt({ item, size = 64, shape = 'round' }: { item: MenuItem; 
   if (broken) return <ItemDrawing item={item} size={size} />;
   return (
     <img
-      src={`/menu/${item.id}.webp`}
+      src={`/menu/${item.art ?? item.id}.webp`}
       alt=""
       width={size}
       height={size}
@@ -22,6 +22,24 @@ export function ItemArt({ item, size = 64, shape = 'round' }: { item: MenuItem; 
 
 /** Draws a menu item from its colors. */
 function ItemDrawing({ item, size = 64 }: { item: MenuItem; size?: number }) {
+  if (item.addon) {
+    return (
+      <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden>
+        <circle cx="32" cy="32" r="26" fill="#f1f5f9" />
+        {[[22, 24], [36, 20], [44, 32], [30, 34], [20, 38], [38, 44], [27, 47]].map(([x, y], i) => <circle key={i} cx={x} cy={y} r="6" fill={item.icing} opacity={0.75 + (i % 3) * 0.1} />)}
+      </svg>
+    );
+  }
+  if (item.category === 'Smoothies & boba') {
+    return (
+      <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden>
+        <rect x="35" y="3" width="4" height="26" rx="2" fill="#0f766e" transform="rotate(12 37 16)" />
+        <path d="M16 20h32l-4 35a4 4 0 0 1-4 3.5H24A4 4 0 0 1 20 55z" fill={item.icing} stroke="#cbd5e1" strokeWidth="2" />
+        <path d="M17.5 20h29l-.9 8h-27.2z" fill="#fff" opacity="0.35" />
+        <path d="M13 19a19 10 0 0 1 38 0z" fill="#f8fafc" stroke="#cbd5e1" strokeWidth="2" />
+      </svg>
+    );
+  }
   if (item.category === 'Drinks') {
     return (
       <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden>

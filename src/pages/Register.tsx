@@ -17,7 +17,7 @@ import { hourLabel } from '../lib/smartpricing';
 import { suggestOffers, type Offer } from '../lib/upsell';
 import { DOW_NAMES } from '../lib/dates';
 
-const TABS: (Category | 'All')[] = ['All', 'Classics', 'Filled', 'Specialty', 'Drinks'];
+const TABS: (Category | 'All')[] = ['All', 'Classics', 'Filled', 'Specialty', 'Drinks', 'Smoothies & boba'];
 
 type Stage = 'ticket' | 'tip' | 'gift' | 'done';
 type Pay = 'card' | 'cash' | 'gift';

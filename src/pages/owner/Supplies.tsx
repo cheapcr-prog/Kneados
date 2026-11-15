@@ -3,7 +3,8 @@ import { useMemo, useState } from 'react';
 import { useShopState } from '../../data/local';
 import { MENU } from '../../data/shop';
 import { forecastFor, type Demo } from '../../data/store';
-import { RECIPES, SUPPLIES } from '../../data/supplies';
+import { useRecipes } from '../../components/DrinkBar';
+import { SUPPLIES } from '../../data/supplies';
 import { addDays, DOW_NAMES, dowOf, shortDate } from '../../lib/dates';
 import { money } from '../../lib/money';
 import { delivered, onOrder } from '../../lib/purchasing';
@@ -41,6 +42,7 @@ export function useSupplyPlans(demo: Demo): SupplyPlan[] {
   const { today, orders, tomorrowRain, pos } = demo.state;
   const ordered = useMemo(() => onOrder(pos), [pos]);
   const [counts] = useStockCounts();
+  const { recipes } = useRecipes();
   // A hand count replaces the book number. Deliveries received after the count are added on top.
   const got = useMemo(() => {
     const all = delivered(pos);
@@ -55,9 +57,9 @@ export function useSupplyPlans(demo: Demo): SupplyPlan[] {
     return Array.from({ length: HORIZON }, (_, d) => {
       const date = addDays(today, d);
       const qty = Object.fromEntries(MENU.map((m) => [m.id, forecastFor(demo.history, orders, date, m.id, d === 1 && tomorrowRain).qty]));
-      return supplyUsage(RECIPES, qty);
+      return supplyUsage(recipes, qty);
     });
-  }, [demo.history, orders, today, tomorrowRain]);
+  }, [demo.history, orders, today, tomorrowRain, recipes]);
   return useMemo(() => {
     const rank = { 'order-now': 0, 'order-soon': 1, ok: 2 };
     return SUPPLIES

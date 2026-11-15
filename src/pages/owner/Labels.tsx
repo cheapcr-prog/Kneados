@@ -2,7 +2,7 @@ import { Printer } from 'lucide-react';
 import { useState } from 'react';
 import { ItemArt } from '../../components/ItemArt';
 import { ALLERGENS, NUTRITION } from '../../data/nutrition';
-import { MENU, MENU_BY_ID, SHOP } from '../../data/shop';
+import { MENU, MENU_BY_ID, SHOP, isDrink } from '../../data/shop';
 import type { Demo } from '../../data/store';
 import type { MenuItem } from '../../data/types';
 import { shortDate } from '../../lib/dates';
@@ -58,7 +58,7 @@ function NutritionLabel({ item }: { item: MenuItem }) {
   return (
     <div className="w-[230px] border-2 border-slate-900 bg-white p-2 text-slate-900">
       <p className="font-display text-2xl font-black leading-none">Nutrition Facts</p>
-      <p className="border-b-8 border-slate-900 pb-1 text-[11px]">Serving size 1 {item.category === 'Drinks' ? 'cup' : 'piece'} ({item.name})</p>
+      <p className="border-b-8 border-slate-900 pb-1 text-[11px]">Serving size 1 {item.addon ? 'scoop' : isDrink(item) ? 'cup' : 'piece'} ({item.name})</p>
       <p className="flex items-end justify-between border-b-4 border-slate-900 py-0.5"><span className="text-base font-black">Calories</span><span className="tabular text-3xl font-black leading-none">{f.calories}</span></p>
       {row('Total Fat', `${f.fatG}g`, true)}
       {row('Sodium', `${f.sodiumMg}mg`, true)}

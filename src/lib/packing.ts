@@ -1,3 +1,4 @@
+import { isDrink } from '../data/shop';
 import type { MenuItem, Order } from '../data/types';
 import { boxCounts } from './pricing';
 
@@ -21,7 +22,7 @@ export function packPlan(order: Pick<Order, 'lines' | 'boxes'>, menu: Record<str
   for (const line of order.lines) {
     const rest = line.qty - (boxed.get(line.itemId) ?? 0);
     if (rest <= 0) continue;
-    (menu[line.itemId]?.category === 'Drinks' ? cups : bag).push([line.itemId, rest]);
+    (isDrink(menu[line.itemId]) ? cups : bag).push([line.itemId, rest]);
   }
   return { boxes: (order.boxes ?? []).map(boxCounts), bag, cups };
 }

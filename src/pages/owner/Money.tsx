@@ -2,7 +2,7 @@ import { Download, RefreshCw } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { CARD, OVERHEAD, PAYROLL_TAX_RATE, TARGETS } from '../../data/finance';
 import { useShopState } from '../../data/local';
-import { MENU, MENU_BY_ID, SCHEDULE, STAFF_BY_ID, shiftHours } from '../../data/shop';
+import { MENU, MENU_BY_ID, SCHEDULE, STAFF_BY_ID, isDrink, shiftHours } from '../../data/shop';
 import type { Demo } from '../../data/store';
 import { PURCHASED, RECIPES, SUPPLIES } from '../../data/supplies';
 import type { DayHistory } from '../../data/types';
@@ -117,7 +117,7 @@ function daySales(h: DayHistory): DaySales {
   let drink = 0, taxable = 0;
   for (const m of MENU) {
     const sold = h.items[m.id]?.sold ?? 0;
-    if (m.category === 'Drinks') drink += sold * m.price;
+    if (isDrink(m)) drink += sold * m.price;
     if (m.taxable) taxable += sold * m.price;
   }
   const tax = Math.round(taxable * DEMO_TAX_RATE);

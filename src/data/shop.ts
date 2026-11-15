@@ -56,7 +56,20 @@ export const MENU: MenuItem[] = [
   d('coffee', 'Hot Coffee', 'Drinks', 250, undefined, 120, '#3b2a1e', '#f8fafc', 'Fresh pot every 30 minutes.', [], { baked: false, taxable: true }),
   d('icedcoffee', 'Iced Coffee', 'Drinks', 395, undefined, 60, '#8a6242', '#f8fafc', 'Cold, sweet, strong.', ['Milk'], { baked: false, taxable: true }),
   d('milk', 'Milk', 'Drinks', 225, undefined, 25, '#ffffff', '#f8fafc', 'Whole or chocolate.', ['Milk'], { baked: false, taxable: false }),
+  // Blended to order from a bought-in mix. Prices are examples.
+  d('smoothie-straw', 'Strawberry Smoothie 16 oz', 'Smoothies & boba', 595, undefined, 12, '#f0627e', '#f8fafc', 'Strawberry fruit mix blended with ice.', [], { baked: false, size: '16 oz' }),
+  d('smoothie-straw-lg', 'Strawberry Smoothie 24 oz', 'Smoothies & boba', 745, undefined, 5, '#f0627e', '#f8fafc', 'Strawberry fruit mix blended with ice.', [], { baked: false, size: '24 oz', art: 'smoothie-straw' }),
+  d('smoothie-mango', 'Mango Smoothie 16 oz', 'Smoothies & boba', 595, undefined, 9, '#f7a92b', '#f8fafc', 'Mango fruit mix blended with ice.', [], { baked: false, size: '16 oz' }),
+  d('smoothie-mango-lg', 'Mango Smoothie 24 oz', 'Smoothies & boba', 745, undefined, 4, '#f7a92b', '#f8fafc', 'Mango fruit mix blended with ice.', [], { baked: false, size: '24 oz', art: 'smoothie-mango' }),
+  d('smoothie-taro', 'Taro Smoothie 16 oz', 'Smoothies & boba', 625, undefined, 8, '#b79ad6', '#f8fafc', 'Creamy purple taro, blended thick.', ['Milk'], { baked: false, size: '16 oz' }),
+  d('smoothie-taro-lg', 'Taro Smoothie 24 oz', 'Smoothies & boba', 775, undefined, 3, '#b79ad6', '#f8fafc', 'Creamy purple taro, blended thick.', ['Milk'], { baked: false, size: '24 oz', art: 'smoothie-taro' }),
+  d('addon-boba', 'Add Boba', 'Smoothies & boba', 75, undefined, 10, '#2b1d14', '#f8fafc', 'A scoop of chewy tapioca pearls in your drink.', [], { baked: false, addon: true }),
+  d('addon-popping', 'Add Popping Boba', 'Smoothies & boba', 100, undefined, 5, '#e8456b', '#f8fafc', 'A scoop of strawberry boba that bursts.', [], { baked: false, addon: true }),
+  d('addon-jelly', 'Add Fruit Jelly', 'Smoothies & boba', 100, undefined, 3, '#f6b6c4', '#f8fafc', 'A scoop of strawberry jelly cubes.', [], { baked: false, addon: true }),
 ];
+
+/** Anything that goes out in a cup, including the toppings that go into one. */
+export const isDrink = (m: Pick<MenuItem, 'category'> | undefined) => m?.category === 'Drinks' || m?.category === 'Smoothies & boba';
 
 export const MENU_BY_ID: Record<string, MenuItem> = Object.fromEntries(MENU.map((m) => [m.id, m]));
 

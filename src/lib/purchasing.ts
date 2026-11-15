@@ -16,6 +16,8 @@ export interface Supplier {
   autoSend: boolean;
   /** A store the shop picks up from, so the order is a shopping list, not an email. */
   pickup?: boolean;
+  /** The supplier's online store, when orders are placed there and not by email. */
+  web?: string;
 }
 
 export interface POLine {
@@ -88,7 +90,7 @@ export function draftPO(supplier: Supplier, plans: SupplyPlan[], today: string):
   const lead = Math.max(...due.map((p) => p.supply.leadDays));
   return {
     id: `po-${today}-${supplier.name}-${lines.map((l) => l.supplyId).join('+')}`,
-    supplier: supplier.name, to: supplier.email, lines, totalCents: total, date: today,
+    supplier: supplier.name, to: supplier.email || supplier.web || '', lines, totalCents: total, date: today,
     expected: nextDelivery(supplier, addDays(today, lead)),
     status: 'draft', auto: false, belowMinimum: total < supplier.minOrderCents,
   };

@@ -15,6 +15,8 @@ export interface Supply {
   onHand: number;
   /** How many days one order should last. Short for things that spoil, like milk. Defaults to COVER_DAYS. */
   coverDays?: number;
+  /** The real product this is, when it was looked up on the supplier's own listing. */
+  product?: { brand: string; url: string; checked: string; note: string };
 }
 
 /** Keep this many days of stock as a cushion, so a busy day or a late truck does not empty the shelf. */

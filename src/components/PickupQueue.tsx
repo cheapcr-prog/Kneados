@@ -25,7 +25,7 @@ const STATUS: Record<OrderStatus, { label: string; card: string; pill: string }>
   done: { label: 'Picked up', card: 'border-slate-200 bg-slate-50 opacity-60', pill: 'bg-slate-200 text-slate-600' },
 };
 
-/** Today's online pickup orders, soonest first. Open ones come before the ones already picked up. */
+/** Today's orders to pack: online pickups, delivery app orders, wholesale and catering. Soonest first. Open ones come before the ones already picked up. */
 export function useTodaysPickups(): { open: Order[]; finished: Order[] } {
   const demo = useDemo();
   const todays = demo.state.orders
@@ -62,6 +62,14 @@ export function useWorkload(): Workload {
   const onClock = STAFF.filter((s) => demo.state.clock[s.id]?.inAt && demo.breakOf(s.id)?.state !== 'on-break');
   return planWorkload(open, onClock, MENU_BY_ID, new Date());
 }
+
+const CHANNEL: Record<NonNullable<Order['channel']>, { label: string; color: string; when: string; note: string }> = {
+  doordash: { label: 'DoorDash', color: '#ef4444', when: 'Driver at', note: 'DoorDash tells the driver the moment this is marked packed.' },
+  ubereats: { label: 'Uber Eats', color: '#16a34a', when: 'Driver at', note: 'Uber Eats tells the driver the moment this is marked packed.' },
+  grubhub: { label: 'Grubhub', color: '#f97316', when: 'Driver at', note: 'Grubhub tells the driver the moment this is marked packed.' },
+  wholesale: { label: 'Wholesale', color: '#0f172a', when: 'Ready by', note: 'Standing order. It goes on this account\'s weekly invoice.' },
+  catering: { label: 'Catering', color: '#7c3aed', when: 'Pickup', note: 'Catering order. It goes on an invoice.' },
+};
 
 const minutesOf = (sec: number) => `${Math.max(1, Math.round(sec / 60))} min`;
 
@@ -108,7 +116,7 @@ export function PickupQueue({ me }: { me?: string }) {
       )}
       {open.length === 0 && (
         <p className="rounded-2xl border border-slate-200 bg-white p-6 text-center text-sm text-slate-500">
-          No pickup orders to pack. New online orders show up here the moment they're placed.
+          No pickup orders to pack. New online and delivery orders show up here the moment they're placed.
         </p>
       )}
       {[...ordered.map((x) => x.o), ...finished].map((o) => {
@@ -116,19 +124,21 @@ export function PickupQueue({ me }: { me?: string }) {
         const job = plans[o.id];
         const packer = job?.staffId ? STAFF_BY_ID[job.staffId] : undefined;
         const plan = packPlan(o, MENU_BY_ID);
+        const ch = o.channel ? CHANNEL[o.channel] : undefined;
         const minutes = Math.round((new Date(o.pickupAt!).getTime() - Date.now()) / 60_000);
         return (
           <article key={o.id} className={`rounded-2xl border-l-4 p-3.5 ${STATUS[o.status].card}`}>
             <div className="flex items-start justify-between gap-3">
               <div>
                 <p className="font-display text-lg font-bold leading-tight text-slate-900">#{o.number} · {o.customerName}</p>
+                {ch && <span className="mt-1 inline-block rounded-full px-2 py-0.5 text-[11px] font-bold text-white" style={{ background: ch.color }}>{ch.label}</span>}
                 <p className="text-sm text-slate-600">
-                  Pickup {timeLabel(o.pickupAt!)}
+                  {ch?.when ?? 'Pickup'} {timeLabel(o.pickupAt!)}
                   {o.status !== 'done' && <span className={minutes < 15 ? 'font-semibold text-amber-700' : 'text-slate-500'}> · {minutes >= 0 ? `in ${minutes} min` : `${-minutes} min late`}</span>}
                   {o.phone && <span className="text-slate-400"> · {formatPhone(o.phone)}</span>}
                 </p>
               </div>
-              <span className={`rounded-full px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider ${STATUS[o.status].pill}`}>{STATUS[o.status].label}</span>
+              <span className={`rounded-full px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider ${STATUS[o.status].pill}`}>{o.status === 'done' && ch ? (ch.when === 'Driver at' ? 'With driver' : o.channel === 'wholesale' ? 'Delivered' : STATUS.done.label) : STATUS[o.status].label}</span>
             </div>
             {job && o.status !== 'ready' && (
               <p className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
@@ -150,12 +160,12 @@ export function PickupQueue({ me }: { me?: string }) {
             {(() => {
               const sent = demo.state.texts.find((t) => t.orderId === o.id && t.kind === 'ready');
               if (sent) return <p className="mt-2.5 flex items-center gap-1.5 text-xs font-semibold text-emerald-700"><MessageSquareText size={13} /> Texted {formatPhone(sent.to)} at {timeLabel(sent.at)}: ready for pickup</p>;
-              if (o.status !== 'ready' && o.status !== 'done') return <p className="mt-2.5 flex items-center gap-1.5 text-xs text-slate-500"><MessageSquareText size={13} /> {o.phone ? 'The customer gets a text the moment this is marked packed.' : 'No phone number, so no text for this one.'}</p>;
+              if (o.status !== 'ready' && o.status !== 'done') return <p className="mt-2.5 flex items-center gap-1.5 text-xs text-slate-500"><MessageSquareText size={13} /> {ch ? ch.note : o.phone ? 'The customer gets a text the moment this is marked packed.' : 'No phone number, so no text for this one.'}</p>;
               return null;
             })()}
             {next && (
               <button onClick={() => demo.setStatus(o.id, next.to)} className="mt-3 w-full rounded-xl bg-ink-900 py-3 text-sm font-bold text-white active:bg-ink-700">
-                {next.label}
+                {next.to === 'done' && ch ? (ch.when === 'Driver at' ? 'Handed to driver' : o.channel === 'wholesale' ? 'Out for delivery' : next.label) : next.label}
               </button>
             )}
           </article>

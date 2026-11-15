@@ -11,6 +11,7 @@ import { explainForecast } from '../lib/forecast';
 import { formatPhone, money, moneyShort } from '../lib/money';
 import { PUNCHES_PER_REWARD } from '../lib/rewards';
 import { isTipEligible, splitTipPool } from '../lib/tips';
+import { DeliveryApps, GiftCards, Wholesale } from './owner/Channels';
 import { Equipment, ShopTasks } from './owner/Equipment';
 import { Labels } from './owner/Labels';
 import { Payroll } from './owner/Payroll';
@@ -23,7 +24,8 @@ const NAV = [
   { group: 'Shop', tabs: ['Today', 'Tasks', 'Equipment'] },
   { group: 'Kitchen', tabs: ['Bake plan', 'Waste', 'Supplies', 'Labels'] },
   { group: 'Team', tabs: ['Staff & tips', 'Schedule', 'Payroll'] },
-  { group: 'Customers', tabs: ['Rewards'] },
+  { group: 'Customers', tabs: ['Rewards', 'Gift cards'] },
+  { group: 'Sales channels', tabs: ['Delivery apps', 'Wholesale'] },
   { group: 'Money', tabs: ['Reports'] },
 ] as const;
 type Tab = (typeof NAV)[number]['tabs'][number];
@@ -79,6 +81,9 @@ export function Owner() {
         {tab === 'Supplies' && <Supplies demo={demo} plans={supplyPlans} />}
         {tab === 'Staff & tips' && <StaffTips demo={demo} />}
         {tab === 'Rewards' && <Rewards demo={demo} />}
+        {tab === 'Gift cards' && <GiftCards demo={demo} />}
+        {tab === 'Delivery apps' && <DeliveryApps demo={demo} />}
+        {tab === 'Wholesale' && <Wholesale demo={demo} />}
         {tab === 'Waste' && <Waste demo={demo} />}
         {tab === 'Labels' && <Labels demo={demo} />}
         {tab === 'Tasks' && <ShopTasks />}

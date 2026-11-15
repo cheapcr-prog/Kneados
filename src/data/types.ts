@@ -72,8 +72,15 @@ export interface Order {
   tax: number;
   tip: number;
   total: number;
-  payment: 'card' | 'cash' | 'online';
+  /** `app` is paid through a delivery app, `invoice` goes on a wholesale or catering invoice. */
+  payment: 'card' | 'cash' | 'online' | 'gift' | 'invoice' | 'app';
   status: OrderStatus;
+  /** Set when the order did not come from the counter or the shop's own site. */
+  channel?: 'doordash' | 'ubereats' | 'grubhub' | 'wholesale' | 'catering';
+  /** Commission the delivery app keeps, in cents. */
+  feeCents?: number;
+  /** Part of the total paid with a gift card, in cents. */
+  giftCents?: number;
   rewardRedeemed?: boolean;
   /** Mixed dozen boxes the customer built online. Their donuts are already counted in `lines`. */
   boxes?: string[][];

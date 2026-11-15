@@ -4,6 +4,8 @@ import { Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis
 import { BreakPlanCard, TONE, breakSummary, tracksBreaks, useTick } from '../components/Breaks';
 import { ItemArt } from '../components/ItemArt';
 import { useUpkeep } from '../components/Upkeep';
+import { useWeather } from '../components/Weather';
+import { describeWeather } from '../lib/weather';
 import { MENU, MENU_BY_ID, SCHEDULE, SHOP, STAFF, STAFF_BY_ID, shiftHours } from '../data/shop';
 import { useDemo, type Demo } from '../data/store';
 import { DOW_NAMES, DOW_SHORT, dowOf, holidayFor, longDate, shortDate, timeLabel } from '../lib/dates';
@@ -39,6 +41,7 @@ const SLATE = '#cbd5e1';
 export function Owner() {
   const demo = useDemo();
   const [tab, setTab] = useState<Tab>('Today');
+  const weather = useWeather();
   const supplyPlans = useSupplyPlans(demo);
   useAutoPurchasing(demo, supplyPlans);
   const toOrder = supplyPlans.filter((p) => p.status === 'order-now').length;
@@ -79,7 +82,7 @@ export function Owner() {
         </nav>
         <div className="min-w-0 flex-1">
         {tab === 'Today' && <Today demo={demo} />}
-        {tab === 'Bake plan' && <BakePlan demo={demo} />}
+        {tab === 'Bake plan' && <BakePlan demo={demo} weather={weather} />}
         {tab === 'Supplies' && <Supplies demo={demo} plans={supplyPlans} />}
         {tab === 'Staff & tips' && <StaffTips demo={demo} />}
         {tab === 'Rewards' && <Rewards demo={demo} />}
@@ -98,6 +101,37 @@ export function Owner() {
         {tab === 'Reports' && <Reports demo={demo} />}
         </div>
       </div>
+    </div>
+  );
+}
+
+type Weather = ReturnType<typeof useWeather>;
+
+/** Tomorrow's weather as KneadOS read it, with a way for the owner to overrule it. */
+function WeatherChip({ rain, weather }: { rain: boolean; weather: Weather }) {
+  const [open, setOpen] = useState(false);
+  const { forecast, failed, override } = weather;
+  const pick = (v?: 'clear' | 'rain') => { weather.setOverride(v); setOpen(false); };
+  const opt = (on: boolean) => `rounded-lg px-2.5 py-1 text-xs font-semibold ${on ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500'}`;
+  return (
+    <div className="max-w-xs text-right">
+      <p className="flex items-center justify-end gap-1.5 text-sm font-semibold text-slate-900">
+        {rain ? <CloudRain size={16} className="text-sky-600" /> : <Sun size={16} className="text-amber-500" />}
+        {override ? `Set by you: ${rain ? 'rain' : 'clear'}` : forecast ? describeWeather(forecast) : failed ? 'Forecast not available' : 'Checking the forecast'}
+      </p>
+      <p className="text-xs text-slate-500">
+        {override ? (forecast ? `The forecast says: ${describeWeather(forecast).toLowerCase()}.` : 'Your call is used for the plan.')
+          : forecast ? `Live forecast for ${SHOP.city}. ${rain ? 'The plan is cut back for rain.' : 'No rain change to the plan.'}`
+          : failed ? 'The plan assumes a clear day until it can be read.' : 'Reading tomorrow for ' + SHOP.city + '.'}{' '}
+        <button onClick={() => setOpen(!open)} className="font-semibold text-glaze-700 underline">Change</button>
+      </p>
+      {open && (
+        <div className="mt-1.5 inline-flex items-center gap-1 rounded-xl bg-slate-100 p-1">
+          <button onClick={() => pick(undefined)} className={opt(!override)}>Use forecast</button>
+          <button onClick={() => pick('clear')} className={opt(override === 'clear')}>Clear</button>
+          <button onClick={() => pick('rain')} className={opt(override === 'rain')}>Rain</button>
+        </div>
+      )}
     </div>
   );
 }
@@ -208,7 +242,7 @@ function Today({ demo }: { demo: Demo }) {
   );
 }
 
-function BakePlan({ demo }: { demo: Demo }) {
+function BakePlan({ demo, weather }: { demo: Demo; weather: Weather }) {
   const { tomorrow, state } = demo;
   const dow = dowOf(tomorrow);
   const holiday = holidayFor(tomorrow);
@@ -237,13 +271,10 @@ function BakePlan({ demo }: { demo: Demo }) {
           <div>
             <h2 className="font-display text-lg font-bold tracking-tight">Tomorrow's bake plan</h2>
             <p className="text-xs text-slate-500">
-              Built from your last 8 {DOW_NAMES[dow]}s, pre-orders on the books{holiday ? `, and ${holiday.name}` : ''}. Last {DOW_NAMES[dow]} you made {usualTotal}.
+              Built from your last 8 {DOW_NAMES[dow]}s, tomorrow's weather, pre-orders on the books{holiday ? `, and ${holiday.name}` : ''}. Last {DOW_NAMES[dow]} you made {usualTotal}.
             </p>
           </div>
-          <div className="flex items-center gap-1 rounded-xl bg-slate-100 p-1 text-sm font-semibold">
-            <button onClick={() => demo.setRain(false)} className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 ${!state.tomorrowRain ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500'}`}><Sun size={15} /> Clear</button>
-            <button onClick={() => demo.setRain(true)} className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 ${state.tomorrowRain ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500'}`}><CloudRain size={15} /> Rain</button>
-          </div>
+          <WeatherChip rain={state.tomorrowRain} weather={weather} />
         </div>
         <div className="mt-3 divide-y divide-slate-100">
           {rows.map(({ item, f, usual }) => {

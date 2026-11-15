@@ -14,6 +14,8 @@ import { isTipEligible, splitTipPool } from '../lib/tips';
 import { DeliveryApps, GiftCards, Wholesale } from './owner/Channels';
 import { Equipment, ShopTasks } from './owner/Equipment';
 import { Labels } from './owner/Labels';
+import { Locations } from './owner/Locations';
+import { Accounting, ProfitLoss } from './owner/Money';
 import { Payroll } from './owner/Payroll';
 import { Waste } from './owner/Waste';
 import { Schedule } from './owner/Schedule';
@@ -21,12 +23,12 @@ import { Supplies, useAutoPurchasing, useSupplyPlans } from './owner/Supplies';
 
 /** The owner's screens, grouped the way an owner thinks about the shop. */
 const NAV = [
-  { group: 'Shop', tabs: ['Today', 'Tasks', 'Equipment'] },
+  { group: 'Shop', tabs: ['Today', 'Locations', 'Tasks', 'Equipment'] },
   { group: 'Kitchen', tabs: ['Bake plan', 'Waste', 'Supplies', 'Labels'] },
   { group: 'Team', tabs: ['Staff & tips', 'Schedule', 'Payroll'] },
   { group: 'Customers', tabs: ['Rewards', 'Gift cards'] },
   { group: 'Sales channels', tabs: ['Delivery apps', 'Wholesale'] },
-  { group: 'Money', tabs: ['Reports'] },
+  { group: 'Money', tabs: ['Reports', 'Profit & loss', 'Accounting'] },
 ] as const;
 type Tab = (typeof NAV)[number]['tabs'][number];
 const TABS: Tab[] = NAV.flatMap((n) => [...n.tabs]);
@@ -90,6 +92,9 @@ export function Owner() {
         {tab === 'Equipment' && <Equipment />}
         {tab === 'Schedule' && <Schedule demo={demo} />}
         {tab === 'Payroll' && <Payroll demo={demo} />}
+        {tab === 'Locations' && <Locations demo={demo} alerts={toOrder + upkeep.overdue.length + upkeep.openRepairs.length} />}
+        {tab === 'Profit & loss' && <ProfitLoss demo={demo} />}
+        {tab === 'Accounting' && <Accounting demo={demo} />}
         {tab === 'Reports' && <Reports demo={demo} />}
         </div>
       </div>

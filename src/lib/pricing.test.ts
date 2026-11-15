@@ -1,0 +1,36 @@
+import { describe, expect, it } from 'vitest';
+import { MENU_BY_ID } from '../data/shop';
+import { linePrice, rewardDiscount, totals } from './pricing';
+
+describe('pricing', () => {
+  const glazed = MENU_BY_ID.glazed;
+
+  it('charges the dozen price for every full dozen and singles for the rest', () => {
+    expect(linePrice(glazed, 1)).toBe(175);
+    expect(linePrice(glazed, 12)).toBe(1800);
+    expect(linePrice(glazed, 14)).toBe(1800 + 2 * 175);
+    expect(linePrice(glazed, 24)).toBe(3600);
+    expect(linePrice(MENU_BY_ID.fritter, 12)).toBe(12 * 350);
+  });
+
+  it('taxes only taxable items', () => {
+    const lines = [
+      { itemId: 'glazed', qty: 12, lineCents: 1800 },
+      { itemId: 'coffee', qty: 2, lineCents: 500 },
+    ];
+    const t = totals(lines, MENU_BY_ID);
+    expect(t.subtotal).toBe(2300);
+    expect(t.tax).toBe(51);
+    expect(t.total).toBe(2351);
+  });
+
+  it('never discounts below zero and covers the cheapest donut', () => {
+    const lines = [
+      { itemId: 'custard', qty: 1, lineCents: 275 },
+      { itemId: 'glazed', qty: 1, lineCents: 175 },
+    ];
+    expect(rewardDiscount(lines, MENU_BY_ID)).toBe(175);
+    expect(rewardDiscount([{ itemId: 'coffee', qty: 1, lineCents: 250 }], MENU_BY_ID)).toBe(0);
+    expect(totals([{ itemId: 'glazed', qty: 1, lineCents: 175 }], MENU_BY_ID, 999).total).toBe(0);
+  });
+});

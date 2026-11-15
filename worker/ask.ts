@@ -93,6 +93,8 @@ export const PRICES: Record<string, { in: number; out: number; cacheWrite: numbe
   'claude-sonnet-5-5': { in: 2, out: 10, cacheWrite: 2.5, cacheRead: 0.1 },
   'claude-opus-5-5': { in: 4, out: 20, cacheWrite: 5, cacheRead: 0.2 },
   'claude-fable-5-2': { in: 8, out: 40, cacheWrite: 10, cacheRead: 0.2 },
+  // Draft requests are not cached, so the two cache prices are never used. They are set to the input price to stay on the safe side.
+  'claude-haiku-5-5': { in: 0.1, out: 0.5, cacheWrite: 0.1, cacheRead: 0.1 },
 };
 
 /** What a reply cost, in millionths of a dollar, at the list price of the model that was asked. */

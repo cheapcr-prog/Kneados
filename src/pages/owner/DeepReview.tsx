@@ -80,9 +80,10 @@ export function DeepReview(props: Sources) {
     const r2 = (n: number) => Math.round(n * 100) / 100;
     const last8 = history.slice(-56);
     return {
+      snapshot: { takenAt: new Date().toLocaleString('en-US', { weekday: 'long', hour: 'numeric', minute: '2-digit' }), note: 'Figures for today cover the day so far, not a full day. Drinks are made to order, so they have no sold-out days.' },
       menuLast28Days: rows.map((r) => ({
         item: MENU_BY_ID[r.itemId]?.name ?? r.itemId, category: MENU_BY_ID[r.itemId]?.category, priceCents: r.price, ingredientCostCents: Math.round(r.cost), soldPerDay: r2(r.soldPerDay),
-        marginAfterIngredients: r2(r.margin), unsoldShareOfMade: r2(r.wasteRate), unsoldCostPerDayCents: Math.round(r.wastePerDayCents), profitPerDayAfterKitchenTimeCents: Math.round(r.profitPerDayCents), daysSoldOut: r.soldOutDays, verdict: r.verdict,
+        marginAfterIngredients: r2(r.margin), unsoldShareOfMade: r2(r.wasteRate), unsoldCostPerDayCents: Math.round(r.wastePerDayCents), profitPerDayAfterKitchenTimeCents: Math.round(r.profitPerDayCents), daysSoldOut: MENU_BY_ID[r.itemId]?.baked ? r.soldOutDays : undefined, verdict: r.verdict,
       })),
       profitAndLossLast30Days: {
         salesCents: Math.round(p.sales), foodAndPackagingCents: Math.round(p.foodCost), ofWhichNeverSoldCents: Math.round(p.wasteCost), wagesCents: Math.round(p.wages), payrollTaxCents: Math.round(p.payrollTax),

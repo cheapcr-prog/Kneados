@@ -1,6 +1,8 @@
 import { Check, MessageCircle, Send, Sparkles, X } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { FALLBACK_NOTE, askServer, useClaudeReady } from '../../components/Ask';
+import { useCampaigns } from '../../components/Campaigns';
+import type { CampaignKind } from '../../lib/campaigns';
 import { adviceText, useBreakAdvice, useTick } from '../../components/Breaks';
 import { useDeliverySettings, useGiftCards, useInvoices } from '../../components/Channels';
 import { usePricing } from '../../components/Pricing';
@@ -49,6 +51,7 @@ export function useShopFacts({ demo, plans, upkeep, weather, alerts }: Sources) 
   const locs = useLocations(demo, alerts);
   const pricing = usePricing();
   const insights = useMenuInsights(demo);
+  const campaigns = useCampaigns();
   const [shifts] = useShopState<Shift[]>('schedule', () => SCHEDULE.map((s) => ({ ...s })));
   const cost = useMemo(() => menuCosts(MENU.map((m) => m.id), RECIPES, SUPPLIES, PURCHASED), []);
   const baked = MENU.filter((m) => m.baked);
@@ -137,6 +140,10 @@ export function useShopFacts({ demo, plans, upkeep, weather, alerts }: Sources) 
       count: locs.locations.length, transfers: locs.open.map((t) => ({ qty: t.qty, item: MENU_BY_ID[t.itemId].name, from: locs.name(t.from), to: locs.name(t.to) })),
       transferCents: locs.open.reduce((a, t) => a + t.qty * MENU_BY_ID[t.itemId].price, 0),
     },
+    customers: {
+      members: demo.state.members.length, sentLast30Days: campaigns.sentThisMonth,
+      texts: campaigns.campaigns.map((c) => ({ kind: c.kind, title: c.short, due: c.problems.length === 0 ? c.recipients.length : 0, names: c.recipients.map((r) => r.member.name), auto: c.auto, offer: c.offer })),
+    },
     pricing: {
       markdownOn: pricing.rules.markdown.on, markdownPct: pricing.rules.markdown.pct, startsAt: hourLabel(pricing.rules.markdown.fromHour),
       // Worth raising from two hours before the markdown would start until the doors close.
@@ -158,6 +165,8 @@ export function useShopFacts({ demo, plans, upkeep, weather, alerts }: Sources) 
       for (const r of upkeep.openRepairs.filter((x) => x.status === 'open')) upkeep.updateRepair(r.id, { status: 'scheduled', visit: tomorrow });
     } else if (d.id === 'transfers') {
       locs.send(locs.open.map(locs.key));
+    } else if (d.id.startsWith('texts:')) {
+      campaigns.send(d.id.slice(6) as CampaignKind);
     } else if (d.id === 'markdown') {
       pricing.setRules((r) => ({ ...r, markdown: { ...r.markdown, on: true } }));
     } else if (d.id === 'markup') {

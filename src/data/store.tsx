@@ -10,10 +10,10 @@ import { buildHistory, buildPreorders, buildTodayOrders } from './history';
 import { buildChannelOrders } from './channels';
 import { clearShopState } from './local';
 import { SUPPLIERS } from './suppliers';
-import { MENU, SCHEDULE, SEED_MEMBERS, SHOP, STAFF, shiftHours } from './shop';
+import { MENU, SCHEDULE, SHOP, STAFF, seedMembers, shiftHours } from './shop';
 import type { BakeProgress, DayHistory, Order, OrderStatus, RewardsMember } from './types';
 
-const STORAGE_KEY = 'kneados-demo-v5';
+const STORAGE_KEY = 'kneados-demo-v6';
 
 interface ClockState {
   /** ISO time the person clocked in, when they are on the clock. */
@@ -30,7 +30,7 @@ export interface SentText {
   at: string;
   /** Set on texts about a pickup order. */
   orderId?: string;
-  kind?: 'reward' | 'received' | 'ready';
+  kind?: 'reward' | 'received' | 'ready' | 'campaign';
 }
 
 interface DemoState {
@@ -58,6 +58,7 @@ type Action =
   | { type: 'bumpMade'; itemId: string; delta: number }
   | { type: 'toggleSoldOut'; itemId: string }
   | { type: 'setMembers'; members: RewardsMember[]; text?: SentText }
+  | { type: 'addTexts'; texts: SentText[] }
   | { type: 'clock'; staffId: string; now: string }
   | { type: 'break'; staffId: string; now: string; kind?: BreakKind }
   | { type: 'savePO'; po: PurchaseOrder }
@@ -82,6 +83,8 @@ function reducer(state: DemoState, a: Action): DemoState {
       const cur = state.bake[a.itemId] ?? { made: 0, soldOut: false };
       return { ...state, bake: { ...state.bake, [a.itemId]: { ...cur, soldOut: !cur.soldOut } } };
     }
+    case 'addTexts':
+      return { ...state, texts: [...a.texts, ...state.texts] };
     case 'setMembers':
       return { ...state, members: a.members, texts: a.text ? [a.text, ...state.texts] : state.texts };
     case 'clock': {
@@ -183,7 +186,7 @@ function freshState(now: Date): DemoState {
     if (now >= end) clock[s.staffId] = { hours: (end.getTime() - start.getTime()) / 3600_000 - unpaidHours(breaks, end), breaks };
     else clock[s.staffId] = { inAt: start.toISOString(), hours: 0, breaks };
   }
-  return { today, orders, nextNumber: 1001, bake, members: SEED_MEMBERS, clock, texts: [], tomorrowRain: false, tippingEnabled: SHOP.tippingEnabled, pos: [], nextPo: 1001, suppliers: {} };
+  return { today, orders, nextNumber: 1001, bake, members: seedMembers(today), clock, texts: [], tomorrowRain: false, tippingEnabled: SHOP.tippingEnabled, pos: [], nextPo: 1001, suppliers: {} };
 }
 
 function load(now: Date): DemoState {
@@ -224,6 +227,10 @@ export interface Demo {
   joinRewards: (phone: string, name: string) => RewardsMember;
   punchVisit: (phone: string, name?: string) => { earnedReward: boolean };
   redeem: (phone: string) => void;
+  /** Adds a free donut to each of these members' cards. */
+  giveFreeDonut: (phones: string[]) => void;
+  /** Records texts as sent. In the demo they are shown, not sent. */
+  sendTexts: (texts: { to: string; body: string }[]) => void;
   clockToggle: (staffId: string) => void;
   /** Supplier profiles with the owner's edits applied. */
   suppliers: Supplier[];
@@ -315,7 +322,7 @@ export function DemoProvider({ children }: { children: ReactNode }) {
         const digits = phone.replace(/\D/g, '');
         const known = findMember(digits);
         const current = known ?? { phone: digits, name: name || 'Guest', punches: 0, rewards: 0, visits: 0, joined: state.today };
-        const { member, earnedReward } = addVisit(current);
+        const { member, earnedReward } = addVisit({ ...current, lastVisit: state.today });
         const others = state.members.filter((m) => m.phone !== digits);
         const at = new Date().toISOString();
         const text = earnedReward
@@ -323,6 +330,14 @@ export function DemoProvider({ children }: { children: ReactNode }) {
           : !known ? { to: digits, body: welcomeText(SHOP.name, `kneados.app/demo/shop/card/${cardCode(digits)}`), at } : undefined;
         dispatch({ type: 'setMembers', members: [...others, member], text });
         return { earnedReward };
+      },
+      giveFreeDonut: (phones) => {
+        const set = new Set(phones.map((p) => p.replace(/\D/g, '')));
+        dispatch({ type: 'setMembers', members: state.members.map((m) => (set.has(m.phone) ? { ...m, rewards: m.rewards + 1 } : m)) });
+      },
+      sendTexts: (texts) => {
+        const at = new Date().toISOString();
+        dispatch({ type: 'addTexts', texts: texts.map((t) => ({ to: t.to.replace(/\D/g, ''), body: t.body, at, kind: 'campaign' as const })) });
       },
       redeem: (phone) => {
         const digits = phone.replace(/\D/g, '');

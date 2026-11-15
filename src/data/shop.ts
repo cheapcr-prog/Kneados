@@ -102,11 +102,35 @@ export function shiftHours(s: Shift): number {
   return eh + em / 60 - (sh + sm / 60);
 }
 
-export const SEED_MEMBERS: RewardsMember[] = [
-  { phone: '5625550101', name: 'Carla V.', punches: 9, rewards: 0, visits: 29, joined: '2026-08-02' },
-  { phone: '5625550102', name: 'Tom H.', punches: 4, rewards: 1, visits: 14, joined: '2026-09-11' },
-  { phone: '5625550103', name: 'Priya S.', punches: 7, rewards: 0, visits: 7, joined: '2026-10-05' },
-  { phone: '5625550104', name: 'Marcus L.', punches: 2, rewards: 2, visits: 42, joined: '2026-07-19' },
-  { phone: '5625550105', name: 'Office: Harbor Dental', punches: 6, rewards: 0, visits: 16, joined: '2026-09-28' },
-  { phone: '5625550106', name: 'Elena G.', punches: 1, rewards: 0, visits: 1, joined: '2026-11-08' },
+/** [phone, name, punches, free donuts, visits, joined, days since last visit, days until birthday, favorite] */
+const MEMBER_ROWS: [string, string, number, number, number, string, number, number | null, string][] = [
+  ['5625550101', 'Carla V.', 9, 0, 29, '2026-08-02', 2, 140, 'glazed'],
+  ['5625550102', 'Tom H.', 4, 1, 14, '2026-09-11', 5, 3, 'fritter'],
+  ['5625550103', 'Priya S.', 7, 0, 7, '2026-10-05', 1, null, 'sprinkle'],
+  ['5625550104', 'Marcus L.', 2, 2, 42, '2026-07-19', 0, 211, 'maple'],
+  ['5625550105', 'Office: Harbor Dental', 6, 0, 16, '2026-09-28', 6, null, 'glazed'],
+  ['5625550106', 'Elena G.', 1, 0, 1, '2026-11-08', 7, 60, 'custard'],
+  ['5625550107', 'Dee R.', 5, 0, 25, '2026-06-14', 26, 96, 'oldfashioned'],
+  ['5625550108', 'Sam O.', 8, 1, 18, '2026-07-30', 34, 5, 'chocolate'],
+  ['5625550109', 'Nina P.', 3, 0, 13, '2026-08-21', 41, null, 'fritter'],
+  ['5625550110', 'Coach Reyes', 6, 0, 36, '2026-05-03', 23, 300, 'glazed'],
+  ['5625550111', 'Luis A.', 0, 1, 10, '2026-09-02', 58, 12, 'cinnamon'],
+  ['5625550112', 'Jordan K.', 2, 0, 22, '2026-06-25', 0, 1, 'sprinkle'],
+  ['5625550113', 'Bea T.', 4, 0, 4, '2026-10-12', 30, null, 'maple'],
+  ['5625550114', 'Grace W.', 1, 0, 11, '2026-08-09', 0, 180, 'custard'],
 ];
+
+const dayOffset = (today: string, n: number): string => {
+  const [y, m, d] = today.split('-').map(Number);
+  const t = new Date(y, m - 1, d + n);
+  return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`;
+};
+
+/** Example Dough Rewards members. Last visits and birthdays are set from today, so the demo always has someone to text. */
+export function seedMembers(today: string): RewardsMember[] {
+  return MEMBER_ROWS.map(([phone, name, punches, rewards, visits, joined, ago, bday, favorite]) => ({
+    phone, name, punches, rewards, visits, joined, favorite,
+    lastVisit: dayOffset(today, -ago),
+    birthday: bday === null ? undefined : dayOffset(today, bday).slice(5),
+  }));
+}

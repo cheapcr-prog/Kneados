@@ -6,12 +6,13 @@ import { orderReadyText, orderReceivedText } from '../lib/notify';
 import type { PurchaseOrder, Supplier } from '../lib/purchasing';
 import { addVisit, redeemReward, rewardText } from '../lib/rewards';
 import { buildHistory, buildPreorders, buildTodayOrders } from './history';
+import { buildChannelOrders } from './channels';
 import { clearShopState } from './local';
 import { SUPPLIERS } from './suppliers';
 import { MENU, SCHEDULE, SEED_MEMBERS, SHOP, STAFF, shiftHours } from './shop';
 import type { BakeProgress, DayHistory, Order, OrderStatus, RewardsMember } from './types';
 
-const STORAGE_KEY = 'kneados-demo-v4';
+const STORAGE_KEY = 'kneados-demo-v5';
 
 interface ClockState {
   /** ISO time the person clocked in, when they are on the clock. */
@@ -140,7 +141,7 @@ export function forecastFor(history: DayHistory[], orders: Order[], date: string
 function freshState(now: Date): DemoState {
   const today = isoDate(now);
   const history = buildHistory(today);
-  const orders = buildPreorders(today, now);
+  const orders = [...buildPreorders(today, now), ...buildChannelOrders(today, now)];
   const hour = now.getHours() + now.getMinutes() / 60;
   // Bakers start at 2am and have the full plan out by about 8am.
   const progress = Math.min(1, Math.max(0, (hour - 2) / 6));

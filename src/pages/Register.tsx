@@ -1,6 +1,7 @@
 import { Banknote, Check, ClipboardCheck, CreditCard, Delete, Gift, LogOut, Minus, PackageCheck, Plus, Timer, Trash2, X } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { BreakButton, BreakScreen } from '../components/Breaks';
+import { useGiftCards } from '../components/Channels';
 import { ItemArt } from '../components/ItemArt';
 import { ShopTasksPanel, useUpkeep } from '../components/Upkeep';
 import { PickupQueue, useTodaysPickups, useWorkload } from '../components/PickupQueue';
@@ -13,7 +14,9 @@ import { PUNCHES_PER_REWARD } from '../lib/rewards';
 
 const TABS: (Category | 'All')[] = ['All', 'Classics', 'Filled', 'Specialty', 'Drinks'];
 
-type Stage = 'ticket' | 'tip' | 'done';
+type Stage = 'ticket' | 'tip' | 'gift' | 'done';
+type Pay = 'card' | 'cash' | 'gift';
+const PAY_LABEL: Record<Pay, string> = { card: 'Card', cash: 'Cash', gift: 'Gift card' };
 
 export function Register() {
   const [staff, setStaff] = useState<StaffMember | null>(null);
@@ -92,7 +95,9 @@ function Till({ staff, onLogout }: { staff: StaffMember; onLogout: () => void })
   const [redeem, setRedeem] = useState(false);
   const [stage, setStage] = useState<Stage>('ticket');
   const [tip, setTip] = useState(0);
-  const [result, setResult] = useState<{ number: number; total: number; payment: 'card' | 'cash'; earned: boolean } | null>(null);
+  const [result, setResult] = useState<{ number: number; total: number; payment: Pay; earned: boolean; giftCents: number; giftLeft?: number } | null>(null);
+  const gift = useGiftCards();
+  const [giftCode, setGiftCode] = useState('');
   const [pickupsOpen, setPickupsOpen] = useState(false);
   const [tasksOpen, setTasksOpen] = useState(false);
   const upkeep = useUpkeep();
@@ -116,19 +121,24 @@ function Till({ staff, onLogout }: { staff: StaffMember; onLogout: () => void })
   const tipping = demo.state.tippingEnabled;
 
   const add = (id: string, n: number) => setTicket((c) => ({ ...c, [id]: Math.max(0, (c[id] ?? 0) + n) }));
-  const clear = () => { setTicket({}); setPhone(''); setRedeem(false); setTip(0); setStage('ticket'); };
+  const clear = () => { setTicket({}); setPhone(''); setRedeem(false); setTip(0); setGiftCode(''); setStage('ticket'); };
 
-  const finish = (payment: 'card' | 'cash', tipCents: number) => {
+  const giftCard = giftCode.replace(/[^a-z0-9]/gi, '').length >= 8 ? gift.find(giftCode) : undefined;
+  /** What the gift card on screen would cover of this bill. */
+  const giftCovers = giftCard ? Math.min(giftCard.balanceCents, t.total) : 0;
+
+  const finish = (payment: Pay, tipCents: number, useGift = false) => {
+    const giftCents = useGift && giftCard ? gift.spend(giftCard.code, t.total) : 0;
     const order = demo.placeOrder({
       source: 'register', lines, subtotal: t.subtotal, tax: t.tax, tip: tipCents, total: t.total + tipCents,
-      payment, status: 'done', phone: digits.length === 10 ? digits : undefined, rewardRedeemed: discount > 0,
+      payment, status: 'done', phone: digits.length === 10 ? digits : undefined, rewardRedeemed: discount > 0, giftCents: giftCents || undefined,
     });
     let earned = false;
     if (digits.length === 10) {
       if (discount > 0) demo.redeem(digits);
       else earned = demo.punchVisit(digits).earnedReward;
     }
-    setResult({ number: order.number, total: order.total, payment, earned });
+    setResult({ number: order.number, total: order.total, payment, earned, giftCents, giftLeft: useGift && giftCard ? giftCard.balanceCents - giftCents : undefined });
     setStage('done');
   };
 
@@ -158,15 +168,59 @@ function Till({ staff, onLogout }: { staff: StaffMember; onLogout: () => void })
     );
   }
 
+  if (stage === 'gift') {
+    const owed = t.total - giftCovers;
+    return (
+      <div className="flex min-h-[calc(100vh-48px)] flex-col items-center justify-center bg-white p-6 text-center">
+        <p className="text-sm font-semibold uppercase tracking-widest text-slate-500">Pay with a gift card</p>
+        <p className="tabular mt-3 font-display text-6xl font-extrabold">{money(t.total)}</p>
+        <input
+          autoFocus value={giftCode} onChange={(e) => setGiftCode(e.target.value)} placeholder="ABCD-2345" aria-label="Gift card code"
+          className="mt-6 w-full max-w-xs rounded-2xl border-2 border-slate-200 px-4 py-4 text-center font-display text-2xl font-bold uppercase tracking-widest focus:border-glaze-500 focus:outline-none"
+        />
+        {!giftCard && (
+          <div className="mt-3 max-w-sm text-xs text-slate-500">
+            <p>{giftCode.replace(/[^a-z0-9]/gi, '').length >= 8 ? 'No card with that code.' : 'Type the code from the card.'} Demo cards to try:</p>
+            <p className="mt-1.5 flex flex-wrap justify-center gap-1.5">
+              {gift.cards.filter((c) => c.balanceCents > 0).slice(0, 3).map((c) => (
+                <button key={c.code} onClick={() => setGiftCode(c.code)} className="tabular rounded-full bg-slate-100 px-2.5 py-1 font-mono font-semibold text-slate-700 hover:bg-slate-200">{c.code} · {money(c.balanceCents)}</button>
+              ))}
+            </p>
+          </div>
+        )}
+        {giftCard && (
+          <div className="mt-4 w-full max-w-sm">
+            <p className="text-sm text-slate-700"><span className="font-semibold">{giftCard.name}</span> has {money(giftCard.balanceCents)} on this card.</p>
+            {giftCard.balanceCents === 0 ? (
+              <p className="mt-2 text-sm font-semibold text-rose-600">This card is used up.</p>
+            ) : owed === 0 ? (
+              <button onClick={() => finish('gift', 0, true)} className="mt-3 w-full rounded-2xl bg-glaze-600 py-4 text-lg font-bold text-white hover:bg-glaze-700">Take {money(giftCovers)} from the card</button>
+            ) : (
+              <>
+                <p className="mt-2 text-sm text-slate-700">The card covers {money(giftCovers)}. <span className="font-bold text-slate-900">{money(owed)} is still owed.</span></p>
+                <div className="mt-3 grid grid-cols-2 gap-2">
+                  <button onClick={() => finish('cash', 0, true)} className="flex items-center justify-center gap-2 rounded-2xl border-2 border-slate-300 py-4 text-base font-bold text-slate-800"><Banknote size={18} /> Rest in cash</button>
+                  <button onClick={() => finish('card', 0, true)} className="flex items-center justify-center gap-2 rounded-2xl bg-glaze-600 py-4 text-base font-bold text-white hover:bg-glaze-700"><CreditCard size={18} /> Rest on card</button>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+        <button onClick={() => { setGiftCode(''); setStage('ticket'); }} className="mt-6 text-sm font-medium text-slate-500 underline">Back to ticket</button>
+      </div>
+    );
+  }
+
   if (stage === 'done' && result) {
     return (
       <div className="flex min-h-[calc(100vh-48px)] flex-col items-center justify-center bg-white p-6 text-center">
         <div className="flex h-20 w-20 items-center justify-center rounded-full bg-emerald-100 text-emerald-600"><Check size={40} /></div>
         <h2 className="mt-5 font-display text-4xl font-extrabold">Paid {money(result.total)}</h2>
         <p className="mt-1 text-slate-600">
-          Order #{result.number} · {result.payment === 'card' ? 'Card' : 'Cash'}
+          Order #{result.number} · {result.giftCents > 0 && result.payment !== 'gift' ? `Gift card ${money(result.giftCents)}, ${PAY_LABEL[result.payment].toLowerCase()} ${money(result.total - result.giftCents)}` : PAY_LABEL[result.payment]}
           {tip > 0 && ` · includes ${money(tip)} tip`}
         </p>
+        {result.giftLeft !== undefined && <p className="mt-2 text-sm font-semibold text-slate-700">{money(result.giftLeft)} left on the gift card.</p>}
         {result.earned && (
           <p className="mt-4 flex items-center gap-2 rounded-xl bg-box-50 px-4 py-3 text-sm font-semibold text-box-700">
             <Gift size={18} /> That was visit {PUNCHES_PER_REWARD}! A free-donut text is on its way from Dough Rewards.
@@ -293,6 +347,9 @@ function Till({ staff, onLogout }: { staff: StaffMember; onLogout: () => void })
               <CreditCard size={18} /> Card
             </button>
           </div>
+          <button disabled={lines.length === 0} onClick={() => setStage('gift')} className="mt-2 flex w-full items-center justify-center gap-2 rounded-xl bg-box-50 py-2.5 text-sm font-bold text-box-700 hover:bg-box-100 disabled:opacity-40">
+            <Gift size={16} /> Gift card
+          </button>
         </div>
       </aside>
 

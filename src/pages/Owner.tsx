@@ -13,6 +13,7 @@ import { explainForecast } from '../lib/forecast';
 import { formatPhone, money, moneyShort } from '../lib/money';
 import { PUNCHES_PER_REWARD } from '../lib/rewards';
 import { isTipEligible, splitTipPool } from '../lib/tips';
+import { Assistant } from './owner/Assistant';
 import { DeliveryApps, GiftCards, Wholesale } from './owner/Channels';
 import { Equipment, ShopTasks } from './owner/Equipment';
 import { Labels } from './owner/Labels';
@@ -25,7 +26,7 @@ import { Supplies, useAutoPurchasing, useSupplyPlans } from './owner/Supplies';
 
 /** The owner's screens, grouped the way an owner thinks about the shop. */
 const NAV = [
-  { group: 'Shop', tabs: ['Today', 'Locations', 'Tasks', 'Equipment'] },
+  { group: 'Shop', tabs: ['Briefing', 'Today', 'Locations', 'Tasks', 'Equipment'] },
   { group: 'Kitchen', tabs: ['Bake plan', 'Waste', 'Supplies', 'Labels'] },
   { group: 'Team', tabs: ['Staff & tips', 'Schedule', 'Payroll'] },
   { group: 'Customers', tabs: ['Rewards', 'Gift cards'] },
@@ -40,7 +41,7 @@ const SLATE = '#cbd5e1';
 
 export function Owner() {
   const demo = useDemo();
-  const [tab, setTab] = useState<Tab>('Today');
+  const [tab, setTab] = useState<Tab>('Briefing');
   const weather = useWeather();
   const supplyPlans = useSupplyPlans(demo);
   useAutoPurchasing(demo, supplyPlans);
@@ -81,6 +82,7 @@ export function Owner() {
           </div>
         </nav>
         <div className="min-w-0 flex-1">
+        {tab === 'Briefing' && <Assistant demo={demo} plans={supplyPlans} upkeep={upkeep} weather={weather} alerts={toOrder + upkeep.overdue.length + upkeep.openRepairs.length} onOpen={setTab} />}
         {tab === 'Today' && <Today demo={demo} />}
         {tab === 'Bake plan' && <BakePlan demo={demo} weather={weather} />}
         {tab === 'Supplies' && <Supplies demo={demo} plans={supplyPlans} />}

@@ -15,7 +15,7 @@ function fmt(t: string): string {
 }
 
 /** Forecast sales for a date: the bake forecast for each item times what it sells for. */
-function forecastSales(demo: Demo, date: string): number {
+export function forecastSales(demo: Demo, date: string): number {
   return Math.round(MENU.reduce((a, m) => {
     const qty = forecastFor(demo.history, demo.state.orders, date, m.id, false).qty;
     // The bake plan carries a small safety margin and about a third of donuts sell at the dozen price.

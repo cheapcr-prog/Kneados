@@ -20,7 +20,8 @@ const HOME = { id: 'home', name: 'Belmont Shore', manager: 'Rosa M.' };
 
 const pct = (n: number) => `${Math.round(n * 100)}%`;
 
-export function Locations({ demo, alerts }: { demo: Demo; alerts: number }) {
+/** Today's numbers for every shop, and the tray moves worth making between them. */
+export function useLocations(demo: Demo, alerts: number) {
   const { state } = demo;
   const [sent, setSent] = useShopState<string[]>(`transfers-${state.today}`, () => []);
   const locations = useMemo<LocationDay[]>(() => {
@@ -60,11 +61,22 @@ export function Locations({ demo, alerts }: { demo: Demo; alerts: number }) {
     return [home, ...others];
   }, [demo, state.today, state.bake, alerts]);
 
-  const all = rollup(locations);
   const transfers = suggestTransfers(locations).slice(0, 6);
   const name = (id: string) => locations.find((l) => l.id === id)!.name;
-  const manager = (id: string) => (id === 'home' ? HOME.manager : OTHERS.find((o) => o.id === id)!.manager);
   const key = (t: { itemId: string; from: string; to: string }) => `${t.itemId}:${t.from}:${t.to}`;
+  return {
+    locations, transfers, name, key, sent,
+    /** Trays still waiting on a driver. */
+    open: transfers.filter((t) => !sent.includes(key(t))),
+    send: (keys: string[]) => setSent((s) => [...new Set([...s, ...keys])]),
+  };
+}
+
+export function Locations({ demo, alerts }: { demo: Demo; alerts: number }) {
+  const { state } = demo;
+  const { locations, transfers, name, key, sent, send } = useLocations(demo, alerts);
+  const all = rollup(locations);
+  const manager = (id: string) => (id === 'home' ? HOME.manager : OTHERS.find((o) => o.id === id)!.manager);
   const saved = transfers.reduce((a, t) => a + t.qty * MENU_BY_ID[t.itemId].price, 0);
   const best = [...locations].sort((a, b) => b.salesCents / b.typicalCents - a.salesCents / a.typicalCents)[0];
   return (
@@ -115,7 +127,7 @@ export function Locations({ demo, alerts }: { demo: Demo; alerts: number }) {
                   </span>
                   {done
                     ? <Pill tone="green">Driver sent</Pill>
-                    : <button className={btn.light} onClick={() => setSent((s) => [...s, key(t)])}><Truck size={13} /> Send a driver</button>}
+                    : <button className={btn.light} onClick={() => send([key(t)])}><Truck size={13} /> Send a driver</button>}
                 </li>
               );
             })}

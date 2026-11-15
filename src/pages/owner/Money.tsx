@@ -21,7 +21,7 @@ export function wagesFor(dow: number): number {
   return SCHEDULE.filter((s) => s.dow === dow).reduce((a, s) => a + shiftHours(s) * STAFF_BY_ID[s.staffId].hourlyCents, 0);
 }
 
-function pnlFor(days: DayHistory[], cost: Record<string, number>): Pnl {
+export function pnlFor(days: DayHistory[], cost: Record<string, number>): Pnl {
   return profitAndLoss({
     days, cost, wagesCents: days.reduce((a, h) => a + wagesFor(h.dow), 0), payrollTaxRate: PAYROLL_TAX_RATE, overhead: OVERHEAD,
     cardShare: CARD.share, cardRate: CARD.rate, cardFixedCents: CARD.fixedCents,

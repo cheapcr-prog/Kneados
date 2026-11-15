@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { MENU_BY_ID } from '../data/shop';
-import { boxPrice, cartLines, linePrice, rewardDiscount, totals } from './pricing';
+import { boxPrice, boxUpcharge, cartLines, linePrice, rewardDiscount, totals } from './pricing';
 
 describe('pricing', () => {
   const glazed = MENU_BY_ID.glazed;
@@ -34,12 +34,23 @@ describe('pricing', () => {
     expect(totals([{ itemId: 'glazed', qty: 1, lineCents: 175 }], MENU_BY_ID, 999).total).toBe(0);
   });
 
-  it('charges a mixed dozen box at each donut\'s dozen rate', () => {
-    const box = [...Array(6).fill('glazed'), ...Array(4).fill('maple'), 'custard', 'custard'];
+  it('charges a mixed dozen the base price plus an extra for each specialty donut', () => {
+    expect(boxUpcharge(MENU_BY_ID.glazed)).toBe(0);
+    expect(boxUpcharge(MENU_BY_ID.maple)).toBe(50);
+    expect(boxUpcharge(MENU_BY_ID.custard)).toBe(100);
+    expect(boxUpcharge(MENU_BY_ID.fritter)).toBe(150);
+    const box = [...Array(6).fill('glazed'), ...Array(4).fill('maple'), 'custard', 'fritter'];
     const p = boxPrice(box, MENU_BY_ID);
-    expect(p.cents).toBe(6 * 150 + 4 * 200 + Math.round((2 * 2900) / 12));
-    expect(p.singles).toBe(6 * 175 + 4 * 225 + 2 * 275);
-    expect(boxPrice(Array(12).fill('glazed'), MENU_BY_ID).cents).toBe(1800);
+    expect(p.extras).toBe(4 * 50 + 100 + 150);
+    expect(p.cents).toBe(1800 + p.extras);
+    expect(p.singles).toBe(6 * 175 + 4 * 225 + 275 + 350);
+    expect(boxPrice(Array(12).fill('glazed'), MENU_BY_ID)).toMatchObject({ cents: 1800, extras: 0 });
+  });
+
+  it('never charges more for a dozen of one donut in a box than its own dozen price', () => {
+    for (const item of Object.values(MENU_BY_ID)) {
+      if (item.dozenPrice) expect(boxPrice(Array(12).fill(item.id), MENU_BY_ID).cents).toBe(item.dozenPrice);
+    }
   });
 
   it('merges boxes and loose items into one line per item', () => {

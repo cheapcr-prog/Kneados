@@ -1,5 +1,6 @@
 import type { MenuItem, OrderLine } from '../data/types';
 import { DEMO_TAX_RATE } from './money';
+import { SHOP } from '../data/shop';
 
 /** Dozen pricing kicks in on its own: every full 12 is charged at the dozen price. */
 export function linePrice(item: MenuItem, qty: number): number {
@@ -10,9 +11,23 @@ export function linePrice(item: MenuItem, qty: number): number {
 
 export const BOX_SIZE = 12;
 
-/** A donut in a mixed dozen box is charged one twelfth of its own dozen price. */
+/** Donuts that can go in a mixed dozen box: anything sold by the dozen, plus specialty items with a set extra. */
+export function isBoxable(item: MenuItem): boolean {
+  return item.dozenPrice !== undefined || item.boxUpcharge !== undefined;
+}
+
+/**
+ * A mixed dozen is one base price, and specialty donuts add an extra each.
+ * This is the extra for one donut, in cents. A plain glazed adds nothing.
+ */
+export function boxUpcharge(item: MenuItem): number {
+  if (item.boxUpcharge !== undefined) return item.boxUpcharge;
+  return Math.max(0, Math.round(((item.dozenPrice ?? item.price * BOX_SIZE) - SHOP.dozenBase) / BOX_SIZE));
+}
+
+/** What `count` of one donut adds to a box: its share of the base dozen price plus its extras. */
 export function boxItemCents(item: MenuItem, count: number): number {
-  return Math.round((count * (item.dozenPrice ?? item.price * BOX_SIZE)) / BOX_SIZE);
+  return Math.round((count * SHOP.dozenBase) / BOX_SIZE) + count * boxUpcharge(item);
 }
 
 /** Counts how many of each item sit in a box, in the order they first appear. */
@@ -22,15 +37,17 @@ export function boxCounts(box: string[]): [string, number][] {
   return [...counts];
 }
 
-/** Price of a full mixed dozen, and what the same donuts cost one at a time. */
-export function boxPrice(box: string[], menu: Record<string, MenuItem>): { cents: number; singles: number } {
+/** Price of a mixed dozen: the total, how much of it is specialty extras, and what the same donuts cost one at a time. */
+export function boxPrice(box: string[], menu: Record<string, MenuItem>): { cents: number; extras: number; singles: number } {
   let cents = 0;
+  let extras = 0;
   let singles = 0;
   for (const [id, n] of boxCounts(box)) {
     cents += boxItemCents(menu[id], n);
+    extras += n * boxUpcharge(menu[id]);
     singles += menu[id].price * n;
   }
-  return { cents, singles };
+  return { cents, extras, singles };
 }
 
 /** Order lines for a cart of loose items plus mixed dozen boxes: one line per item. */

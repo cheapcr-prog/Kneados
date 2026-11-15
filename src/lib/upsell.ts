@@ -1,7 +1,8 @@
 import type { MenuItem } from '../data/types';
+import { isDrink } from '../data/shop';
 import { linePrice } from './pricing';
 
-export type OfferKind = 'dozen' | 'drink' | 'donut' | 'holes';
+export type OfferKind = 'dozen' | 'drink' | 'donut' | 'holes' | 'addon';
 
 /** One thing worth offering the customer before they pay. */
 export interface Offer {
@@ -30,7 +31,9 @@ export function suggestOffers(lines: Line[], menu: Record<string, MenuItem>, sol
   const offers: Offer[] = [];
   const has = (id: string) => live.some((l) => l.itemId === id);
   const can = (id: string) => !!menu[id] && !soldOut(id);
-  const drinks = live.filter((l) => menu[l.itemId].category === 'Drinks').reduce((a, l) => a + l.qty, 0);
+  const drinks = live.filter((l) => isDrink(menu[l.itemId]) && !menu[l.itemId].addon).reduce((a, l) => a + l.qty, 0);
+  const blended = live.filter((l) => menu[l.itemId].category === 'Smoothies & boba' && !menu[l.itemId].addon).reduce((a, l) => a + l.qty, 0);
+  const toppings = live.filter((l) => menu[l.itemId].addon).reduce((a, l) => a + l.qty, 0);
   const donuts = live.filter((l) => menu[l.itemId].baked).reduce((a, l) => a + l.qty, 0);
 
   const toDozen = live
@@ -44,6 +47,9 @@ export function suggestOffers(lines: Line[], menu: Record<string, MenuItem>, sol
       kind: 'dozen', itemId: item.id, qty: short, addCents,
       ask: addCents <= 0 ? `Make it a dozen? ${short} more ${item.name} cost nothing extra at the dozen price.` : `Make it a dozen? ${short} more ${item.name} for ${usd(addCents)}.`,
     });
+  }
+  if (blended > toppings && can('addon-boba')) {
+    offers.push({ kind: 'addon', itemId: 'addon-boba', qty: 1, addCents: menu['addon-boba'].price, ask: `Add boba to the smoothie for ${usd(menu['addon-boba'].price)}?` });
   }
   if (donuts > 0 && drinks === 0 && can('coffee')) {
     offers.push({ kind: 'drink', itemId: 'coffee', qty: 1, addCents: menu.coffee.price, ask: `Add a ${menu.coffee.name.toLowerCase()} for ${usd(menu.coffee.price)}?` });
@@ -67,7 +73,7 @@ export interface Opportunity {
 
 /** How many of a day's counter tickets an offer would have been made on, and what the offers add up to. */
 export function upsellOpportunity(tickets: Line[][], menu: Record<string, MenuItem>): Opportunity {
-  const eligible: Record<OfferKind, number> = { dozen: 0, drink: 0, donut: 0, holes: 0 };
+  const eligible: Record<OfferKind, number> = { dozen: 0, drink: 0, donut: 0, holes: 0, addon: 0 };
   let fullCents = 0;
   for (const t of tickets) {
     const first = suggestOffers(t, menu, undefined, 1)[0];

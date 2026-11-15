@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { usePricing, useUpsells } from '../../components/Pricing';
 import { PRICE } from '../../data/channels';
 import { TARGETS } from '../../data/finance';
-import { MENU, MENU_BY_ID, SCHEDULE, SHOP, STAFF_BY_ID, shiftHours } from '../../data/shop';
+import { MENU, MENU_BY_ID, SCHEDULE, SHOP, STAFF_BY_ID, isDrink, shiftHours } from '../../data/shop';
 import type { Demo } from '../../data/store';
 import { PURCHASED, RECIPES, SUPPLIES } from '../../data/supplies';
 import { menuCosts } from '../../lib/costing';
@@ -57,7 +57,7 @@ export function Pricing({ demo }: { demo: Demo }) {
 
   const counter = demo.todayOrders.filter((o) => o.source === 'register');
   const opp = useMemo(() => upsellOpportunity(counter.map((o) => o.lines), MENU_BY_ID), [counter.length]);
-  const offered = opp.eligible.dozen + opp.eligible.drink + opp.eligible.donut + opp.eligible.holes;
+  const offered = Object.values(opp.eligible).reduce((a, n) => a + n, 0);
   const previewing = p.preview && p.preview.dow === day && p.preview.hour === hour;
 
   return (
@@ -102,7 +102,7 @@ export function Pricing({ demo }: { demo: Demo }) {
             </div>
           )}
           <ul className="mt-3 space-y-0.5 text-sm text-slate-700">
-            {MENU.filter((m) => m.category === 'Drinks').map((m) => <li key={m.id} className="flex justify-between"><span>{m.name}</span><span className="tabular"><span className="text-slate-400 line-through">{money(m.price)}</span> {money(Math.round((m.price * (1 - rules.slow.pct)) / 5) * 5)}</span></li>)}
+            {MENU.filter((m) => isDrink(m) && !m.addon).map((m) => <li key={m.id} className="flex justify-between"><span>{m.name}</span><span className="tabular"><span className="text-slate-400 line-through">{money(m.price)}</span> {money(Math.round((m.price * (1 - rules.slow.pct)) / 5) * 5)}</span></li>)}
           </ul>
         </Card>
 

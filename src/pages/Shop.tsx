@@ -16,7 +16,7 @@ import { PUNCHES_PER_REWARD } from '../lib/rewards';
 import { applyPrices, type LivePrice } from '../lib/smartpricing';
 import { suggestOffers, type Offer } from '../lib/upsell';
 
-const CATEGORIES: Category[] = ['Classics', 'Filled', 'Specialty', 'Drinks'];
+const CATEGORIES: Category[] = ['Classics', 'Filled', 'Specialty', 'Drinks', 'Smoothies & boba'];
 
 /** Pickup slots every 15 minutes, starting 20 minutes from now so the counter has time to pack. */
 function pickupSlots(dayOffset: number): Date[] {

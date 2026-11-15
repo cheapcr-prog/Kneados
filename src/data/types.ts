@@ -1,5 +1,5 @@
 export type Role = 'owner' | 'manager' | 'cashier' | 'baker';
-export type Category = 'Classics' | 'Filled' | 'Specialty' | 'Drinks';
+export type Category = 'Classics' | 'Filled' | 'Specialty' | 'Drinks' | 'Smoothies & boba';
 
 export interface MenuItem {
   id: string;
@@ -21,6 +21,12 @@ export interface MenuItem {
   icing: string;
   dough: string;
   sprinkles?: boolean;
+  /** Cup size, for drinks sold in more than one size. */
+  size?: string;
+  /** A topping that goes into a drink, like boba, and is charged on top of it. */
+  addon?: boolean;
+  /** The photo or drawing to use when it is shared with another item, e.g. the same drink in another size. */
+  art?: string;
   /** Typical weekday demand. Only used to generate the demo's sales history. */
   baseDaily: number;
 }

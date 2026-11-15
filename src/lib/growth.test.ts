@@ -82,7 +82,7 @@ describe('checkout suggestions', () => {
   });
   it('counts how many of a day\'s tickets would have had an offer', () => {
     const o = upsellOpportunity([[{ itemId: 'glazed', qty: 2 }], [{ itemId: 'coffee', qty: 1 }], [{ itemId: 'glazed', qty: 10 }], [{ itemId: 'glazed', qty: 1 }, { itemId: 'coffee', qty: 1 }, { itemId: 'holes', qty: 1 }]], MENU_BY_ID);
-    expect(o).toEqual({ tickets: 4, eligible: { dozen: 1, drink: 1, donut: 1, holes: 0 }, fullCents: 250 + 175 + 50 });
+    expect(o).toEqual({ tickets: 4, eligible: { dozen: 1, drink: 1, donut: 1, holes: 0, addon: 0 }, fullCents: 250 + 175 + 50 });
   });
 });
 

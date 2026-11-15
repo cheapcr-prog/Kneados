@@ -1,3 +1,4 @@
+import { isDrink } from '../data/shop';
 import type { MenuItem } from '../data/types';
 
 /** Prices that move with the time of day and the day of the week. The owner sets the rules once. */
@@ -55,7 +56,7 @@ export function priceNow(item: MenuItem, rules: PricingRules, ctx: PriceContext)
       tag: 'markdown', label: `${Math.round(markdown.pct * 100)}% off until close`,
     };
   }
-  if (slow.on && item.category === 'Drinks' && ctx.hour >= slow.fromHour && ctx.hour < slow.toHour) {
+  if (slow.on && isDrink(item) && !item.addon && ctx.hour >= slow.fromHour && ctx.hour < slow.toHour) {
     return { ...base, cents: round5(item.price * (1 - slow.pct)), tag: 'special', label: `${Math.round(slow.pct * 100)}% off until ${hourLabel(slow.toHour)}` };
   }
   if (weekend.on && isSpecialty(item) && (ctx.dow === 0 || ctx.dow === 6 || ctx.holiday)) {

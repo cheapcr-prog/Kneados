@@ -15,7 +15,7 @@ export function useAutoPurchasing(demo: Demo, plans: SupplyPlan[]) {
   const { today, pos } = demo.state;
   useEffect(() => {
     for (const supplier of demo.suppliers) {
-      if (!supplier.autoSend || supplier.pickup || !supplier.email) continue;
+      if (!supplier.autoSend || supplier.pickup || !(supplier.email || supplier.web)) continue;
       const draft = draftPO(supplier, plans, today);
       if (!draft || draft.belowMinimum || pos.some((p) => p.id === draft.id)) continue;
       demo.savePO({ ...draft, status: 'sent', auto: true, sentAt: new Date().toISOString() });
@@ -54,7 +54,7 @@ export function PurchasingPanel({ demo, plans }: { demo: Demo; plans: SupplyPlan
   /** Orders that still need the owner: approve-first suppliers, pickup runs, and anything under a minimum. */
   const waiting = demo.suppliers.flatMap((s) => {
     const draft = draftPO(s, plans, today);
-    const goesByItself = s.autoSend && !s.pickup && !!s.email && draft && !draft.belowMinimum;
+    const goesByItself = s.autoSend && !s.pickup && !!(s.email || s.web) && draft && !draft.belowMinimum;
     return draft && !goesByItself && !pos.some((p) => p.id === draft.id) ? [{ supplier: s, draft }] : [];
   });
   const send = (po: PurchaseOrder) => demo.savePO({ ...po, status: 'sent', sentAt: new Date().toISOString() });
@@ -85,7 +85,7 @@ export function PurchasingPanel({ demo, plans }: { demo: Demo; plans: SupplyPlan
                   ? 'A same-day pickup run, so there is nothing to email.'
                   : draft.belowMinimum
                     ? `Held for you: the total is under their ${money(supplier.minOrderCents)} minimum.`
-                    : `Waiting for your OK. Goes to ${supplier.email}, arrives ${longDate(draft.expected)}.`}
+                    : `Waiting for your OK. ${supplier.web ? `It is placed in the online store at ${supplier.web}` : `Goes to ${supplier.email}`}, arrives ${longDate(draft.expected)}.`}
                 {' '}Total about {money(draft.totalCents)}.
               </p>
             </div>
@@ -124,7 +124,7 @@ export function PurchasingPanel({ demo, plans }: { demo: Demo; plans: SupplyPlan
                     <span className="block">
                       {po.status === 'received'
                         ? `Received ${timeLabel(po.receivedAt!)} and added to stock.`
-                        : `${po.to ? `Emailed to ${po.to} at ${timeLabel(po.sentAt!)}. ` : ''}Arrives ${longDate(po.expected)}.`}
+                        : `${po.to ? `${po.to.includes('@') ? 'Emailed to' : 'Placed at'} ${po.to} at ${timeLabel(po.sentAt!)}. ` : ''}Arrives ${longDate(po.expected)}.`}
                     </span>
                   </p>
                 </div>
@@ -170,6 +170,7 @@ function SupplierCard({ supplier: s, onChange }: { supplier: Supplier; onChange:
   return (
     <div className="rounded-xl border border-slate-200 p-3">
       <p className="font-semibold text-slate-900">{s.name}</p>
+      {s.web && <p className="mt-1 text-sm text-slate-600">Orders are placed in their online store at <span className="font-semibold">{s.web}</span>, so there is no rep or order email.</p>}
       {s.pickup ? (
         <p className="mt-1 text-sm text-slate-600">A store you drive to. KneadOS writes the shopping list on the morning you need to go. {s.account}</p>
       ) : (
@@ -194,7 +195,7 @@ function SupplierCard({ supplier: s, onChange }: { supplier: Supplier; onChange:
             <input type="checkbox" checked={!s.autoSend} onChange={(e) => onChange({ autoSend: !e.target.checked })} className="mt-0.5 h-4 w-4 accent-teal-600" />
             <span>
               <span className="font-semibold">Let me approve each order first.</span>{' '}
-              <span className="text-slate-500">{s.autoSend ? 'Off: KneadOS emails the purchase order by itself on the day it is due.' : 'On: the order waits here until you tap Approve and send.'}</span>
+              <span className="text-slate-500">{s.autoSend ? (s.web ? 'Off: KneadOS places the order by itself on the day it is due. In this demo the order is only marked as placed.' : 'Off: KneadOS emails the purchase order by itself on the day it is due.') : 'On: the order waits here until you tap Approve and send.'}</span>
             </span>
           </label>
         </>
@@ -226,6 +227,7 @@ function PODocument({ po, supplier, onClose }: { po: PurchaseOrder; supplier: Su
               <p className="font-semibold">{supplier.name}</p>
               {supplier.rep && <p className="text-slate-600">Attn: {supplier.rep}</p>}
               {supplier.email && <p className="text-slate-600">{supplier.email}</p>}
+              {supplier.web && <p className="text-slate-600">Online store: {supplier.web}</p>}
               {supplier.phone && <p className="text-slate-600">{formatPhone(supplier.phone)}</p>}
               {supplier.account && <p className="text-slate-600">Account {supplier.account}</p>}
             </div>

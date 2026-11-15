@@ -1,13 +1,14 @@
-import { Check, Clock, MapPin, Minus, Phone, Plus, ShoppingBag, Trash2, X } from 'lucide-react';
+import { Check, Clock, GripVertical, MapPin, Minus, Phone, Plus, Trash2, X } from 'lucide-react';
 import { useMemo, useState } from 'react';
-import { BoxBuilder } from '../components/BoxBuilder';
+import { OrderTray, useBox } from '../components/BoxBuilder';
+import type { Box } from '../components/BoxBuilder';
 import { ItemArt } from '../components/ItemArt';
 import { MENU, MENU_BY_ID, SHOP } from '../data/shop';
 import { useDemo } from '../data/store';
 import type { Category, MenuItem, Order } from '../data/types';
 import { longDate, timeLabel } from '../lib/dates';
 import { formatPhone, money } from '../lib/money';
-import { boxCounts, boxPrice, cartLines, linePrice, totals } from '../lib/pricing';
+import { boxCounts, boxPrice, boxUpcharge, cartLines, isBoxable, linePrice, totals } from '../lib/pricing';
 import type { OrderLine } from '../data/types';
 import { PUNCHES_PER_REWARD } from '../lib/rewards';
 
@@ -35,18 +36,46 @@ export function Shop() {
   const [open, setOpen] = useState(false);
   const [placed, setPlaced] = useState<Order | null>(null);
 
+  /** Dozen boxes that are full and set aside. The box being filled lives in `box`. */
   const [boxes, setBoxes] = useState<string[][]>([]);
-
-  /** Loose items are shown one per row. Boxes are shown as boxes. The order itself gets one merged line per item. */
-  const loose = useMemo(
-    () => Object.entries(cart).filter(([, q]) => q > 0).map(([itemId, qty]) => ({ itemId, qty, lineCents: linePrice(MENU_BY_ID[itemId], qty) })),
-    [cart],
-  );
-  const lines = useMemo(() => cartLines(cart, boxes, MENU_BY_ID), [cart, boxes]);
-  const count = lines.reduce((a, l) => a + l.qty, 0);
-  const t = totals(lines, MENU_BY_ID);
+  const [boxOpen, setBoxOpen] = useState(false);
   const soldOut = (id: string) => demo.state.bake[id]?.soldOut ?? false;
-  const add = (id: string, n: number) => setCart((c) => ({ ...c, [id]: Math.max(0, (c[id] ?? 0) + n) }));
+  const box = useBox(soldOut, (id) => setCart((c) => ({ ...c, [id]: (c[id] ?? 0) + 1 })));
+
+  /**
+   * What the order is right now. A full box counts as a dozen box.
+   * A box that is not full yet is charged as single donuts until it fills.
+   */
+  const order = useMemo(() => {
+    const loose = { ...cart };
+    if (!box.full) for (const id of box.filled) loose[id] = (loose[id] ?? 0) + 1;
+    const allBoxes = box.full ? [...boxes, box.filled] : boxes;
+    return {
+      boxes: allBoxes,
+      loose: Object.entries(loose).filter(([, q]) => q > 0).map(([itemId, qty]) => ({ itemId, qty, lineCents: linePrice(MENU_BY_ID[itemId], qty) })),
+      lines: cartLines(loose, allBoxes, MENU_BY_ID),
+    };
+  }, [cart, boxes, box.filled.join(), box.full]);
+  const count = order.lines.reduce((a, l) => a + l.qty, 0);
+  const t = totals(order.lines, MENU_BY_ID);
+  /** Taking one away comes out of the bag first, then out of the box being filled. */
+  const add = (id: string, n: number) => {
+    if (n < 0 && (cart[id] ?? 0) === 0 && box.removeOne(id)) return;
+    setCart((c) => ({ ...c, [id]: Math.max(0, (c[id] ?? 0) + n) }));
+  };
+  const closeBox = () => {
+    setCart((c) => {
+      const next = { ...c };
+      for (const id of box.filled) next[id] = (next[id] ?? 0) + 1;
+      return next;
+    });
+    box.clear();
+    setBoxOpen(false);
+  };
+  const openBox = () => {
+    setBoxOpen(true);
+    document.getElementById('menu')?.scrollIntoView({ behavior: 'smooth' });
+  };
 
   return (
     <div className="bg-white">
@@ -67,12 +96,12 @@ export function Shop() {
             <span className="flex items-center gap-1.5"><Phone size={15} /> {SHOP.phone}</span>
           </div>
           <div className="mt-8 flex flex-wrap gap-3">
-            <a href="#box" className="inline-flex rounded-full bg-white px-6 py-3 text-sm font-bold text-box-600 shadow-lg shadow-box-700/30 hover:bg-box-50">
+            <a href="#menu" className="inline-flex rounded-full bg-white px-6 py-3 text-sm font-bold text-box-600 shadow-lg shadow-box-700/30 hover:bg-box-50">
+              Order for pickup
+            </a>
+            <button type="button" onClick={openBox} className="inline-flex rounded-full border border-white/50 px-6 py-3 text-sm font-bold text-white hover:bg-white/10">
               Build your dozen
-            </a>
-            <a href="#menu" className="inline-flex rounded-full border border-white/50 px-6 py-3 text-sm font-bold text-white hover:bg-white/10">
-              See the menu
-            </a>
+            </button>
           </div>
         </div>
       </header>
@@ -84,15 +113,27 @@ export function Shop() {
         </div>
       </section>
 
-      <BoxBuilder isSoldOut={soldOut} onAdd={(box) => setBoxes((b) => [...b, box])} />
-
-      <main id="menu" className="mx-auto max-w-6xl px-5 pb-32 pt-10">
+      <main id="menu" className={`mx-auto max-w-6xl scroll-mt-12 px-5 pt-8 ${count > 0 || boxOpen ? 'pb-[26rem] md:pb-64' : 'pb-24'}`}>
+        <div className="mb-8 flex flex-wrap items-center gap-x-5 gap-y-3 rounded-3xl bg-box-50 p-4 sm:p-5">
+          <div className="min-w-0 flex-1 basis-60">
+            <h2 className="font-display text-xl font-bold tracking-tight text-slate-900">Pack your own order</h2>
+            <p className="text-sm text-slate-600">
+              Drag a donut by its picture into the box or the bag, and drinks into the cup holder. Or just tap Add.
+              A dozen box is any twelve donuts for {money(SHOP.dozenBase)}, bars included. Specialty donuts are {money(SHOP.specialtyExtra)} extra each.
+            </p>
+          </div>
+          {!boxOpen && (
+            <button type="button" onClick={openBox} className="rounded-full bg-box-500 px-5 py-2.5 text-sm font-bold text-white hover:bg-box-600">
+              Build your dozen
+            </button>
+          )}
+        </div>
         {CATEGORIES.map((cat) => (
           <section key={cat} className="mb-10">
             <h2 className="font-display text-2xl font-bold tracking-tight text-slate-900">{cat}</h2>
             <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {MENU.filter((m) => m.category === cat).map((item) => (
-                <MenuCard key={item.id} item={item} qty={cart[item.id] ?? 0} soldOut={soldOut(item.id)} add={add} />
+                <MenuCard key={item.id} item={item} qty={cart[item.id] ?? 0} soldOut={soldOut(item.id)} add={add} box={box} boxOpen={boxOpen} />
               ))}
             </div>
           </section>
@@ -100,24 +141,29 @@ export function Shop() {
         <p className="text-xs text-slate-500">All donuts contain wheat, egg, milk and soy. Made in a kitchen that also handles tree nuts.</p>
       </main>
 
-      {count > 0 && !open && (
-        <div className="fixed inset-x-0 bottom-0 z-30 p-3">
-          <button onClick={() => setOpen(true)} className="mx-auto flex w-full max-w-md items-center justify-between rounded-2xl bg-slate-900 px-5 py-4 text-white shadow-2xl">
-            <span className="flex items-center gap-2 font-semibold"><ShoppingBag size={18} /> View order ({count})</span>
-            <span className="tabular font-semibold">{money(t.total)}</span>
-          </button>
-        </div>
-      )}
+      <OrderTray
+        box={box}
+        boxOpen={boxOpen}
+        onOpenBox={() => setBoxOpen(true)}
+        onCloseBox={closeBox}
+        closedBoxes={boxes.length}
+        onAnotherBox={() => { setBoxes((b) => [...b, box.filled]); box.clear(); }}
+        cart={cart}
+        add={add}
+        count={count}
+        total={t.total}
+        onCheckout={() => setOpen(true)}
+      />
 
       {open && (
         <Checkout
-          loose={loose}
-          boxes={boxes}
-          lines={lines}
+          loose={order.loose}
+          boxes={order.boxes}
+          lines={order.lines}
           add={add}
-          removeBox={(i) => setBoxes((b) => b.filter((_, k) => k !== i))}
+          removeBox={(i) => (i < boxes.length ? setBoxes((b) => b.filter((_, k) => k !== i)) : box.clear())}
           onClose={() => setOpen(false)}
-          onPlaced={(o) => { setPlaced(o); setCart({}); setBoxes([]); setOpen(false); }}
+          onPlaced={(o) => { setPlaced(o); setCart({}); setBoxes([]); box.clear(); setBoxOpen(false); setOpen(false); }}
         />
       )}
       {placed && <Confirmation order={placed} onClose={() => setPlaced(null)} />}
@@ -125,12 +171,27 @@ export function Shop() {
   );
 }
 
-function MenuCard({ item, qty, soldOut, add }: { item: MenuItem; qty: number; soldOut: boolean; add: (id: string, n: number) => void }) {
+/** The picture is the handle: drag it into the box, the bag or the cup holder. */
+function MenuCard({ item, qty, soldOut, add, box, boxOpen }: { item: MenuItem; qty: number; soldOut: boolean; add: (id: string, n: number) => void; box: Box; boxOpen: boolean }) {
+  const boxing = boxOpen && isBoxable(item);
+  const extra = boxUpcharge(item);
   return (
     <div className={`flex gap-3 rounded-2xl border p-3 ${soldOut ? 'border-slate-200 bg-slate-50 opacity-60' : 'border-slate-200 bg-white'}`}>
-      <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-xl bg-box-50">
-        <ItemArt item={item} size={56} />
-      </div>
+      {soldOut ? (
+        <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-xl bg-box-50">
+          <ItemArt item={item} size={56} />
+        </div>
+      ) : (
+        <div
+          data-drag={item.id}
+          onPointerDown={(e) => box.startDrag(e, item.id, null)}
+          title="Drag into your order"
+          className="relative flex h-20 w-20 shrink-0 cursor-grab touch-none select-none items-center justify-center rounded-xl bg-box-50 transition hover:-translate-y-0.5 hover:bg-box-100 active:cursor-grabbing"
+        >
+          <ItemArt item={item} size={56} />
+          <GripVertical size={14} className="absolute right-0.5 top-1 text-box-400" aria-hidden />
+        </div>
+      )}
       <div className="min-w-0 flex-1">
         <div className="flex items-start justify-between gap-2">
           <h3 className="font-semibold leading-tight text-slate-900">{item.name}</h3>
@@ -147,11 +208,16 @@ function MenuCard({ item, qty, soldOut, add }: { item: MenuItem; qty: number; so
               <button aria-label={`Add one ${item.name}`} onClick={() => add(item.id, 1)} className="flex h-7 w-7 items-center justify-center rounded-full bg-box-500 text-white shadow-sm"><Plus size={14} /></button>
             </div>
           ) : (
-            <button onClick={() => add(item.id, 1)} className="rounded-full bg-box-500 px-3.5 py-1 text-xs font-bold text-white hover:bg-box-600">Add</button>
+            <button onClick={() => add(item.id, 1)} className={`rounded-full px-3.5 py-1 text-xs font-bold ${boxing ? 'border border-box-200 text-box-600 hover:bg-box-50' : 'bg-box-500 text-white hover:bg-box-600'}`}>{boxing ? 'Add to bag' : 'Add'}</button>
           )}
-          {!soldOut && item.dozenPrice && (
-            <button onClick={() => add(item.id, 12)} className="rounded-full border border-box-200 px-3 py-1 text-xs font-semibold text-box-600 hover:bg-box-50">
-              + Dozen {money(item.dozenPrice)}
+          {!soldOut && boxing && (
+            <button
+              onClick={() => box.place(item.id, null, 'box')}
+              disabled={box.full}
+              aria-label={`Add ${item.name} to the box`}
+              className="rounded-full bg-box-500 px-3.5 py-1 text-xs font-bold text-white hover:bg-box-600 disabled:bg-slate-300"
+            >
+              Add to box{extra > 0 ? ` +${money(extra)}` : ''}
             </button>
           )}
         </div>

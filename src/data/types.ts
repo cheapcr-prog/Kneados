@@ -11,8 +11,8 @@ export interface MenuItem {
   dozenPrice?: number;
   description: string;
   allergens: string[];
-  /** Extra per donut, in cents, when it goes in a mixed dozen box. Only for items with no dozen price of their own. */
-  boxUpcharge?: number;
+  /** A specialty donut costs a set extra when it goes in a mixed dozen box. Regular donuts, bars included, do not. */
+  specialty?: boolean;
   /** Charged sales tax. In California, donuts to go are usually untaxed and hot coffee is taxed. */
   taxable: boolean;
   /** Made in the kitchen each morning, so it gets a bake forecast. */

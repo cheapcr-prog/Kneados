@@ -10,7 +10,7 @@ describe('pricing', () => {
     expect(linePrice(glazed, 12)).toBe(1800);
     expect(linePrice(glazed, 14)).toBe(1800 + 2 * 175);
     expect(linePrice(glazed, 24)).toBe(3600);
-    expect(linePrice(MENU_BY_ID.fritter, 12)).toBe(12 * 350);
+    expect(linePrice(MENU_BY_ID.croissant, 12)).toBe(12 * 550);
   });
 
   it('taxes only taxable items', () => {
@@ -36,14 +36,15 @@ describe('pricing', () => {
 
   it('charges a mixed dozen the base price plus an extra for each specialty donut', () => {
     expect(boxUpcharge(MENU_BY_ID.glazed)).toBe(0);
-    expect(boxUpcharge(MENU_BY_ID.maple)).toBe(50);
+    expect(boxUpcharge(MENU_BY_ID.maple)).toBe(0);
+    expect(boxUpcharge(MENU_BY_ID.chocolate)).toBe(0);
     expect(boxUpcharge(MENU_BY_ID.custard)).toBe(100);
-    expect(boxUpcharge(MENU_BY_ID.fritter)).toBe(150);
+    expect(boxUpcharge(MENU_BY_ID.fritter)).toBe(100);
     const box = [...Array(6).fill('glazed'), ...Array(4).fill('maple'), 'custard', 'fritter'];
     const p = boxPrice(box, MENU_BY_ID);
-    expect(p.extras).toBe(4 * 50 + 100 + 150);
-    expect(p.cents).toBe(1800 + p.extras);
-    expect(p.singles).toBe(6 * 175 + 4 * 225 + 275 + 350);
+    expect(p.extras).toBe(200);
+    expect(p.cents).toBe(2000);
+    expect(p.singles).toBe(10 * 175 + 275 + 350);
     expect(boxPrice(Array(12).fill('glazed'), MENU_BY_ID)).toMatchObject({ cents: 1800, extras: 0 });
   });
 
@@ -59,7 +60,7 @@ describe('pricing', () => {
     expect(lines).toEqual([
       { itemId: 'glazed', qty: 13, lineCents: 2 * 175 + 11 * 150 },
       { itemId: 'coffee', qty: 1, lineCents: 250 },
-      { itemId: 'maple', qty: 1, lineCents: 200 },
+      { itemId: 'maple', qty: 1, lineCents: 150 },
     ]);
   });
 });

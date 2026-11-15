@@ -1,57 +1,69 @@
-import { Shuffle, Trash2 } from 'lucide-react';
+import { ChevronDown, ChevronUp, Shuffle, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
-import type { PointerEvent as ReactPointerEvent } from 'react';
+import type { PointerEvent as ReactPointerEvent, ReactNode } from 'react';
 import { MENU, MENU_BY_ID, SHOP } from '../data/shop';
 import { money } from '../lib/money';
-import { BOX_SIZE, boxPrice, boxUpcharge, isBoxable } from '../lib/pricing';
+import { BOX_SIZE, boxPrice, isBoxable } from '../lib/pricing';
 import { ItemArt } from './ItemArt';
 
 type Slots = (string | null)[];
-/** Where a drag is hovering: a slot number, the box in general, or nowhere. */
-type Target = number | 'box' | null;
+/** Where a drag is hovering: a box slot, the box in general, the bag, the cup holder, or nowhere. */
+type Target = number | 'box' | 'bag' | 'cups' | null;
 interface Drag { itemId: string; from: number | null; x: number; y: number }
 
 const EMPTY: Slots = Array(BOX_SIZE).fill(null);
 const BOXABLE = MENU.filter(isBoxable);
+const CUP_WELLS = 4;
 
 function targetAt(x: number, y: number): Target {
   const el = document.elementFromPoint(x, y) as HTMLElement | null;
   const slot = el?.closest<HTMLElement>('[data-slot]');
   if (slot) return Number(slot.dataset.slot);
-  return el?.closest('[data-box]') ? 'box' : null;
+  const zone = el?.closest<HTMLElement>('[data-zone]')?.dataset.zone;
+  return zone === 'box' || zone === 'bag' || zone === 'cups' ? zone : null;
 }
 
-/** Build your dozen: drag donuts from the case into the box, or tap to drop one in the next open spot. */
-export function BoxBuilder({ isSoldOut, onAdd }: { isSoldOut: (id: string) => boolean; onAdd: (box: string[]) => void }) {
+/**
+ * The dozen box and the drag that fills the order tray. The menu and the tray both use it:
+ * items are picked up from the menu and dropped on the box, the bag or the cup holder.
+ * `addLoose` puts one item in the bag or cup holder, which is the ordinary cart.
+ */
+export function useBox(isSoldOut: (id: string) => boolean, addLoose: (id: string) => void) {
   const [slots, setSlots] = useState<Slots>(EMPTY);
   const [drag, setDrag] = useState<Drag | null>(null);
   const [over, setOver] = useState<Target>(null);
-  const [added, setAdded] = useState(false);
   /** A finished drag also fires a click on the element it started on. This swallows that click. */
   const justDragged = useRef(false);
   const cleanup = useRef<(() => void) | null>(null);
   useEffect(() => () => cleanup.current?.(), []);
+  /** Drag handlers outlive the render they started in, so they read the latest box and cart through this. */
+  const live = useRef({ slots, addLoose });
+  live.current = { slots, addLoose };
 
   const filled = slots.filter((s): s is string => s !== null);
-  const full = filled.length === BOX_SIZE;
-  const price = boxPrice(filled, MENU_BY_ID);
 
   const place = (itemId: string, from: number | null, target: Target) => {
-    setAdded(false);
-    setSlots((s) => {
-      const next = [...s];
-      if (from === null) {
-        if (target === null) return s;
+    const next = [...live.current.slots];
+    const onBox = typeof target === 'number' || target === 'box';
+    if (from === null) {
+      if (target === null) return;
+      if (onBox && isBoxable(MENU_BY_ID[itemId])) {
         const idx = typeof target === 'number' ? target : next.indexOf(null);
-        if (idx < 0) return s;
+        if (idx < 0) return;
         next[idx] = itemId;
-      } else if (target === null) {
-        next[from] = null;
-      } else if (typeof target === 'number') {
-        [next[from], next[target]] = [next[target], next[from]];
+      } else {
+        live.current.addLoose(itemId);
+        return;
       }
-      return next;
-    });
+    } else if (typeof target === 'number') {
+      [next[from], next[target]] = [next[target], next[from]];
+    } else if (target === 'box') {
+      return;
+    } else {
+      next[from] = null;
+      if (target !== null) live.current.addLoose(itemId);
+    }
+    setSlots(next);
   };
 
   const startDrag = (e: ReactPointerEvent, itemId: string, from: number | null) => {
@@ -87,127 +99,180 @@ export function BoxBuilder({ isSoldOut, onAdd }: { isSoldOut: (id: string) => bo
     cleanup.current = stop;
   };
 
-  const tap = (fn: () => void) => () => {
-    if (justDragged.current) return;
-    fn();
+  return {
+    slots,
+    filled,
+    full: filled.length === BOX_SIZE,
+    price: boxPrice(filled, MENU_BY_ID),
+    drag,
+    over,
+    place,
+    startDrag,
+    /** Wraps a click handler so the click that ends a drag does nothing. */
+    tap: (fn: () => void) => () => { if (!justDragged.current) fn(); },
+    /** Takes one of this donut out of the box. Returns false if there was none. */
+    removeOne: (itemId: string) => {
+      const idx = live.current.slots.lastIndexOf(itemId);
+      if (idx < 0) return false;
+      setSlots(live.current.slots.map((v, i) => (i === idx ? null : v)));
+      return true;
+    },
+    fillRest: () => {
+      const pool = BOXABLE.filter((m) => !isSoldOut(m.id));
+      if (pool.length === 0) return;
+      setSlots((s) => s.map((v) => v ?? pool[Math.floor(Math.random() * pool.length)].id));
+    },
+    clear: () => setSlots(EMPTY),
   };
+}
 
-  const fillRest = () => {
-    const pool = BOXABLE.filter((m) => !isSoldOut(m.id));
-    if (pool.length === 0) return;
-    setAdded(false);
-    setSlots((s) => s.map((v) => v ?? pool[Math.floor(Math.random() * pool.length)].id));
-  };
+export type Box = ReturnType<typeof useBox>;
 
-  const addToOrder = () => {
-    if (!full) return;
-    onAdd(filled);
-    setSlots(EMPTY);
-    setAdded(true);
-  };
+function Zone({ zone, hot, label, hint, empty, className, children }: { zone: 'bag' | 'cups'; hot: boolean; label: string; hint: string; empty: boolean; className: string; children: ReactNode }) {
+  return (
+    <section data-zone={zone} aria-label={label} className={`flex min-w-0 flex-col rounded-2xl p-2 transition ${hot ? 'ring-4 ring-box-200' : ''} ${className}`}>
+      <h3 className="px-0.5 text-[11px] font-bold uppercase tracking-wider">{label}</h3>
+      <div className="mt-1 flex flex-1 flex-wrap content-center items-center justify-center gap-1.5">
+        {empty ? <p className="px-1 text-center text-[11px] leading-tight opacity-70">{hint}</p> : children}
+      </div>
+    </section>
+  );
+}
+
+/**
+ * The order as the customer would carry it out: a dozen box, a paper bag and a cup holder.
+ * It slides up from the bottom of the menu. The bag and the cup holder show the ordinary cart.
+ */
+export function OrderTray({ box, boxOpen, onOpenBox, onCloseBox, closedBoxes, onAnotherBox, cart, add, count, total, onCheckout }: {
+  box: Box;
+  boxOpen: boolean;
+  onOpenBox: () => void;
+  onCloseBox: () => void;
+  closedBoxes: number;
+  onAnotherBox: () => void;
+  cart: Record<string, number>;
+  add: (id: string, n: number) => void;
+  count: number;
+  total: number;
+  onCheckout: () => void;
+}) {
+  const { slots, filled, full, price, drag, over } = box;
+  const [small, setSmall] = useState(false);
+  const visible = count > 0 || boxOpen;
+  const loose = Object.entries(cart).filter(([, q]) => q > 0).map(([id, q]) => ({ item: MENU_BY_ID[id], qty: q }));
+  const bag = loose.filter((l) => l.item.category !== 'Drinks');
+  const cups = loose.filter((l) => l.item.category === 'Drinks').flatMap((l) => Array<typeof l.item>(l.qty).fill(l.item));
+  const boxHot = drag !== null && (over === 'box' || typeof over === 'number');
 
   return (
-    <section id="box" className="border-b border-slate-200 bg-box-50">
-      <div className="mx-auto max-w-6xl px-5 py-10">
-        <h2 className="font-display text-3xl font-bold tracking-tight text-slate-900">Build your dozen</h2>
-        <p className="mt-1 max-w-xl text-sm text-slate-600">
-          Drag donuts into the box, or tap one to drop it in the next open spot. A dozen is {money(SHOP.dozenBase)}. Specialty donuts add a little extra, shown on each one.
-        </p>
-
-        <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,5fr)_minmax(0,6fr)] lg:items-start">
-          <div>
-            <p className="text-xs font-bold uppercase tracking-widest text-box-700">The case</p>
-            <div className="mt-2 grid grid-cols-5 gap-1.5 sm:gap-3">
-              {BOXABLE.map((item) => {
-                const out = isSoldOut(item.id);
-                return (
-                  <button
-                    key={item.id}
-                    type="button"
-                    disabled={out || full}
-                    onPointerDown={(e) => !out && startDrag(e, item.id, null)}
-                    onClick={tap(() => place(item.id, null, 'box'))}
-                    aria-label={`Add ${item.name} to the box`}
-                    className="group flex touch-none select-none flex-col items-center rounded-2xl border border-box-100 bg-white px-0.5 pb-2 pt-2.5 shadow-sm sm:px-1 sm:pt-3 transition enabled:cursor-grab enabled:hover:-translate-y-0.5 enabled:hover:border-box-400 enabled:hover:shadow-md enabled:active:cursor-grabbing disabled:opacity-45"
-                  >
-                    <span className="block h-10 w-10 sm:h-[52px] sm:w-[52px] [&>svg]:h-full [&>svg]:w-full"><ItemArt item={item} /></span>
-                    <span className="mt-1.5 line-clamp-2 min-h-[2.2em] text-center text-[10px] font-semibold leading-tight text-slate-800 sm:text-xs">{item.name}</span>
-                    <span className={`tabular text-[11px] font-semibold ${out ? 'text-slate-500' : boxUpcharge(item) > 0 ? 'text-box-700' : 'text-emerald-700'}`}>
-                      {out ? 'Sold out' : boxUpcharge(item) > 0 ? `+${money(boxUpcharge(item))}` : 'Included'}
+    <>
+      <div
+        inert={!visible}
+        className={`fixed inset-x-0 bottom-0 z-40 px-2 transition-transform duration-300 ease-out motion-reduce:transition-none ${visible ? 'translate-y-0' : 'translate-y-[110%]'}`}
+      >
+        <div className="mx-auto max-w-5xl rounded-t-[26px] bg-slate-900 p-2.5 text-white shadow-[0_-12px_40px_rgba(11,18,32,0.35)] sm:p-3">
+          {!small && (
+            <div className="mb-2.5 grid grid-cols-2 gap-2 md:grid-cols-[minmax(0,1fr)_200px_150px]">
+              {boxOpen ? (
+                <section data-zone="box" aria-label="Your dozen box" className={`col-span-2 rounded-2xl bg-box-500 p-2 transition md:col-span-1 ${boxHot ? 'ring-4 ring-box-200' : ''}`}>
+                  <div className="flex items-center gap-2 px-0.5 pb-1.5">
+                    <h3 className="whitespace-nowrap text-[11px] font-bold uppercase tracking-wider">Dozen box</h3>
+                    <span className="tabular whitespace-nowrap rounded-full bg-white/20 px-2 py-0.5 text-[11px] font-bold" aria-live="polite">{filled.length} of {BOX_SIZE}</span>
+                    <span className="tabular ml-auto min-w-0 truncate text-[11px] font-semibold text-box-50">
+                      {full
+                        ? `${money(price.cents)}${price.extras > 0 ? ` (${money(price.extras)} specialty)` : ''}`
+                        : filled.length > 0 ? `${BOX_SIZE - filled.length} to go` : `Any twelve for ${money(SHOP.dozenBase)}`}
                     </span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          <div>
-            <div
-              data-box
-              className={`rounded-[28px] bg-box-500 p-3 shadow-xl shadow-box-700/20 transition sm:p-4 ${drag && over !== null ? 'ring-4 ring-box-200' : ''}`}
-            >
-              <div className="flex items-center justify-between px-1 pb-2.5 text-white">
-                <span className="font-display text-lg font-bold">{SHOP.name}</span>
-                <span className="tabular rounded-full bg-white/20 px-3 py-1 text-sm font-bold" aria-live="polite">{filled.length} of {BOX_SIZE}</span>
-              </div>
-              <div className="grid grid-cols-4 gap-2 rounded-2xl bg-[#fff8ef] p-2.5 sm:gap-3 sm:p-4">
-                {slots.map((id, i) => {
-                  const item = id ? MENU_BY_ID[id] : null;
-                  const hot = drag !== null && over === i;
-                  const lifted = drag?.from === i;
-                  return (
-                    <div
-                      key={i}
-                      data-slot={i}
-                      className={`flex aspect-square items-center justify-center rounded-full border-2 border-dashed transition ${hot ? 'scale-105 border-box-500 bg-box-100' : item ? 'border-transparent' : 'border-box-200 bg-white/60'}`}
-                    >
-                      {item && (
-                        <button
-                          key={`${id}-${i}`}
-                          type="button"
-                          onPointerDown={(e) => startDrag(e, item.id, i)}
-                          onClick={tap(() => place(item.id, i, null))}
-                          aria-label={`Remove ${item.name} from the box`}
-                          title="Tap to take it out"
-                          className={`donut-drop flex h-full w-full touch-none select-none items-center justify-center cursor-grab active:cursor-grabbing ${lifted ? 'opacity-25' : ''}`}
+                    {full ? (
+                      <button type="button" onClick={onAnotherBox} className="whitespace-nowrap rounded-full bg-white px-2.5 py-1 text-[11px] font-bold text-box-700 hover:bg-box-50">Start another box</button>
+                    ) : (
+                      <button type="button" onClick={box.fillRest} className="flex items-center gap-1 whitespace-nowrap rounded-full bg-white/15 px-2.5 py-1 text-[11px] font-bold hover:bg-white/25">
+                        <Shuffle size={12} /> {filled.length === 0 ? 'Surprise me' : 'Fill the rest'}
+                      </button>
+                    )}
+                    <button type="button" aria-label="Put the box away" title="Put the box away. Its donuts go in the bag." onClick={onCloseBox} className="rounded-full bg-white/15 p-1 hover:bg-white/25"><X size={14} /></button>
+                  </div>
+                  <div className="grid grid-cols-6 gap-1.5 rounded-xl bg-[#fff8ef] p-1.5 md:grid-cols-12">
+                    {slots.map((id, i) => {
+                      const item = id ? MENU_BY_ID[id] : null;
+                      return (
+                        <div
+                          key={i}
+                          data-slot={i}
+                          className={`flex aspect-square items-center justify-center rounded-full border-2 border-dashed transition ${drag !== null && over === i ? 'scale-105 border-box-500 bg-box-100' : item ? 'border-transparent' : 'border-box-200 bg-white/60'}`}
                         >
-                          <span className="block h-[84%] w-[84%] [&>svg]:h-full [&>svg]:w-full"><ItemArt item={item} /></span>
-                        </button>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
+                          {item && (
+                            <button
+                              key={`${id}-${i}`}
+                              type="button"
+                              onPointerDown={(e) => box.startDrag(e, item.id, i)}
+                              onClick={box.tap(() => box.place(item.id, i, null))}
+                              aria-label={`Remove ${item.name} from the box`}
+                              title="Tap to take it out"
+                              className={`donut-drop flex h-full w-full cursor-grab touch-none select-none items-center justify-center active:cursor-grabbing ${drag?.from === i ? 'opacity-25' : ''}`}
+                            >
+                              <span className="block h-[88%] w-[88%] [&>svg]:h-full [&>svg]:w-full"><ItemArt item={item} /></span>
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </section>
+              ) : (
+                <button type="button" onClick={onOpenBox} className="col-span-2 flex items-center justify-center gap-3 rounded-2xl border-2 border-dashed border-box-400 px-3 py-3 text-left hover:bg-white/5 md:col-span-1">
+                  <span className="grid shrink-0 grid-cols-4 gap-0.5 rounded-md bg-box-500 p-1">
+                    {Array.from({ length: BOX_SIZE }, (_, i) => <span key={i} className="h-2 w-2 rounded-full bg-[#fff8ef]" />)}
+                  </span>
+                  <span>
+                    <span className="block text-sm font-bold">Get a dozen box</span>
+                    <span className="block text-xs text-slate-300">Any twelve donuts for {money(SHOP.dozenBase)}</span>
+                  </span>
+                </button>
+              )}
 
-            <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-3">
-              <div className="min-w-0 basis-full xl:flex-1 xl:basis-auto">
-                {added && filled.length === 0 ? (
-                  <p className="text-sm font-semibold text-emerald-700">Box added to your order. Build another, or check out below.</p>
-                ) : (
-                  <>
-                    <p className="text-sm text-slate-700">
-                      <span className="tabular font-display text-2xl font-bold text-slate-900">{money(SHOP.dozenBase + price.extras)}</span>
-                      {full && price.singles > price.cents && <span className="ml-2 whitespace-nowrap font-semibold text-emerald-700">You save {money(price.singles - price.cents)}</span>}
-                    </p>
-                    <p className="tabular text-xs text-slate-600">
-                      Dozen {money(SHOP.dozenBase)}
-                      {price.extras > 0 && ` + ${money(price.extras)} specialty`}
-                      {!full && ` · ${filled.length === 0 ? 'your box is empty' : `${BOX_SIZE - filled.length} more to fill the box`}`}
-                    </p>
-                  </>
-                )}
-              </div>
-              <button type="button" onClick={fillRest} disabled={full} className="flex items-center gap-1.5 rounded-full border border-box-200 bg-white px-3.5 py-2 text-xs font-bold text-box-700 hover:bg-box-100 disabled:opacity-40">
-                <Shuffle size={14} /> {filled.length === 0 ? 'Surprise me' : 'Fill the rest'}
-              </button>
-              <button type="button" onClick={() => { setSlots(EMPTY); setAdded(false); }} disabled={filled.length === 0} className="flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3.5 py-2 text-xs font-bold text-slate-600 hover:bg-slate-100 disabled:opacity-40">
-                <Trash2 size={14} /> Empty box
-              </button>
-              <button type="button" onClick={addToOrder} disabled={!full} className="w-full rounded-full bg-slate-900 px-6 py-3 text-sm font-bold text-white hover:bg-slate-800 disabled:bg-slate-300 sm:w-auto">
-                Add box to order
-              </button>
+              <Zone zone="bag" hot={drag !== null && over === 'bag'} label="Paper bag" hint="Drop donuts and pastries here" empty={bag.length === 0} className="bg-white text-slate-700 [clip-path:polygon(0_6px,4%_0,8%_6px,12%_0,16%_6px,20%_0,24%_6px,28%_0,32%_6px,36%_0,40%_6px,44%_0,48%_6px,52%_0,56%_6px,60%_0,64%_6px,68%_0,72%_6px,76%_0,80%_6px,84%_0,88%_6px,92%_0,96%_6px,100%_0,100%_100%,0_100%)] pt-3">
+                {bag.map(({ item, qty }) => (
+                  <button key={item.id} type="button" onClick={() => add(item.id, -1)} aria-label={`Take one ${item.name} out of the bag`} title="Tap to take one out" className="donut-drop relative">
+                    <ItemArt item={item} size={34} />
+                    {qty > 1 && <span className="tabular absolute -right-1.5 -top-1 rounded-full bg-slate-900 px-1.5 text-[10px] font-bold text-white">{qty}</span>}
+                  </button>
+                ))}
+              </Zone>
+
+              <Zone zone="cups" hot={drag !== null && over === 'cups'} label="Cup holder" hint="Drinks go here" empty={cups.length === 0} className="bg-slate-200 text-slate-600">
+                <div className="grid grid-cols-4 gap-1 md:grid-cols-2">
+                  {Array.from({ length: CUP_WELLS }, (_, i) => {
+                    const item = cups[i];
+                    const extra = i === CUP_WELLS - 1 && cups.length > CUP_WELLS ? cups.length - CUP_WELLS : 0;
+                    return (
+                      <span key={i} className="relative flex h-9 w-9 items-center justify-center rounded-full bg-slate-300 shadow-inner">
+                        {item && (
+                          <button key={`${item.id}-${i}`} type="button" onClick={() => add(item.id, -1)} aria-label={`Take one ${item.name} out of the cup holder`} title="Tap to take it out" className="donut-drop">
+                            <ItemArt item={item} size={30} />
+                          </button>
+                        )}
+                        {extra > 0 && <span className="tabular absolute -right-1 -top-1 rounded-full bg-slate-900 px-1.5 text-[10px] font-bold text-white">+{extra}</span>}
+                      </span>
+                    );
+                  })}
+                </div>
+              </Zone>
             </div>
+          )}
+
+          <div className="flex items-center gap-2 px-1">
+            <button type="button" onClick={() => setSmall((s) => !s)} aria-label={small ? 'Show your order' : 'Hide your order'} aria-expanded={!small} className="rounded-full bg-white/10 p-2 hover:bg-white/20">
+              {small ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+            </button>
+            <p className="min-w-0 flex-1 text-sm leading-tight">
+              <span className="font-semibold">{count === 0 ? 'Your order is empty' : `${count} item${count === 1 ? '' : 's'}`}</span>
+              {closedBoxes > 0 && <span className="text-slate-300"> · {closedBoxes} dozen box{closedBoxes === 1 ? '' : 'es'} packed</span>}
+            </p>
+            <span className="tabular font-display text-lg font-bold">{money(total)}</span>
+            <button type="button" disabled={count === 0} onClick={onCheckout} className="rounded-full bg-box-500 px-5 py-2.5 text-sm font-bold hover:bg-box-400 disabled:bg-slate-700 disabled:text-slate-400">
+              Check out
+            </button>
           </div>
         </div>
       </div>
@@ -217,6 +282,6 @@ export function BoxBuilder({ isSoldOut, onAdd }: { isSoldOut: (id: string) => bo
           <ItemArt item={MENU_BY_ID[drag.itemId]} size={76} />
         </div>
       )}
-    </section>
+    </>
   );
 }

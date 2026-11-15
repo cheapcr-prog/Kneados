@@ -2,6 +2,7 @@ import { Check, MessageCircle, Send, Sparkles, X } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { adviceText, useBreakAdvice, useTick } from '../../components/Breaks';
 import { useDeliverySettings, useGiftCards, useInvoices } from '../../components/Channels';
+import { useSession } from '../../components/Session';
 import type { Upkeep } from '../../components/Upkeep';
 import type { useWeather } from '../../components/Weather';
 import { PRICE, WHOLESALE, WHOLESALE_BY_ID } from '../../data/channels';
@@ -196,12 +197,14 @@ export function Assistant(props: Sources & { onOpen: (tab: 'Schedule') => void }
     setText('');
   };
   const hour = new Date().getHours();
+  const { staff } = useSession();
+  const who = staff && (staff.role === 'owner' || staff.role === 'manager') ? staff.name.split(' ')[0] : 'Rosa';
 
   return (
     <div className="space-y-4">
       <section className="rounded-2xl bg-ink-900 p-5 text-white">
         <p className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-glaze-300"><Sparkles size={13} /> KneadOS briefing</p>
-        <h2 className="mt-1 font-display text-2xl font-bold tracking-tight">Good {hour < 12 ? 'morning' : hour < 17 ? 'afternoon' : 'evening'}, Rosa. {open.length === 0 ? 'Nothing needs you right now.' : `${open.length} thing${open.length === 1 ? '' : 's'} for you to decide.`}</h2>
+        <h2 className="mt-1 font-display text-2xl font-bold tracking-tight">Good {hour < 12 ? 'morning' : hour < 17 ? 'afternoon' : 'evening'}, {who}. {open.length === 0 ? 'Nothing needs you right now.' : `${open.length} thing${open.length === 1 ? '' : 's'} for you to decide.`}</h2>
         <div className="mt-1.5 max-w-3xl space-y-1 text-sm text-slate-200">{lines.map((l) => <p key={l}>{l}</p>)}</div>
       </section>
 

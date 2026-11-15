@@ -1,11 +1,12 @@
-import { Banknote, Check, ClipboardCheck, CreditCard, Delete, Gift, LogOut, Minus, PackageCheck, Plus, Timer, Trash2, X } from 'lucide-react';
+import { Banknote, Check, ClipboardCheck, CreditCard, Gift, LogOut, Minus, PackageCheck, Plus, Timer, Trash2, X } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { BreakButton, BreakScreen } from '../components/Breaks';
 import { useGiftCards } from '../components/Channels';
 import { ItemArt } from '../components/ItemArt';
 import { ShopTasksPanel, useUpkeep } from '../components/Upkeep';
+import { StaffLogin, useSession } from '../components/Session';
 import { PickupQueue, useTodaysPickups, useWorkload } from '../components/PickupQueue';
-import { MENU, MENU_BY_ID, SHOP, STAFF } from '../data/shop';
+import { MENU, MENU_BY_ID, SHOP } from '../data/shop';
 import { useDemo } from '../data/store';
 import type { Category, StaffMember } from '../data/types';
 import { formatPhone, money } from '../lib/money';
@@ -19,70 +20,12 @@ type Pay = 'card' | 'cash' | 'gift';
 const PAY_LABEL: Record<Pay, string> = { card: 'Card', cash: 'Cash', gift: 'Gift card' };
 
 export function Register() {
-  const [staff, setStaff] = useState<StaffMember | null>(null);
-  if (!staff) return <PinLogin onLogin={setStaff} />;
+  const { staff, signOut } = useSession();
+  if (!staff) return <StaffLogin />;
   return (
     <div className="relative">
-      <Till staff={staff} onLogout={() => setStaff(null)} />
+      <Till staff={staff} onLogout={signOut} />
       <BreakScreen staff={staff} />
-    </div>
-  );
-}
-
-function PinLogin({ onLogin }: { onLogin: (s: StaffMember) => void }) {
-  const [who, setWho] = useState<StaffMember | null>(null);
-  const [pin, setPin] = useState('');
-  const [wrong, setWrong] = useState(false);
-
-  const press = (d: string) => {
-    if (!who) return;
-    const next = (pin + d).slice(0, 4);
-    setPin(next);
-    setWrong(false);
-    if (next.length === 4) {
-      if (next === who.pin) onLogin(who);
-      else { setWrong(true); setPin(''); }
-    }
-  };
-
-  return (
-    <div className="flex min-h-[calc(100vh-48px)] items-center justify-center bg-ink-900 p-4 text-white">
-      <div className="w-full max-w-md">
-        <h1 className="text-center font-display text-3xl font-bold">{SHOP.name}</h1>
-        <p className="mt-1 text-center text-sm text-slate-400">Tap your name, then enter your PIN</p>
-        <div className="mt-6 grid grid-cols-3 gap-2">
-          {STAFF.map((s) => (
-            <button
-              key={s.id}
-              onClick={() => { setWho(s); setPin(''); setWrong(false); }}
-              className={`rounded-xl border px-2 py-3 text-sm font-semibold transition ${who?.id === s.id ? 'border-glaze-400 bg-glaze-400 text-ink-900 [&>span]:text-ink-700' : 'border-white/10 bg-white/5 text-slate-300 hover:bg-white/10'}`}
-            >
-              {s.name}
-              <span className="block text-[11px] font-normal capitalize text-slate-400">{s.role}</span>
-            </button>
-          ))}
-        </div>
-        {who && (
-          <div className="mt-6">
-            <div className="flex justify-center gap-3">
-              {[0, 1, 2, 3].map((i) => (
-                <span key={i} className={`h-4 w-4 rounded-full border-2 ${pin.length > i ? 'border-glaze-400 bg-glaze-400' : wrong ? 'border-rose-400' : 'border-white/30'}`} />
-              ))}
-            </div>
-            <p className="mt-2 h-5 text-center text-xs text-slate-400">
-              {wrong ? <span className="text-rose-300">Wrong PIN, try again</span> : <>Demo PIN for {who.name}: <span className="font-mono text-glaze-300">{who.pin}</span></>}
-            </p>
-            <div className="mx-auto mt-3 grid max-w-[260px] grid-cols-3 gap-2">
-              {['1', '2', '3', '4', '5', '6', '7', '8', '9'].map((d) => (
-                <button key={d} onClick={() => press(d)} className="rounded-xl bg-white/10 py-4 text-xl font-semibold hover:bg-white/20 active:bg-white/30">{d}</button>
-              ))}
-              <span />
-              <button onClick={() => press('0')} className="rounded-xl bg-white/10 py-4 text-xl font-semibold hover:bg-white/20 active:bg-white/30">0</button>
-              <button aria-label="Delete" onClick={() => setPin(pin.slice(0, -1))} className="flex items-center justify-center rounded-xl bg-white/5 py-4 text-slate-300 hover:bg-white/10"><Delete size={20} /></button>
-            </div>
-          </div>
-        )}
-      </div>
     </div>
   );
 }

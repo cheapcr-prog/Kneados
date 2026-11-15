@@ -43,3 +43,7 @@ npm run build   # type-check and build to ./dist
 ```
 
 Stack: React 19, Vite, TypeScript, Tailwind. Hosted on Cloudflare (see `wrangler.jsonc`).
+
+## Photos
+
+Menu photos in `public/menu/` come from [Unsplash](https://unsplash.com) and are used under the [Unsplash License](https://unsplash.com/license), which allows free commercial use. They are placeholders for the demo. A real shop uploads its own photos.

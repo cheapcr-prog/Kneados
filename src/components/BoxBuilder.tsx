@@ -211,7 +211,7 @@ export function OrderTray({ box, boxOpen, onOpenBox, onCloseBox, closedBoxes, on
                               title="Tap to take it out"
                               className={`donut-drop flex h-full w-full cursor-grab touch-none select-none items-center justify-center active:cursor-grabbing ${drag?.from === i ? 'opacity-25' : ''}`}
                             >
-                              <span className="block h-[88%] w-[88%] [&>svg]:h-full [&>svg]:w-full"><ItemArt item={item} /></span>
+                              <span className="block h-[88%] w-[88%] [&>*]:!h-full [&>*]:!w-full"><ItemArt item={item} /></span>
                             </button>
                           )}
                         </div>

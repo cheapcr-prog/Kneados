@@ -1,7 +1,27 @@
+import { useState } from 'react';
 import type { MenuItem } from '../data/types';
 
-/** Draws a menu item from its colors, so the demo needs no stock photos. */
-export function ItemArt({ item, size = 64 }: { item: MenuItem; size?: number }) {
+/** A photo of the menu item from /menu. If the photo is missing, it falls back to a drawing. */
+export function ItemArt({ item, size = 64, shape = 'round' }: { item: MenuItem; size?: number; shape?: 'round' | 'tile' }) {
+  const [broken, setBroken] = useState(false);
+  if (broken) return <ItemDrawing item={item} size={size} />;
+  return (
+    <img
+      src={`/menu/${item.id}.webp`}
+      alt=""
+      width={size}
+      height={size}
+      loading="lazy"
+      draggable={false}
+      onError={() => setBroken(true)}
+      style={{ width: size, height: size }}
+      className={`pointer-events-none shrink-0 select-none object-cover ${shape === 'round' ? 'rounded-full' : 'rounded-xl'}`}
+    />
+  );
+}
+
+/** Draws a menu item from its colors. */
+function ItemDrawing({ item, size = 64 }: { item: MenuItem; size?: number }) {
   if (item.category === 'Drinks') {
     return (
       <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden>

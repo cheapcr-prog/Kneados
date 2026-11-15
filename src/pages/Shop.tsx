@@ -179,7 +179,7 @@ function MenuCard({ item, qty, soldOut, add, box, boxOpen }: { item: MenuItem; q
     <div className={`flex gap-3 rounded-2xl border p-3 ${soldOut ? 'border-slate-200 bg-slate-50 opacity-60' : 'border-slate-200 bg-white'}`}>
       {soldOut ? (
         <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-xl bg-box-50">
-          <ItemArt item={item} size={56} />
+          <ItemArt item={item} size={80} shape="tile" />
         </div>
       ) : (
         <div
@@ -188,7 +188,7 @@ function MenuCard({ item, qty, soldOut, add, box, boxOpen }: { item: MenuItem; q
           title="Drag into your order"
           className="relative flex h-20 w-20 shrink-0 cursor-grab touch-none select-none items-center justify-center rounded-xl bg-box-50 transition hover:-translate-y-0.5 hover:bg-box-100 active:cursor-grabbing"
         >
-          <ItemArt item={item} size={56} />
+          <ItemArt item={item} size={80} shape="tile" />
           <GripVertical size={14} className="absolute right-0.5 top-1 text-box-400" aria-hidden />
         </div>
       )}

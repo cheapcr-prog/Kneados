@@ -3,6 +3,7 @@ import { Route, Routes, useLocation } from 'react-router-dom';
 import { DemoBar } from './components/DemoBar';
 import { SubscriptionSync } from './components/Subscriptions';
 import { Fridays } from './pages/Fridays';
+import { StaffLogin } from './components/Session';
 import { Kitchen } from './pages/Kitchen';
 import { Landing } from './pages/Landing';
 import { Register } from './pages/Register';
@@ -33,6 +34,7 @@ function DemoRoutes() {
         <Routes>
           <Route path="shop" element={<Shop />} />
           <Route path="shop/fridays" element={<Fridays />} />
+          <Route path="login" element={<StaffLogin />} />
           <Route path="register" element={<Register />} />
           <Route path="kitchen" element={<Kitchen />} />
           <Route path="owner" element={<Suspense fallback={<p className="p-6 text-sm text-slate-500">Loading the dashboard…</p>}><Owner /></Suspense>} />

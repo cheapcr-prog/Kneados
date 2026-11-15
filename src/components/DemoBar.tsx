@@ -1,6 +1,7 @@
 import { ChefHat, LayoutDashboard, RotateCcw, ShoppingBag, Tablet } from 'lucide-react';
 import { Link, NavLink } from 'react-router-dom';
 import { useDemo } from '../data/store';
+import { SessionChip } from './Session';
 
 const SCREENS = [
   { to: '/demo/shop', label: 'Shop website', icon: ShoppingBag },
@@ -36,6 +37,7 @@ export function DemoBar() {
             </NavLink>
           ))}
         </nav>
+        <SessionChip />
         <button
           onClick={() => { if (confirm('Reset the demo shop to a fresh shift?')) reset(); }}
           className="flex shrink-0 items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium text-slate-400 hover:bg-white/10 hover:text-white"

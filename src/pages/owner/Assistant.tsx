@@ -33,12 +33,12 @@ import { forecastSales } from './Schedule';
 import { Card, Demo as DemoNote, Pill, btn, field } from './ui';
 
 type Weather = ReturnType<typeof useWeather>;
-interface Sources { demo: Demo; plans: SupplyPlan[]; upkeep: Upkeep; weather: Weather; alerts: number }
+export interface Sources { demo: Demo; plans: SupplyPlan[]; upkeep: Upkeep; weather: Weather; alerts: number }
 
 const isDelivery = (c?: string) => c === 'doordash' || c === 'ubereats' || c === 'grubhub';
 
 /** Reads every part of the shop into one set of plain numbers for the decision engine. */
-function useShopFacts({ demo, plans, upkeep, weather, alerts }: Sources) {
+export function useShopFacts({ demo, plans, upkeep, weather, alerts }: Sources) {
   useTick();
   const { state, history, todayOrders, tomorrow } = demo;
   const today = state.today;

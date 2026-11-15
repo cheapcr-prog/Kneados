@@ -13,7 +13,8 @@
     "run_worker_first": ["/api/*"]
   },
   // The most the briefing chat may spend on Claude in one day, in cents.
-  "vars": { "DAILY_CAP_CENTS": "200" },
+  // The deep review has its own budget: the most it may spend on Claude in one month, in cents.
+  "vars": { "DAILY_CAP_CENTS": "200", "REVIEW_MONTHLY_CAP_CENTS": "500" },
   // Counts the day's spending. The Anthropic key itself is a secret named ANTHROPIC_API_KEY, set in the Cloudflare dashboard.
   "kv_namespaces": [{ "binding": "USAGE", "id": "a343adc5789f4ba1b31b379603e06061" }],
   // Keep settings made in the dashboard, such as the secret, when a new version deploys.

@@ -16,6 +16,7 @@ import { cardCode } from '../lib/wallet';
 import { Link } from 'react-router-dom';
 import { isTipEligible, splitTipPool } from '../lib/tips';
 import { Assistant } from './owner/Assistant';
+import { DeepReview } from './owner/DeepReview';
 import { DeliveryApps, GiftCards, Wholesale } from './owner/Channels';
 import { DrinkBar } from './owner/DrinkBar';
 import { Equipment, ShopTasks } from './owner/Equipment';
@@ -31,7 +32,7 @@ import { Supplies, useAutoPurchasing, useSupplyPlans } from './owner/Supplies';
 
 /** The owner's screens, grouped the way an owner thinks about the shop. */
 const NAV = [
-  { group: 'Shop', tabs: ['Briefing', 'Today', 'Locations', 'Tasks', 'Equipment'] },
+  { group: 'Shop', tabs: ['Briefing', 'Deep review', 'Today', 'Locations', 'Tasks', 'Equipment'] },
   { group: 'Kitchen', tabs: ['Bake plan', 'Drink bar', 'Waste', 'Supplies', 'Labels'] },
   { group: 'Team', tabs: ['Staff & tips', 'Schedule', 'Payroll'] },
   { group: 'Customers', tabs: ['Rewards', 'Gift cards'] },
@@ -89,6 +90,7 @@ export function Owner() {
         </nav>
         <div className="min-w-0 flex-1">
         {tab === 'Briefing' && <Assistant demo={demo} plans={supplyPlans} upkeep={upkeep} weather={weather} alerts={toOrder + upkeep.overdue.length + upkeep.openRepairs.length} onOpen={setTab} />}
+        {tab === 'Deep review' && <DeepReview demo={demo} plans={supplyPlans} upkeep={upkeep} weather={weather} alerts={toOrder + upkeep.overdue.length + upkeep.openRepairs.length} />}
         {tab === 'Today' && <Today demo={demo} />}
         {tab === 'Bake plan' && <BakePlan demo={demo} weather={weather} />}
         {tab === 'Drink bar' && <DrinkBar demo={demo} plans={supplyPlans} onOpen={setTab} />}

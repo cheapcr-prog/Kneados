@@ -117,6 +117,12 @@ export interface RewardsMember {
   rewards: number;
   visits: number;
   joined: string;
+  /** The day of the last visit. */
+  lastVisit?: string;
+  /** Month and day, like 11-22. Members give it when they join. */
+  birthday?: string;
+  /** The menu item they order most. */
+  favorite?: string;
 }
 
 export interface BakeProgress {

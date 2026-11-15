@@ -1,4 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
+import { DRAFTS_PER_VISITOR, DRAFT_MAX_TOKENS, DRAFT_MODEL, DRAFT_SCHEMA, DRAFT_SYSTEM, draftMessage, parseDraft, parseDraftBody } from './draft';
 import { DEFAULT_REVIEW_MONTHLY_CAP_CENTS, REVIEW_LOCK_SECONDS, REVIEW_MAX_BODY_BYTES, REVIEW_MAX_TOKENS, REVIEW_MODEL, REVIEW_RESERVE_MICROS, REVIEW_SCHEMA, REVIEW_SYSTEM, budgetMonth, parseReview, parseReviewBody, reviewBlock, reviewMessage, type ReviewError, type ReviewEvent, type ReviewStatus, type SavedReview } from './review';
 import { DEFAULT_DAILY_CAP_CENTS, MAX_BODY_BYTES, MAX_OUTPUT_TOKENS, MODEL, OUTPUT_SCHEMA, QUESTIONS_PER_VISITOR, SYSTEM, budgetDay, costMicros, parseBody, parseReply, userMessage, type AskError, type AskReply, type Usage } from './ask';
 
@@ -45,7 +46,7 @@ const callClaude: CallModel = async (apiKey, user) => {
   });
 };
 
-const json = (body: AskReply | ReviewStatus | { error: AskError | ReviewError } | { ready: boolean }, status = 200) =>
+const json = (body: AskReply | ReviewStatus | { text: string } | { error: AskError | ReviewError } | { ready: boolean }, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json', 'cache-control': 'no-store' } });
 
 const DAY = 60 * 60 * 24;
@@ -90,6 +91,56 @@ export async function handleAsk(request: Request, env: Env, call: CallModel = ca
   // A reply cut off at the length limit is not valid JSON, so it lands here too.
   if (!reply) return json({ error: 'busy' }, 502);
   return json(reply);
+}
+
+/** Rewrites one customer text. Swapped for a stand-in by the tests. */
+const callDraft: CallModel = async (apiKey, user) => {
+  const client = new Anthropic({ apiKey, maxRetries: 1, timeout: 20_000 });
+  return client.messages.create({
+    model: DRAFT_MODEL,
+    max_tokens: DRAFT_MAX_TOKENS,
+    system: DRAFT_SYSTEM,
+    output_config: { effort: 'low', format: { type: 'json_schema', schema: DRAFT_SCHEMA } },
+    messages: [{ role: 'user', content: user }],
+  });
+};
+
+/** POST rewrites a customer text. It shares the chat's daily budget and has its own count per visitor. */
+export async function handleDraft(request: Request, env: Env, call: CallModel = callDraft, now = new Date()): Promise<Response> {
+  const ready = !!env.ANTHROPIC_API_KEY && !!env.USAGE;
+  if (request.method === 'GET') return json({ ready });
+  if (request.method !== 'POST') return json({ error: 'bad' }, 405);
+  const origin = request.headers.get('origin');
+  if (!origin || new URL(origin).host !== new URL(request.url).host) return json({ error: 'bad' }, 403);
+  if (!ready) return json({ error: 'off' }, 503);
+  const body = parseDraftBody(await request.text());
+  if (!body) return json({ error: 'bad' }, 400);
+
+  const usage = env.USAGE!;
+  const day = budgetDay(now);
+  const capMicros = Math.max(0, Number(env.DAILY_CAP_CENTS ?? DEFAULT_DAILY_CAP_CENTS) || 0) * 10_000;
+  const spendKey = `spend:${day}`;
+  const visitorKey = `drafts:${day}:${request.headers.get('cf-connecting-ip') ?? 'unknown'}`;
+  const [spent, asked] = (await Promise.all([usage.get(spendKey), usage.get(visitorKey)])).map((v) => Number(v ?? 0) || 0);
+  if (spent >= capMicros) return json({ error: 'capped' }, 429);
+  if (asked >= DRAFTS_PER_VISITOR) return json({ error: 'limit' }, 429);
+  await usage.put(visitorKey, String(asked + 1), { expirationTtl: 2 * DAY });
+
+  let result: ModelResult;
+  try {
+    result = await call(env.ANTHROPIC_API_KEY!, draftMessage(body));
+  } catch (error) {
+    if (error instanceof Anthropic.APIError) console.error('Draft request failed', error.status, error.message);
+    else console.error('Draft request failed', error);
+    return json({ error: 'busy' }, 502);
+  }
+  const latest = Number((await usage.get(spendKey)) ?? 0) || 0;
+  await usage.put(spendKey, String(latest + costMicros(result.usage, DRAFT_MODEL)), { expirationTtl: 40 * DAY });
+  if (result.stop_reason === 'refusal') return json({ error: 'refused' }, 200);
+  const raw = result.content.find((b) => b.type === 'text')?.text;
+  const text = raw ? parseDraft(raw) : null;
+  if (!text) return json({ error: 'busy' }, 502);
+  return json({ text });
 }
 
 /** Writes the deep review. Reports how much has been written so far, so the page can show progress. Swapped for a stand-in by the tests. */
@@ -199,6 +250,7 @@ export default {
     const { pathname } = new URL(request.url);
     if (pathname === '/api/ask') return handleAsk(request, env);
     if (pathname === '/api/review') return handleReview(request, env, ctx);
+    if (pathname === '/api/draft') return handleDraft(request, env);
     if (pathname.startsWith('/api/')) return json({ error: 'bad' }, 404);
     return env.ASSETS.fetch(request);
   },

@@ -17,6 +17,7 @@ import { Link } from 'react-router-dom';
 import { isTipEligible, splitTipPool } from '../lib/tips';
 import { Assistant } from './owner/Assistant';
 import { DeepReview } from './owner/DeepReview';
+import { Campaigns } from './owner/Campaigns';
 import { DeliveryApps, GiftCards, Wholesale } from './owner/Channels';
 import { DrinkBar } from './owner/DrinkBar';
 import { Equipment, ShopTasks } from './owner/Equipment';
@@ -35,7 +36,7 @@ const NAV = [
   { group: 'Shop', tabs: ['Briefing', 'Deep review', 'Today', 'Locations', 'Tasks', 'Equipment'] },
   { group: 'Kitchen', tabs: ['Bake plan', 'Drink bar', 'Waste', 'Supplies', 'Labels'] },
   { group: 'Team', tabs: ['Staff & tips', 'Schedule', 'Payroll'] },
-  { group: 'Customers', tabs: ['Rewards', 'Gift cards'] },
+  { group: 'Customers', tabs: ['Rewards', 'Customer texts', 'Gift cards'] },
   { group: 'Sales channels', tabs: ['Delivery apps', 'Wholesale', 'Subscriptions', 'Delivery route'] },
   { group: 'Growth', tabs: ['Pricing', 'Menu insights'] },
   { group: 'Money', tabs: ['Reports', 'Profit & loss', 'Accounting'] },
@@ -97,6 +98,7 @@ export function Owner() {
         {tab === 'Supplies' && <Supplies demo={demo} plans={supplyPlans} />}
         {tab === 'Staff & tips' && <StaffTips demo={demo} />}
         {tab === 'Rewards' && <Rewards demo={demo} />}
+        {tab === 'Customer texts' && <Campaigns demo={demo} />}
         {tab === 'Gift cards' && <GiftCards demo={demo} />}
         {tab === 'Delivery apps' && <DeliveryApps demo={demo} />}
         {tab === 'Subscriptions' && <Subscriptions demo={demo} onOpen={setTab} />}

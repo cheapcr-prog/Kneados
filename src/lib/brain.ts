@@ -4,7 +4,7 @@
  * Nothing here guesses a figure: it only decides what is worth the owner's attention and words it.
  */
 
-export type Area = 'Counter' | 'Bake plan' | 'Supplies' | 'Team' | 'Equipment' | 'Tasks' | 'Waste' | 'Prices' | 'Wholesale' | 'Delivery' | 'Locations';
+export type Area = 'Counter' | 'Bake plan' | 'Supplies' | 'Team' | 'Equipment' | 'Tasks' | 'Waste' | 'Prices' | 'Wholesale' | 'Delivery' | 'Locations' | 'Customers';
 export type Urgency = 'now' | 'today' | 'week';
 
 export interface Decision {
@@ -42,6 +42,8 @@ export interface ShopFacts {
   /** End-of-day markdown: whether the rule is on, when it starts, and what it would cover with the rack as it is. */
   pricing?: { markdownOn: boolean; markdownPct: number; startsAt: string; closingSoon: boolean; extras: { name: string; extra: number; toCents: number }[]; recoverCents: number; changedNow: number };
   /** Menu items that need a change, worst first, with the advice worked out by menu insights. */
+  /** Customer texts that are due, by campaign, and whether each sends on its own. */
+  customers?: { members: number; texts: { kind: string; title: string; due: number; names: string[]; auto: boolean; offer: string }[]; sentLast30Days: number };
   menu?: { attention: { id: string; name: string; verdict: string; advice: string; monthlyCents?: number }[] };
 }
 
@@ -155,6 +157,18 @@ export function decide(f: ShopFacts): Decision[] {
       title: `Mark down ${top.extra} extra ${top.name} to ${usd(top.toCents)} at ${pr.startsAt}${pr.extras.length > 1 ? ` and ${plural(pr.extras.length - 1, 'other donut')}` : ''}`,
       why: `${list(pr.extras.slice(0, 4).map((e) => `${e.extra} ${e.name}`))} ${pr.extras.length === 1 && pr.extras[0].extra === 1 ? 'is' : 'are'} on the rack beyond what is still expected to sell today. At ${pct(pr.markdownPct)} off they bring in up to ${usd(pr.recoverCents)} instead of going to the day-old rack or the bin.`,
       impactCents: pr.recoverCents, per: 'today', action: 'Turn on the markdown', then: `The register and the shop website drop those prices at ${pr.startsAt} on their own, today and every day.`,
+    });
+  }
+  for (const t of f.customers?.texts ?? []) {
+    if (t.due === 0 || t.auto) continue;
+    out.push({
+      id: `texts:${t.kind}`, area: 'Customers', urgency: t.kind === 'review' || t.kind === 'birthday' ? 'today' : 'week',
+      title: t.kind === 'winback' ? `Text ${plural(t.due, 'regular')} who ${t.due === 1 ? 'has' : 'have'} stopped coming in`
+        : t.kind === 'birthday' ? `Send ${plural(t.due, 'birthday text')}`
+        : t.kind === 'review' ? `Ask ${plural(t.due, 'regular')} for a Google review`
+        : `Text ${plural(t.due, 'member')} about ${t.title}`,
+      why: `${list(t.names.slice(0, 4))}${t.due > 4 ? ` and ${t.due - 4} more` : ''} ${t.due === 1 ? 'is' : 'are'} due. ${t.offer}`,
+      action: `Send ${plural(t.due, 'text')}`, then: 'The texts go out with the wording on the Customer texts screen, and each person is not texted about this again.',
     });
   }
   // The waste decision already covers the worst item for leftovers, so this picks a different one.

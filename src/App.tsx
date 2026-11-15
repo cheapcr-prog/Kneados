@@ -1,6 +1,8 @@
 import { lazy, Suspense, useEffect } from 'react';
 import { Route, Routes, useLocation } from 'react-router-dom';
 import { DemoBar } from './components/DemoBar';
+import { SubscriptionSync } from './components/Subscriptions';
+import { Fridays } from './pages/Fridays';
 import { Kitchen } from './pages/Kitchen';
 import { Landing } from './pages/Landing';
 import { Register } from './pages/Register';
@@ -26,9 +28,11 @@ function DemoRoutes() {
   return (
     <div className="flex min-h-full flex-col">
       <DemoBar />
+      <SubscriptionSync />
       <div className="flex-1">
         <Routes>
           <Route path="shop" element={<Shop />} />
+          <Route path="shop/fridays" element={<Fridays />} />
           <Route path="register" element={<Register />} />
           <Route path="kitchen" element={<Kitchen />} />
           <Route path="owner" element={<Suspense fallback={<p className="p-6 text-sm text-slate-500">Loading the dashboard…</p>}><Owner /></Suspense>} />

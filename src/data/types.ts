@@ -76,7 +76,7 @@ export interface Order {
   payment: 'card' | 'cash' | 'online' | 'gift' | 'invoice' | 'app';
   status: OrderStatus;
   /** Set when the order did not come from the counter or the shop's own site. */
-  channel?: 'doordash' | 'ubereats' | 'grubhub' | 'wholesale' | 'catering';
+  channel?: 'doordash' | 'ubereats' | 'grubhub' | 'wholesale' | 'catering' | 'subscription';
   /** Commission the delivery app keeps, in cents. */
   feeCents?: number;
   /** Part of the total paid with a gift card, in cents. */

@@ -1,4 +1,5 @@
 import { Check, Clock, GripVertical, MapPin, Minus, Phone, Plus, Trash2, X } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { useMemo, useState } from 'react';
 import { OrderTray, useBox } from '../components/BoxBuilder';
 import type { Box } from '../components/BoxBuilder';
@@ -102,6 +103,9 @@ export function Shop() {
             <button type="button" onClick={openBox} className="inline-flex rounded-full border border-white/50 px-6 py-3 text-sm font-bold text-white hover:bg-white/10">
               Build your dozen
             </button>
+            <Link to="/demo/shop/fridays" className="inline-flex rounded-full border border-white/50 px-6 py-3 text-sm font-bold text-white hover:bg-white/10">
+              Donut Fridays for your office
+            </Link>
           </div>
         </div>
       </header>

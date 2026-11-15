@@ -53,6 +53,7 @@ interface DemoState {
 type Action =
   | { type: 'addOrder'; order: Order; text?: SentText }
   | { type: 'setStatus'; id: string; status: OrderStatus; text?: SentText }
+  | { type: 'syncOrders'; prefix: string; orders: Order[] }
   | { type: 'bumpMade'; itemId: string; delta: number }
   | { type: 'toggleSoldOut'; itemId: string }
   | { type: 'setMembers'; members: RewardsMember[]; text?: SentText }
@@ -70,6 +71,8 @@ function reducer(state: DemoState, a: Action): DemoState {
       return { ...state, orders: [...state.orders, a.order], nextNumber: state.nextNumber + 1, texts: a.text ? [a.text, ...state.texts] : state.texts };
     case 'setStatus':
       return { ...state, orders: state.orders.map((o) => (o.id === a.id ? { ...o, status: a.status } : o)), texts: a.text ? [a.text, ...state.texts] : state.texts };
+    case 'syncOrders':
+      return { ...state, orders: [...state.orders.filter((o) => !o.id.startsWith(a.prefix)), ...a.orders] };
     case 'bumpMade': {
       const cur = state.bake[a.itemId] ?? { made: 0, soldOut: false };
       return { ...state, bake: { ...state.bake, [a.itemId]: { ...cur, made: Math.max(0, cur.made + a.delta) } } };
@@ -226,6 +229,8 @@ export interface Demo {
   /** Saves a purchase order. A new one gets the next PO number. */
   savePO: (po: PurchaseOrder) => void;
   updateSupplier: (name: string, patch: Partial<Supplier>) => void;
+  /** Replaces every order whose id starts with `prefix`, e.g. the standing orders that subscriptions create. */
+  syncOrders: (prefix: string, orders: Order[]) => void;
   setRain: (rain: boolean) => void;
   setTipping: (on: boolean) => void;
   reset: () => void;
@@ -247,6 +252,7 @@ export function DemoProvider({ children }: { children: ReactNode }) {
   const history = useMemo(() => buildHistory(state.today), [state.today]);
   const seeded = useMemo(() => buildTodayOrders(state.today, new Date()), [state.today]);
 
+  const syncOrders = useCallback((prefix: string, orders: Order[]) => dispatch({ type: 'syncOrders', prefix, orders }), []);
   const setRain = useCallback((rain: boolean) => dispatch({ type: 'setRain', rain }), []);
 
   const demo = useMemo<Demo>(() => {
@@ -321,11 +327,11 @@ export function DemoProvider({ children }: { children: ReactNode }) {
       suppliers: SUPPLIERS.map((x) => ({ ...x, ...state.suppliers[x.name] })),
       savePO: (po) => dispatch({ type: 'savePO', po }),
       updateSupplier: (name, patch) => dispatch({ type: 'setSupplier', name, patch }),
-      setRain,
+      setRain, syncOrders,
       setTipping: (on) => dispatch({ type: 'setTipping', on }),
       reset: () => { clearShopState(); dispatch({ type: 'reset', state: freshState(new Date()) }); },
     };
-  }, [state, history, seeded, setRain]);
+  }, [state, history, seeded, setRain, syncOrders]);
 
   return <Ctx.Provider value={demo}>{children}</Ctx.Provider>;
 }

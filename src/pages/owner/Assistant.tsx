@@ -1,5 +1,6 @@
 import { Check, MessageCircle, Send, Sparkles, X } from 'lucide-react';
 import { useMemo, useState } from 'react';
+import { FALLBACK_NOTE, askServer, useClaudeReady } from '../../components/Ask';
 import { adviceText, useBreakAdvice, useTick } from '../../components/Breaks';
 import { useDeliverySettings, useGiftCards, useInvoices } from '../../components/Channels';
 import { useSession } from '../../components/Session';
@@ -177,8 +178,9 @@ export function Assistant(props: Sources & { onOpen: (tab: 'Schedule') => void }
   const { demo } = props;
   const { facts, apply } = useShopFacts(props);
   const [log, setLog] = useShopState<Logged[]>(`decisions-${demo.state.today}`, () => []);
-  const [chat, setChat] = useState<{ q: string; a: Answer }[]>([]);
+  const [chat, setChat] = useState<{ q: string; a?: Answer; by?: 'claude' | 'rules'; note?: string }[]>([]);
   const [text, setText] = useState('');
+  const claude = useClaudeReady();
 
   const handled = new Set(log.map((l) => l.id));
   const all = decide(facts);
@@ -191,10 +193,24 @@ export function Assistant(props: Sources & { onOpen: (tab: 'Schedule') => void }
     }
     setLog((l) => [{ id: d.id, title: d.title, then: d.then, at: new Date().toISOString(), approved }, ...l]);
   };
-  const ask = (q: string) => {
-    if (!q.trim()) return;
-    setChat((c) => [...c, { q: q.trim(), a: answer(q, facts, open) }]);
+  const waiting = chat.some((m) => !m.a);
+  const ask = async (raw: string) => {
+    const q = raw.trim().slice(0, 400);
+    if (!q || waiting) return;
     setText('');
+    const rules = answer(q, facts, open);
+    if (!claude) {
+      setChat((c) => [...c, { q, a: rules, by: 'rules' }]);
+      return;
+    }
+    const at = chat.length;
+    const history = chat.flatMap((m) => (m.a ? [{ q: m.q, a: m.a.text }] : []));
+    setChat((c) => [...c, { q }]);
+    const r = await askServer(q, facts, open, history);
+    const done = r.ok
+      ? { q, a: { text: r.text, decisions: open.filter((d) => r.decisionIds.includes(d.id)) }, by: 'claude' as const }
+      : { q, a: rules, by: 'rules' as const, note: FALLBACK_NOTE[r.why] };
+    setChat((c) => c.map((m, i) => (i === at ? done : m)));
   };
   const hour = new Date().getHours();
   const { staff } = useSession();
@@ -227,33 +243,36 @@ export function Assistant(props: Sources & { onOpen: (tab: 'Schedule') => void }
           )}
         </div>
 
-        <Card title="Ask KneadOS" note="Ask about anything in the shop. Answers come from today's numbers." className="self-start">
+        <Card title="Ask KneadOS" note={claude ? "Ask about anything in the shop. Claude answers from today's numbers." : "Ask about anything in the shop. Answers come from today's numbers."} className="self-start">
           <div className="space-y-3">
             {chat.length === 0 && <p className="flex items-start gap-2 rounded-xl bg-slate-50 p-3 text-sm text-slate-600"><MessageCircle size={16} className="mt-0.5 shrink-0 text-glaze-600" /> Try one of these, or type your own question.</p>}
             {chat.map((m, i) => (
               <div key={i} className="space-y-1.5">
                 <p className="ml-auto w-fit max-w-[85%] rounded-2xl rounded-br-md bg-ink-900 px-3 py-2 text-sm text-white">{m.q}</p>
+                {!m.a ? <p className="w-fit animate-pulse rounded-2xl rounded-bl-md bg-slate-100 px-3 py-2 text-sm text-slate-500" role="status">Reading the shop's numbers...</p> : (
                 <div className="w-fit max-w-[92%] rounded-2xl rounded-bl-md bg-slate-100 px-3 py-2 text-sm text-slate-800">
-                  <p>{m.a.text}</p>
+                  <p className="whitespace-pre-line">{m.a.text}</p>
+                  {claude && <p className="mt-1.5 flex items-center gap-1 text-[11px] font-semibold text-slate-500">{m.by === 'claude' ? <><Sparkles size={11} className="text-glaze-600" /> Answered by Claude</> : m.note || 'Answered by the built-in rules'}</p>}
                   {m.a.decisions.filter((d) => !handled.has(d.id)).map((d) => (
                     <button key={d.id} onClick={() => settle(d, true)} className="mt-2 flex w-full items-center gap-1.5 rounded-xl bg-white px-2.5 py-1.5 text-left text-xs font-bold text-slate-800 ring-1 ring-slate-200 hover:bg-glaze-50">
                       <Check size={13} className="shrink-0 text-emerald-600" /> {d.action}: {d.title}
                     </button>
                   ))}
                 </div>
+                )}
               </div>
             ))}
             <div className="flex flex-wrap gap-1.5">
               {SUGGESTED.map((s) => <button key={s} onClick={() => ask(s)} className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-200">{s}</button>)}
             </div>
             <form className="flex gap-2" onSubmit={(e) => { e.preventDefault(); ask(text); }}>
-              <input className={field} value={text} onChange={(e) => setText(e.target.value)} placeholder="Ask about sales, staff, supplies, money..." aria-label="Ask KneadOS a question" />
-              <button className={btn.dark} aria-label="Ask"><Send size={15} /></button>
+              <input className={field} value={text} onChange={(e) => setText(e.target.value)} maxLength={400} placeholder="Ask about sales, staff, supplies, money..." aria-label="Ask KneadOS a question" />
+              <button className={btn.dark} aria-label="Ask" disabled={waiting}><Send size={15} /></button>
             </form>
           </div>
         </Card>
       </div>
-      <DemoNote>Demo: every figure here is worked out from the shop's own data by KneadOS, never made up by a language model. Today the choice of what to say is rule-based. Approving sends purchase orders, books repairs, moves trays and changes app prices inside the demo. The other approvals are recorded here, and nothing is emailed or texted.</DemoNote>
+      <DemoNote>Demo: every figure in the briefing and the decisions is worked out from the shop's own data by KneadOS, and what to raise is rule-based. {claude ? "In the chat, Claude reads those same figures and answers in its own words. It is told to use only those figures, but check anything important before you act on it. Questions and the shop's figures are sent to Anthropic to be answered." : 'The chat answers from built-in rules.'} Approving sends purchase orders, books repairs, moves trays and changes app prices inside the demo. The other approvals are recorded here, and nothing is emailed or texted.</DemoNote>
     </div>
   );
 }

@@ -4,7 +4,7 @@
  * Nothing here guesses a figure: it only decides what is worth the owner's attention and words it.
  */
 
-export type Area = 'Counter' | 'Bake plan' | 'Supplies' | 'Team' | 'Equipment' | 'Tasks' | 'Waste' | 'Prices' | 'Wholesale' | 'Delivery' | 'Locations' | 'Customers';
+export type Area = 'Counter' | 'Bake plan' | 'Supplies' | 'Team' | 'Equipment' | 'Tasks' | 'Waste' | 'Prices' | 'Wholesale' | 'Delivery' | 'Locations' | 'Customers' | 'Health';
 export type Urgency = 'now' | 'today' | 'week';
 
 export interface Decision {
@@ -42,6 +42,8 @@ export interface ShopFacts {
   /** End-of-day markdown: whether the rule is on, when it starts, and what it would cover with the rack as it is. */
   pricing?: { markdownOn: boolean; markdownPct: number; startsAt: string; closingSoon: boolean; extras: { name: string; extra: number; toCents: number }[]; recoverCents: number; changedNow: number };
   /** Menu items that need a change, worst first, with the advice worked out by menu insights. */
+  /** Health department readiness: the score, what counts against it, and what is coming up. */
+  health?: { city: string; score: number; issues: { title: string; detail: string; major: boolean }[]; comingUp: { title: string; detail: string }[] };
   /** Customer texts that are due, by campaign, and whether each sends on its own. */
   customers?: { members: number; texts: { kind: string; title: string; due: number; names: string[]; auto: boolean; offer: string }[]; sentLast30Days: number };
   menu?: { attention: { id: string; name: string; verdict: string; advice: string; monthlyCents?: number }[] };
@@ -159,6 +161,25 @@ export function decide(f: ShopFacts): Decision[] {
       impactCents: pr.recoverCents, per: 'today', action: 'Turn on the markdown', then: `The register and the shop website drop those prices at ${pr.startsAt} on their own, today and every day.`,
     });
   }
+  const hl = f.health;
+  if (hl && hl.issues.length > 0) {
+    const serious = hl.issues.filter((i) => i.major).length;
+    out.push({
+      id: 'health', area: 'Health', urgency: serious > 0 ? 'now' : 'today',
+      title: `Fix ${plural(hl.issues.length, 'health department item')} before an inspector walks in`,
+      why: `${hl.issues.slice(0, 3).map((i) => `${i.title}: ${i.detail.replace(/\.$/, '')}.`).join(' ')}${hl.issues.length > 3 ? ` And ${hl.issues.length - 3} more.` : ''} The shop's ready score is ${hl.score} out of 100.`,
+      action: 'Open Health & safety', then: 'The checks are also on the register and kitchen task lists for whoever is on the floor.',
+    });
+  }
+  const renew = hl?.comingUp.filter((c) => /card|permit|certificate/i.test(c.title)) ?? [];
+  if (renew.length > 0) {
+    out.push({
+      id: 'health:papers', area: 'Health', urgency: 'week', title: `Renew ${plural(renew.length, 'card or permit', 'cards and permits')} before ${renew.length === 1 ? 'it runs' : 'they run'} out`,
+      why: renew.slice(0, 4).map((c) => `${c.title}: ${c.detail}.`).join(' '),
+      action: 'Open Health & safety', then: 'Each one is marked renewed there once the new card or permit is in hand.',
+    });
+  }
+
   for (const t of f.customers?.texts ?? []) {
     if (t.due === 0 || t.auto) continue;
     out.push({
@@ -260,6 +281,10 @@ const TOPICS: Topic[] = [
     say: (f) => `${plural(f.team.onClock, 'person', 'people')} on the clock. ${f.team.breaks.length > 0 ? f.team.breaks.join(' ') : 'Nobody is due a break right now.'} Next week's labor is planned at ${pct(f.team.laborShareNextWeek)} of forecast sales against a goal of ${pct(f.team.laborTargetHigh)}.${f.team.scheduleNotes.length > 0 ? ` ${f.team.scheduleNotes[0]}` : ''}` },
   { words: ['equipment', 'repair', 'broken', 'fryer', 'machine', 'service', 'task', 'clean'], areas: ['Equipment', 'Tasks'],
     say: (f) => `${f.equipment.openRepairs.length === 0 ? 'No open repairs.' : `${plural(f.equipment.openRepairs.length, 'open repair')}: ${f.equipment.openRepairs.map((r) => `${r.name} (${r.problem.replace(/\.$/, '')})`).join(', ')}.`} ${f.equipment.serviceOverdue.length > 0 ? `Service is overdue on the ${list(f.equipment.serviceOverdue.map((n) => n.toLowerCase()))}.` : ''} ${f.tasks.overdue.length > 0 ? `${plural(f.tasks.overdue.length, 'task')} overdue.` : 'No tasks overdue.'}`.replace(/\s+/g, ' ').trim() },
+  { words: ['health', 'inspect', 'inspector', 'compliance', 'temperature', 'sanitizer', 'permit', 'food handler', 'card', 'grease', 'pest'], areas: ['Health'],
+    say: (f) => (f.health
+      ? `The shop's health inspection ready score is ${f.health.score} out of 100 under the ${f.health.city} rules. ${f.health.issues.length === 0 ? 'Nothing is overdue.' : `${plural(f.health.issues.length, 'item')} need fixing: ${f.health.issues.slice(0, 3).map((i) => `${i.title} (${i.detail.replace(/\.$/, '')})`).join('; ')}.`}${f.health.comingUp.length > 0 ? ` Coming up: ${f.health.comingUp.slice(0, 2).map((c) => c.title).join('; ')}.` : ''}`
+      : 'KneadOS is not tracking health checks for this shop yet.') },
   { words: ['wholesale', 'invoice', 'account', 'owe', 'catering', 'paid'], areas: ['Wholesale'],
     say: (f) => `${f.wholesale.accounts} wholesale accounts bring in about ${usd0(f.wholesale.weeklyCents)} a week. ${usd(f.wholesale.unpaidCents)} is waiting to be paid.${f.wholesale.overdue.length > 0 ? ` Past due: ${f.wholesale.overdue.map((o) => `${o.account}, ${usd(o.cents)}, ${plural(o.daysLate, 'day')} late`).join('; ')}.` : ' Nothing is past due.'}` },
   { words: ['delivery', 'doordash', 'uber', 'grubhub', 'app', 'commission'], areas: ['Delivery'],

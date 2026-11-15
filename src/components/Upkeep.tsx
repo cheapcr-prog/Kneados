@@ -1,5 +1,6 @@
 import { AlertTriangle, Check, Wrench } from 'lucide-react';
 import { useState } from 'react';
+import { HealthChecksPanel } from './Health';
 import { useShopState } from '../data/local';
 import { STAFF, STAFF_BY_ID } from '../data/shop';
 import { useDemo } from '../data/store';
@@ -125,6 +126,7 @@ export function ShopTasksPanel({ me }: { me: string }) {
           <ul className="divide-y divide-slate-100">{done.map((s) => <TaskRow key={s.task.id} s={s} up={up} me={me} />)}</ul>
         </section>
       )}
+      <HealthChecksPanel me={me} />
       <section className="rounded-2xl border border-slate-200 p-3">
         <h3 className="mb-2 flex items-center gap-1.5 text-sm font-bold text-slate-900"><Wrench size={15} /> Something broken?</h3>
         <ReportProblem up={up} by={me} />

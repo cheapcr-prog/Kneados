@@ -1,13 +1,11 @@
 import { addDays } from '../lib/dates';
 import type { Equipment, Repair, ShopTask, TaskDone } from '../lib/upkeep';
 
-/** The demo shop's upkeep list. Example tasks and intervals: a real shop follows its own health department and equipment manuals. */
+/** The demo shop's upkeep list. Example tasks and intervals. Temperature, sanitizer and other health department checks live in the health rule pack (data/compliance.ts). */
 export const TASKS: ShopTask[] = [
   { id: 'open-coffee', name: 'Brew coffee and stock the cup station', area: 'Opening', everyDays: 1, group: 'counter', minutes: 10 },
   { id: 'open-case', name: 'Fill and label the display case', area: 'Opening', everyDays: 1, group: 'counter', minutes: 15 },
   { id: 'open-till', name: 'Count the cash drawer', area: 'Opening', everyDays: 1, group: 'counter', minutes: 5 },
-  { id: 'temps', name: 'Log fridge and milk temperatures', area: 'Safety', everyDays: 1, group: 'counter', minutes: 3 },
-  { id: 'sanitizer', name: 'Test the sanitizer buckets', area: 'Safety', everyDays: 1, group: 'kitchen', minutes: 3 },
   { id: 'oil-filter', name: 'Filter the fryer oil', area: 'Cleaning', everyDays: 1, group: 'kitchen', minutes: 20 },
   { id: 'oil-change', name: 'Change the fryer oil', area: 'Cleaning', everyDays: 7, group: 'kitchen', minutes: 45 },
   { id: 'glazer', name: 'Break down and wash the glazing table', area: 'Closing', everyDays: 1, group: 'kitchen', minutes: 20 },
@@ -16,7 +14,6 @@ export const TASKS: ShopTask[] = [
   { id: 'espresso', name: 'Backflush the espresso machine', area: 'Cleaning', everyDays: 1, group: 'counter', minutes: 8 },
   { id: 'proofer', name: 'Deep clean the proofer', area: 'Cleaning', everyDays: 7, group: 'kitchen', minutes: 30 },
   { id: 'hood', name: 'Clean the hood filters', area: 'Cleaning', everyDays: 14, group: 'kitchen', minutes: 30 },
-  { id: 'grease-trap', name: 'Check the grease trap', area: 'Safety', everyDays: 30, group: 'kitchen', minutes: 15 },
   { id: 'ice', name: 'Clean and sanitize the ice bin', area: 'Cleaning', everyDays: 7, group: 'counter', minutes: 20 },
   { id: 'windows', name: 'Wash the front windows', area: 'Cleaning', everyDays: 7, group: 'counter', minutes: 15 },
 ];
@@ -28,12 +25,11 @@ export function seedTasksDone(today: string, hour: number): Record<string, TaskD
     'oil-change': { date: ago(6), by: 'luis' },
     proofer: { date: ago(9), by: 'mai' },
     hood: { date: ago(19), by: 'luis' },
-    'grease-trap': { date: ago(24), by: 'danny' },
     ice: { date: ago(3), by: 'jess' },
     windows: { date: ago(7), by: 'andre' },
   };
   for (const t of TASKS.filter((x) => x.everyDays === 1)) done[t.id] = { date: ago(1), by: t.group === 'kitchen' ? 'luis' : 'jess' };
-  if (hour >= 6) for (const id of ['open-coffee', 'open-case', 'open-till', 'sanitizer']) done[id] = { date: today, by: id === 'sanitizer' ? 'luis' : 'jess' };
+  if (hour >= 6) for (const id of ['open-coffee', 'open-case', 'open-till']) done[id] = { date: today, by: 'jess' };
   return done;
 }
 

@@ -50,7 +50,7 @@ Menu photos in `public/menu/` come from [Unsplash](https://unsplash.com) and are
 
 ## Claude in the briefing chat
 
-The "Ask KneadOS" chat on the owner Briefing can be answered by Claude. The browser sends the question and the shop's figures to `/api/ask`, a small server in `worker/` that calls the Claude API with the shop owner's own key.
+The "Ask KneadOS" chat on the owner Briefing can be answered by Claude. The browser sends the question and the shop's figures to `/api/ask`, a small server in `worker/` that calls the Claude API (Claude Sonnet 5.5) with the shop owner's own key.
 
 - **Key.** A Cloudflare secret named `ANTHROPIC_API_KEY` on the `kneados` Worker. Until it is set the chat answers from its built-in rules.
 - **Daily cap.** `DAILY_CAP_CENTS` in `wrangler.jsonc` (200, which is $2 a day). Spending is counted in the `kneados-usage` KV namespace at list price and starts over at midnight Pacific. Each visitor is also limited to 30 questions a day.

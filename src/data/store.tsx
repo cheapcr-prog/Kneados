@@ -2,12 +2,15 @@ import { createContext, useContext, useEffect, useMemo, useReducer, type ReactNo
 import { MEAL_MINUTES, REST_MINUTES, breakStatus, unpaidHours, type Break, type BreakKind, type BreakStatus } from '../lib/breaks';
 import { addDays, dowOf, holidayFor, isoDate } from '../lib/dates';
 import { forecastItem, type ItemDayObservation, type ItemForecast } from '../lib/forecast';
+import { orderReadyText, orderReceivedText } from '../lib/notify';
+import type { PurchaseOrder, Supplier } from '../lib/purchasing';
 import { addVisit, redeemReward, rewardText } from '../lib/rewards';
 import { buildHistory, buildPreorders, buildTodayOrders } from './history';
+import { SUPPLIERS } from './suppliers';
 import { MENU, SCHEDULE, SEED_MEMBERS, SHOP, STAFF, shiftHours } from './shop';
 import type { BakeProgress, DayHistory, Order, OrderStatus, RewardsMember } from './types';
 
-const STORAGE_KEY = 'kneados-demo-v3';
+const STORAGE_KEY = 'kneados-demo-v4';
 
 interface ClockState {
   /** ISO time the person clocked in, when they are on the clock. */
@@ -22,6 +25,9 @@ export interface SentText {
   to: string;
   body: string;
   at: string;
+  /** Set on texts about a pickup order. */
+  orderId?: string;
+  kind?: 'reward' | 'received' | 'ready';
 }
 
 interface DemoState {
@@ -35,16 +41,23 @@ interface DemoState {
   texts: SentText[];
   tomorrowRain: boolean;
   tippingEnabled: boolean;
+  /** Purchase orders drafted, sent and received. */
+  pos: PurchaseOrder[];
+  nextPo: number;
+  /** The owner's edits to supplier profiles, by supplier name. */
+  suppliers: Record<string, Partial<Supplier>>;
 }
 
 type Action =
-  | { type: 'addOrder'; order: Order }
-  | { type: 'setStatus'; id: string; status: OrderStatus }
+  | { type: 'addOrder'; order: Order; text?: SentText }
+  | { type: 'setStatus'; id: string; status: OrderStatus; text?: SentText }
   | { type: 'bumpMade'; itemId: string; delta: number }
   | { type: 'toggleSoldOut'; itemId: string }
   | { type: 'setMembers'; members: RewardsMember[]; text?: SentText }
   | { type: 'clock'; staffId: string; now: string }
   | { type: 'break'; staffId: string; now: string; kind?: BreakKind }
+  | { type: 'savePO'; po: PurchaseOrder }
+  | { type: 'setSupplier'; name: string; patch: Partial<Supplier> }
   | { type: 'setRain'; rain: boolean }
   | { type: 'setTipping'; on: boolean }
   | { type: 'reset'; state: DemoState };
@@ -52,9 +65,9 @@ type Action =
 function reducer(state: DemoState, a: Action): DemoState {
   switch (a.type) {
     case 'addOrder':
-      return { ...state, orders: [...state.orders, a.order], nextNumber: state.nextNumber + 1 };
+      return { ...state, orders: [...state.orders, a.order], nextNumber: state.nextNumber + 1, texts: a.text ? [a.text, ...state.texts] : state.texts };
     case 'setStatus':
-      return { ...state, orders: state.orders.map((o) => (o.id === a.id ? { ...o, status: a.status } : o)) };
+      return { ...state, orders: state.orders.map((o) => (o.id === a.id ? { ...o, status: a.status } : o)), texts: a.text ? [a.text, ...state.texts] : state.texts };
     case 'bumpMade': {
       const cur = state.bake[a.itemId] ?? { made: 0, soldOut: false };
       return { ...state, bake: { ...state.bake, [a.itemId]: { ...cur, made: Math.max(0, cur.made + a.delta) } } };
@@ -86,6 +99,13 @@ function reducer(state: DemoState, a: Action): DemoState {
         : breaks.map((b) => (b.end ? b : { ...b, end: a.now }));
       return { ...state, clock: { ...state.clock, [a.staffId]: { ...cur, breaks: next } } };
     }
+    case 'savePO': {
+      const existing = state.pos.find((p) => p.id === a.po.id);
+      if (existing) return { ...state, pos: state.pos.map((p) => (p.id === a.po.id ? { ...a.po, number: existing.number } : p)) };
+      return { ...state, pos: [{ ...a.po, number: state.nextPo }, ...state.pos], nextPo: state.nextPo + 1 };
+    }
+    case 'setSupplier':
+      return { ...state, suppliers: { ...state.suppliers, [a.name]: { ...state.suppliers[a.name], ...a.patch } } };
     case 'setRain':
       return { ...state, tomorrowRain: a.rain };
     case 'setTipping':
@@ -157,7 +177,7 @@ function freshState(now: Date): DemoState {
     if (now >= end) clock[s.staffId] = { hours: (end.getTime() - start.getTime()) / 3600_000 - unpaidHours(breaks, end), breaks };
     else clock[s.staffId] = { inAt: start.toISOString(), hours: 0, breaks };
   }
-  return { today, orders, nextNumber: 1001, bake, members: SEED_MEMBERS, clock, texts: [], tomorrowRain: false, tippingEnabled: SHOP.tippingEnabled };
+  return { today, orders, nextNumber: 1001, bake, members: SEED_MEMBERS, clock, texts: [], tomorrowRain: false, tippingEnabled: SHOP.tippingEnabled, pos: [], nextPo: 1001, suppliers: {} };
 }
 
 function load(now: Date): DemoState {
@@ -199,6 +219,11 @@ export interface Demo {
   punchVisit: (phone: string, name?: string) => { earnedReward: boolean };
   redeem: (phone: string) => void;
   clockToggle: (staffId: string) => void;
+  /** Supplier profiles with the owner's edits applied. */
+  suppliers: Supplier[];
+  /** Saves a purchase order. A new one gets the next PO number. */
+  savePO: (po: PurchaseOrder) => void;
+  updateSupplier: (name: string, patch: Partial<Supplier>) => void;
   setRain: (rain: boolean) => void;
   setTipping: (on: boolean) => void;
   reset: () => void;
@@ -248,10 +273,22 @@ export function DemoProvider({ children }: { children: ReactNode }) {
       endBreak: (staffId) => dispatch({ type: 'break', staffId, now: new Date().toISOString() }),
       placeOrder: (o) => {
         const order: Order = { ...o, id: `o-${state.nextNumber}`, number: state.nextNumber, createdAt: new Date().toISOString() };
-        dispatch({ type: 'addOrder', order });
+        // An online order with a phone number gets a text right away.
+        const text: SentText | undefined = order.source === 'online' && order.phone
+          ? { to: order.phone, body: orderReceivedText(SHOP.name, order), at: order.createdAt, orderId: order.id, kind: 'received' }
+          : undefined;
+        dispatch({ type: 'addOrder', order, text });
         return order;
       },
-      setStatus: (id, status) => dispatch({ type: 'setStatus', id, status }),
+      setStatus: (id, status) => {
+        const order = state.orders.find((o) => o.id === id);
+        // The moment an order is packed, the customer gets one text. Never a second one for the same order.
+        const already = state.texts.some((t) => t.orderId === id && t.kind === 'ready');
+        const text: SentText | undefined = status === 'ready' && order?.phone && !already
+          ? { to: order.phone, body: orderReadyText(SHOP.name, order), at: new Date().toISOString(), orderId: id, kind: 'ready' }
+          : undefined;
+        dispatch({ type: 'setStatus', id, status, text });
+      },
       bumpMade: (itemId, delta) => dispatch({ type: 'bumpMade', itemId, delta }),
       toggleSoldOut: (itemId) => dispatch({ type: 'toggleSoldOut', itemId }),
       findMember,
@@ -277,6 +314,9 @@ export function DemoProvider({ children }: { children: ReactNode }) {
         dispatch({ type: 'setMembers', members: state.members.map((m) => (m.phone === digits ? redeemReward(m) : m)) });
       },
       clockToggle: (staffId) => dispatch({ type: 'clock', staffId, now: new Date().toISOString() }),
+      suppliers: SUPPLIERS.map((x) => ({ ...x, ...state.suppliers[x.name] })),
+      savePO: (po) => dispatch({ type: 'savePO', po }),
+      updateSupplier: (name, patch) => dispatch({ type: 'setSupplier', name, patch }),
       setRain: (rain) => dispatch({ type: 'setRain', rain }),
       setTipping: (on) => dispatch({ type: 'setTipping', on }),
       reset: () => dispatch({ type: 'reset', state: freshState(new Date()) }),

@@ -10,7 +10,7 @@ import { explainForecast } from '../lib/forecast';
 import { formatPhone, money, moneyShort } from '../lib/money';
 import { PUNCHES_PER_REWARD } from '../lib/rewards';
 import { isTipEligible, splitTipPool } from '../lib/tips';
-import { Supplies, useSupplyPlans } from './owner/Supplies';
+import { Supplies, useAutoPurchasing, useSupplyPlans } from './owner/Supplies';
 
 const TABS = ['Today', 'Bake plan', 'Supplies', 'Staff & tips', 'Rewards', 'Reports'] as const;
 type Tab = (typeof TABS)[number];
@@ -21,9 +21,8 @@ const SLATE = '#cbd5e1';
 export function Owner() {
   const demo = useDemo();
   const [tab, setTab] = useState<Tab>('Today');
-  /** Supplies the owner has marked as ordered: supply id to quantity on the way. */
-  const [ordered, setOrdered] = useState<Record<string, number>>({});
-  const supplyPlans = useSupplyPlans(demo, ordered);
+  const supplyPlans = useSupplyPlans(demo);
+  useAutoPurchasing(demo, supplyPlans);
   const toOrder = supplyPlans.filter((p) => p.status === 'order-now').length;
   return (
     <div className="min-h-[calc(100vh-48px)] bg-slate-50">
@@ -44,7 +43,7 @@ export function Owner() {
       <div className="mx-auto max-w-6xl px-4 py-6">
         {tab === 'Today' && <Today demo={demo} />}
         {tab === 'Bake plan' && <BakePlan demo={demo} />}
-        {tab === 'Supplies' && <Supplies demo={demo} plans={supplyPlans} ordered={ordered} onOrder={(items) => setOrdered((o) => ({ ...o, ...Object.fromEntries(Object.entries(items).map(([id, q]) => [id, (o[id] ?? 0) + q])) }))} />}
+        {tab === 'Supplies' && <Supplies demo={demo} plans={supplyPlans} />}
         {tab === 'Staff & tips' && <StaffTips demo={demo} />}
         {tab === 'Rewards' && <Rewards demo={demo} />}
         {tab === 'Reports' && <Reports demo={demo} />}
@@ -376,7 +375,7 @@ function Rewards({ demo }: { demo: Demo }) {
             ))}
           </ul>
         </Card>
-        <Card title="Texts sent" note="Every text comes from Dough Rewards and names the shop where the reward is good.">
+        <Card title="Texts sent" note="Order updates and reward texts. Each one names the shop it came from.">
           {demo.state.texts.length === 0 ? (
             <p className="text-sm text-slate-500">None yet today. Try it: on the Register, enter (562) 555-0101 (Carla, 9 punches) and ring up a sale.</p>
           ) : (

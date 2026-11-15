@@ -1,0 +1,11 @@
+// Cloudflare Workers hosting for kneados.app.
+// Cloudflare runs `npm run build`, then `npx wrangler deploy`, which uploads ./dist.
+// Unknown paths fall back to index.html so the app's own routes (/demo/register, ...) work.
+{
+  "name": "kneados",
+  "compatibility_date": "2026-11-01",
+  "assets": {
+    "directory": "./dist",
+    "not_found_handling": "single-page-application"
+  }
+}

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { MENU_BY_ID } from '../data/shop';
-import { linePrice, rewardDiscount, totals } from './pricing';
+import { boxPrice, cartLines, linePrice, rewardDiscount, totals } from './pricing';
 
 describe('pricing', () => {
   const glazed = MENU_BY_ID.glazed;
@@ -32,5 +32,23 @@ describe('pricing', () => {
     expect(rewardDiscount(lines, MENU_BY_ID)).toBe(175);
     expect(rewardDiscount([{ itemId: 'coffee', qty: 1, lineCents: 250 }], MENU_BY_ID)).toBe(0);
     expect(totals([{ itemId: 'glazed', qty: 1, lineCents: 175 }], MENU_BY_ID, 999).total).toBe(0);
+  });
+
+  it('charges a mixed dozen box at each donut\'s dozen rate', () => {
+    const box = [...Array(6).fill('glazed'), ...Array(4).fill('maple'), 'custard', 'custard'];
+    const p = boxPrice(box, MENU_BY_ID);
+    expect(p.cents).toBe(6 * 150 + 4 * 200 + Math.round((2 * 2900) / 12));
+    expect(p.singles).toBe(6 * 175 + 4 * 225 + 2 * 275);
+    expect(boxPrice(Array(12).fill('glazed'), MENU_BY_ID).cents).toBe(1800);
+  });
+
+  it('merges boxes and loose items into one line per item', () => {
+    const box = [...Array(11).fill('glazed'), 'maple'];
+    const lines = cartLines({ glazed: 2, coffee: 1, maple: 0 }, [box], MENU_BY_ID);
+    expect(lines).toEqual([
+      { itemId: 'glazed', qty: 13, lineCents: 2 * 175 + 11 * 150 },
+      { itemId: 'coffee', qty: 1, lineCents: 250 },
+      { itemId: 'maple', qty: 1, lineCents: 200 },
+    ]);
   });
 });

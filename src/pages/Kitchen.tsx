@@ -5,6 +5,7 @@ import { useDemo } from '../data/store';
 import type { Order, OrderStatus } from '../data/types';
 import { isoDate, longDate, timeLabel } from '../lib/dates';
 import { formatPhone } from '../lib/money';
+import { boxCounts } from '../lib/pricing';
 
 const NEXT: Record<OrderStatus, { to: OrderStatus; label: string } | null> = {
   new: { to: 'making', label: 'Start' },
@@ -63,6 +64,12 @@ export function Kitchen() {
                       </li>
                     ))}
                   </ul>
+                  {o.boxes?.map((box, i) => (
+                    <p key={i} className="mt-2 rounded-lg bg-white/10 px-3 py-2 text-sm">
+                      <span className="font-bold text-glaze-300">Pack one mixed dozen box:</span>{' '}
+                      {boxCounts(box).map(([id, n]) => `${n} ${MENU_BY_ID[id].name}`).join(', ')}
+                    </p>
+                  ))}
                   {next && (
                     <button onClick={() => demo.setStatus(o.id, next.to)} className="mt-3 w-full rounded-xl bg-white py-3 text-sm font-bold text-ink-900 active:bg-slate-200">
                       {next.label}
@@ -80,6 +87,7 @@ export function Kitchen() {
               <div key={o.id} className="rounded-xl border border-white/10 bg-white/5 px-4 py-3">
                 <p className="text-sm font-semibold">{timeLabel(o.pickupAt!)} · {o.customerName}</p>
                 <p className="text-sm text-slate-400">{o.lines.map((l) => `${l.qty} ${MENU_BY_ID[l.itemId].name}`).join(', ')}</p>
+                {o.boxes && <p className="text-xs font-semibold text-glaze-300">Includes {o.boxes.length === 1 ? 'a mixed dozen box' : `${o.boxes.length} mixed dozen boxes`}</p>}
               </div>
             ))}
             <p className="text-xs text-slate-500">These are already added to tomorrow's bake plan.</p>

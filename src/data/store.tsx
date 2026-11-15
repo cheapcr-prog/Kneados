@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useReducer, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, type ReactNode } from 'react';
 import { MEAL_MINUTES, REST_MINUTES, breakStatus, unpaidHours, type Break, type BreakKind, type BreakStatus } from '../lib/breaks';
 import { addDays, dowOf, holidayFor, isoDate } from '../lib/dates';
 import { forecastItem, type ItemDayObservation, type ItemForecast } from '../lib/forecast';
@@ -247,6 +247,8 @@ export function DemoProvider({ children }: { children: ReactNode }) {
   const history = useMemo(() => buildHistory(state.today), [state.today]);
   const seeded = useMemo(() => buildTodayOrders(state.today, new Date()), [state.today]);
 
+  const setRain = useCallback((rain: boolean) => dispatch({ type: 'setRain', rain }), []);
+
   const demo = useMemo<Demo>(() => {
     const isToday = (o: Order) => isoDate(new Date(o.pickupAt ?? o.createdAt)) === state.today;
     const todayOrders = [...seeded, ...state.orders.filter(isToday)];
@@ -319,11 +321,11 @@ export function DemoProvider({ children }: { children: ReactNode }) {
       suppliers: SUPPLIERS.map((x) => ({ ...x, ...state.suppliers[x.name] })),
       savePO: (po) => dispatch({ type: 'savePO', po }),
       updateSupplier: (name, patch) => dispatch({ type: 'setSupplier', name, patch }),
-      setRain: (rain) => dispatch({ type: 'setRain', rain }),
+      setRain,
       setTipping: (on) => dispatch({ type: 'setTipping', on }),
       reset: () => { clearShopState(); dispatch({ type: 'reset', state: freshState(new Date()) }); },
     };
-  }, [state, history, seeded]);
+  }, [state, history, seeded, setRain]);
 
   return <Ctx.Provider value={demo}>{children}</Ctx.Provider>;
 }

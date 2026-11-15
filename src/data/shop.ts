@@ -5,6 +5,10 @@ export const SHOP = {
   name: 'Good Batch Donuts',
   tagline: 'Fried fresh at 4am. Gone by noon.',
   city: 'Long Beach, CA',
+  /** Where the weather forecast is read for. */
+  lat: 33.77,
+  lon: -118.19,
+  timezone: 'America/Los_Angeles',
   address: '123 Demo Street, Long Beach, CA',
   phone: '(562) 555-0142',
   hours: 'Open daily 5am to 1pm',

@@ -6,6 +6,7 @@ import { orderReadyText, orderReceivedText } from '../lib/notify';
 import type { PurchaseOrder, Supplier } from '../lib/purchasing';
 import { addVisit, redeemReward, rewardText } from '../lib/rewards';
 import { buildHistory, buildPreorders, buildTodayOrders } from './history';
+import { clearShopState } from './local';
 import { SUPPLIERS } from './suppliers';
 import { MENU, SCHEDULE, SEED_MEMBERS, SHOP, STAFF, shiftHours } from './shop';
 import type { BakeProgress, DayHistory, Order, OrderStatus, RewardsMember } from './types';
@@ -319,7 +320,7 @@ export function DemoProvider({ children }: { children: ReactNode }) {
       updateSupplier: (name, patch) => dispatch({ type: 'setSupplier', name, patch }),
       setRain: (rain) => dispatch({ type: 'setRain', rain }),
       setTipping: (on) => dispatch({ type: 'setTipping', on }),
-      reset: () => dispatch({ type: 'reset', state: freshState(new Date()) }),
+      reset: () => { clearShopState(); dispatch({ type: 'reset', state: freshState(new Date()) }); },
     };
   }, [state, history, seeded]);
 

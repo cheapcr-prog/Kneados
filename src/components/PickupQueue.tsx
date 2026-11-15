@@ -4,11 +4,12 @@ import { MENU_BY_ID, STAFF, STAFF_BY_ID } from '../data/shop';
 import { useDemo } from '../data/store';
 import type { Order, OrderStatus } from '../data/types';
 import { isoDate, timeLabel } from '../lib/dates';
-import { formatPhone } from '../lib/money';
+import { formatPhone, money } from '../lib/money';
 import { packPlan } from '../lib/packing';
 import type { Counted } from '../lib/packing';
 import { planWorkload } from '../lib/workload';
 import type { Workload } from '../lib/workload';
+import { useEvents } from './Events';
 import { ItemArt } from './ItemArt';
 
 const NEXT: Record<OrderStatus, { to: OrderStatus; label: string } | null> = {
@@ -82,6 +83,7 @@ export function PickupQueue({ me }: { me?: string }) {
   const demo = useDemo();
   const { open, finished } = useTodaysPickups();
   const work = useWorkload();
+  const events = useEvents();
   const byId = Object.fromEntries(open.map((o) => [o.id, o]));
   const queue = work.queue.map((a) => ({ a, o: byId[a.orderId] })).filter((x) => x.o);
   /** Your own orders come first, then everyone else's, each in the order they should be started. */
@@ -127,6 +129,8 @@ export function PickupQueue({ me }: { me?: string }) {
         const plan = packPlan(o, MENU_BY_ID);
         const ch = o.channel ? CHANNEL[o.channel] : undefined;
         const minutes = Math.round((new Date(o.pickupAt!).getTime() - Date.now()) / 60_000);
+        const booking = events.events.find((e) => e.orderId === o.id);
+        const due = booking ? booking.balanceCents : undefined;
         return (
           <article key={o.id} className={`rounded-2xl border-l-4 p-3.5 ${STATUS[o.status].card}`}>
             <div className="flex items-start justify-between gap-3">
@@ -161,7 +165,7 @@ export function PickupQueue({ me }: { me?: string }) {
             {(() => {
               const sent = demo.state.texts.find((t) => t.orderId === o.id && t.kind === 'ready');
               if (sent) return <p className="mt-2.5 flex items-center gap-1.5 text-xs font-semibold text-emerald-700"><MessageSquareText size={13} /> Texted {formatPhone(sent.to)} at {timeLabel(sent.at)}: ready for pickup</p>;
-              if (o.status !== 'ready' && o.status !== 'done') return <p className="mt-2.5 flex items-center gap-1.5 text-xs text-slate-500"><MessageSquareText size={13} /> {ch ? ch.note : o.phone ? 'The customer gets a text the moment this is marked packed.' : 'No phone number, so no text for this one.'}</p>;
+              if (o.status !== 'ready' && o.status !== 'done') return <p className="mt-2.5 flex items-center gap-1.5 text-xs text-slate-500"><MessageSquareText size={13} /> {due !== undefined ? (due > 0 ? `Event order. The deposit is paid. Collect ${money(due)} at pickup.` : 'Event order. It is paid in full.') : ch ? ch.note : o.phone ? 'The customer gets a text the moment this is marked packed.' : 'No phone number, so no text for this one.'}</p>;
               return null;
             })()}
             {next && (

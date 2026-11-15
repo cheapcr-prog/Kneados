@@ -2,8 +2,10 @@ import { Check, MessageCircle, Send, Sparkles, X } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { FALLBACK_NOTE, askServer, useClaudeReady } from '../../components/Ask';
 import { useCampaigns } from '../../components/Campaigns';
+import { clockLabel, useEvents } from '../../components/Events';
 import { useHealth } from '../../components/Health';
-import type { CampaignKind } from '../../lib/campaigns';
+import { totalDozens } from '../../lib/events';
+import { daysBetween, type CampaignKind } from '../../lib/campaigns';
 import { adviceText, useBreakAdvice, useTick } from '../../components/Breaks';
 import { useDeliverySettings, useGiftCards, useInvoices } from '../../components/Channels';
 import { usePricing } from '../../components/Pricing';
@@ -19,7 +21,7 @@ import type { Shift } from '../../data/types';
 import { SUGGESTED, answer, briefing, decide, type Answer, type Decision, type ShopFacts, type Urgency } from '../../lib/brain';
 import { DELIVERY_APPS, breakEvenMarkup, deliveryCents, invoiceState } from '../../lib/channels';
 import { menuCosts } from '../../lib/costing';
-import { DOW_NAMES, addDays, dowOf, holidayFor, isoDate, parseDate, timeLabel } from '../../lib/dates';
+import { DOW_NAMES, addDays, dowOf, holidayFor, isoDate, parseDate, shortDate, timeLabel } from '../../lib/dates';
 import { moneyShort } from '../../lib/money';
 import { itemMargins, share } from '../../lib/pnl';
 import { draftPO } from '../../lib/purchasing';
@@ -54,6 +56,7 @@ export function useShopFacts({ demo, plans, upkeep, weather, alerts }: Sources) 
   const insights = useMenuInsights(demo);
   const campaigns = useCampaigns();
   const health = useHealth();
+  const events = useEvents();
   const [shifts] = useShopState<Shift[]>('schedule', () => SCHEDULE.map((s) => ({ ...s })));
   const cost = useMemo(() => menuCosts(MENU.map((m) => m.id), RECIPES, SUPPLIES, PURCHASED), []);
   const baked = MENU.filter((m) => m.baked);
@@ -147,6 +150,16 @@ export function useShopFacts({ demo, plans, upkeep, weather, alerts }: Sources) 
       issues: health.ready.issues.map((i) => ({ title: i.title, detail: i.detail, major: i.major })),
       comingUp: health.ready.warnings.map((w) => ({ title: w.title, detail: w.detail })),
     },
+    events: (() => {
+      const dz = (e: (typeof events.upcoming)[number]) => totalDozens(e.dozens);
+      const next = events.upcoming[0];
+      return {
+        upcoming: events.upcoming.length, dozensNext7Days: events.upcoming.filter((e) => daysBetween(today, e.date) <= 7).reduce((a, e) => a + dz(e), 0),
+        bookedCents: events.upcoming.reduce((a, e) => a + e.totalCents, 0), balanceDueCents: events.upcoming.reduce((a, e) => a + e.balanceCents, 0),
+        next: next ? { name: next.occasion ? `${next.name} (${next.occasion})` : next.name, dozens: dz(next), when: `${next.date === today ? 'today' : `on ${shortDate(next.date)}`} at ${clockLabel(next.time)}` } : undefined,
+        fundraisers: events.funds.map((x) => ({ org: x.org, state: x.state, raisedCents: x.giveBackCents, orders: x.orders, ...(x.state === 'ended' ? { endedDaysAgo: daysBetween(x.end, today) } : {}) })),
+      };
+    })(),
     customers: {
       members: demo.state.members.length, sentLast30Days: campaigns.sentThisMonth,
       texts: campaigns.campaigns.map((c) => ({ kind: c.kind, title: c.short, due: c.problems.length === 0 ? c.recipients.length : 0, names: c.recipients.map((r) => r.member.name), auto: c.auto, offer: c.offer })),
@@ -207,7 +220,7 @@ function DecisionCard({ d, onApprove, onDismiss }: { d: Decision; onApprove: () 
   );
 }
 
-export function Assistant(props: Sources & { onOpen: (tab: 'Schedule' | 'Menu insights' | 'Health & safety') => void }) {
+export function Assistant(props: Sources & { onOpen: (tab: 'Schedule' | 'Menu insights' | 'Health & safety' | 'Events & fundraisers') => void }) {
   const { demo } = props;
   const { facts, apply } = useShopFacts(props);
   const [log, setLog] = useShopState<Logged[]>(`decisions-${demo.state.today}`, () => []);
@@ -225,6 +238,7 @@ export function Assistant(props: Sources & { onOpen: (tab: 'Schedule' | 'Menu in
       if (d.id === 'schedule') props.onOpen('Schedule');
       if (d.id.startsWith('menu:')) props.onOpen('Menu insights');
       if (d.id.startsWith('health')) props.onOpen('Health & safety');
+      if (d.id.startsWith('events:')) props.onOpen('Events & fundraisers');
     }
     setLog((l) => [{ id: d.id, title: d.title, then: d.then, at: new Date().toISOString(), approved }, ...l]);
   };

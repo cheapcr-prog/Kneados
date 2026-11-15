@@ -4,6 +4,7 @@ import { FALLBACK_NOTE, askServer, useClaudeReady } from '../../components/Ask';
 import { useCampaigns } from '../../components/Campaigns';
 import { clockLabel, useEvents } from '../../components/Events';
 import { useHealth } from '../../components/Health';
+import { useMerch } from '../../components/Merch';
 import { totalDozens } from '../../lib/events';
 import { daysBetween, type CampaignKind } from '../../lib/campaigns';
 import { adviceText, useBreakAdvice, useTick } from '../../components/Breaks';
@@ -57,6 +58,7 @@ export function useShopFacts({ demo, plans, upkeep, weather, alerts }: Sources) 
   const campaigns = useCampaigns();
   const health = useHealth();
   const events = useEvents();
+  const merch = useMerch();
   const [shifts] = useShopState<Shift[]>('schedule', () => SCHEDULE.map((s) => ({ ...s })));
   const cost = useMemo(() => menuCosts(MENU.map((m) => m.id), RECIPES, SUPPLIES, PURCHASED), []);
   const baked = MENU.filter((m) => m.baked);
@@ -160,6 +162,11 @@ export function useShopFacts({ demo, plans, upkeep, weather, alerts }: Sources) 
         fundraisers: events.funds.map((x) => ({ org: x.org, state: x.state, raisedCents: x.giveBackCents, orders: x.orders, ...(x.state === 'ended' ? { endedDaysAgo: daysBetween(x.end, today) } : {}) })),
       };
     })(),
+    merch: {
+      salesCents28: merch.rows.reduce((a, r) => a + r.salesCents, 0), profitCents28: merch.rows.reduce((a, r) => a + r.profitCents, 0),
+      low: merch.rows.filter((r) => r.reorder).map((r) => ({ name: r.item.name, onHand: r.onHand, daysLeft: r.daysLeft, reorderQty: r.item.reorderQty, costCents: r.item.costCents })),
+      best: [...merch.rows].sort((a, b) => b.profitCents - a.profitCents)[0]?.item.name,
+    },
     customers: {
       members: demo.state.members.length, sentLast30Days: campaigns.sentThisMonth,
       texts: campaigns.campaigns.map((c) => ({ kind: c.kind, title: c.short, due: c.problems.length === 0 ? c.recipients.length : 0, names: c.recipients.map((r) => r.member.name), auto: c.auto, offer: c.offer })),
@@ -220,7 +227,7 @@ function DecisionCard({ d, onApprove, onDismiss }: { d: Decision; onApprove: () 
   );
 }
 
-export function Assistant(props: Sources & { onOpen: (tab: 'Schedule' | 'Menu insights' | 'Health & safety' | 'Events & fundraisers') => void }) {
+export function Assistant(props: Sources & { onOpen: (tab: 'Schedule' | 'Menu insights' | 'Health & safety' | 'Events & fundraisers' | 'Merch') => void }) {
   const { demo } = props;
   const { facts, apply } = useShopFacts(props);
   const [log, setLog] = useShopState<Logged[]>(`decisions-${demo.state.today}`, () => []);
@@ -239,6 +246,7 @@ export function Assistant(props: Sources & { onOpen: (tab: 'Schedule' | 'Menu in
       if (d.id.startsWith('menu:')) props.onOpen('Menu insights');
       if (d.id.startsWith('health')) props.onOpen('Health & safety');
       if (d.id.startsWith('events:')) props.onOpen('Events & fundraisers');
+      if (d.id.startsWith('merch:')) props.onOpen('Merch');
     }
     setLog((l) => [{ id: d.id, title: d.title, then: d.then, at: new Date().toISOString(), approved }, ...l]);
   };

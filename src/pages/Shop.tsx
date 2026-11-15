@@ -1,10 +1,13 @@
 import { Check, Clock, GripVertical, MapPin, Minus, Phone, Plus, Trash2, X } from 'lucide-react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { OrderTray, useBox } from '../components/BoxBuilder';
 import type { Box } from '../components/BoxBuilder';
 import { useEvents } from '../components/Events';
 import { ItemArt } from '../components/ItemArt';
+import { MerchArt, useMerch } from '../components/Merch';
+import { MERCH, MERCH_BY_ID } from '../data/merch';
+import { merchLines, merchTotals, stockKey, type MerchItem, type MerchLine } from '../lib/merch';
 import { usePricing, useUpsells } from '../components/Pricing';
 import { MENU, MENU_BY_ID, SHOP } from '../data/shop';
 import { useDemo } from '../data/store';
@@ -66,7 +69,19 @@ export function Shop() {
       lines: cartLines(loose, allBoxes, prices.byId),
     };
   }, [cart, boxes, box.filled.join(), box.full, prices.byId]);
-  const count = order.lines.reduce((a, l) => a + l.qty, 0);
+  const merch = useMerch();
+  // A link to /demo/shop#merch lands on the merch shelf.
+  useEffect(() => {
+    if (window.location.hash !== '#merch') return;
+    const id = setTimeout(() => document.getElementById('merch')?.scrollIntoView(), 60);
+    return () => clearTimeout(id);
+  }, []);
+  const [merchCart, setMerchCart] = useState<Record<string, number>>({});
+  const mLines = merchLines(merchCart, MERCH_BY_ID);
+  const mt = merchTotals(mLines);
+  /** Never more than is on the shelf. */
+  const addMerch = (key: string, n: number) => setMerchCart((c) => ({ ...c, [key]: Math.max(0, Math.min(merch.stock[key] ?? 0, (c[key] ?? 0) + n)) }));
+  const count = order.lines.reduce((a, l) => a + l.qty, 0) + mLines.reduce((a, l) => a + l.qty, 0);
   const t = totals(order.lines, prices.byId);
   /** Taking one away comes out of the bag first, then out of the box being filled. */
   const add = (id: string, n: number) => {
@@ -159,6 +174,13 @@ export function Shop() {
             </div>
           </section>
         ))}
+        <section id="merch" className="mb-10">
+          <h2 className="font-display text-2xl font-bold tracking-tight text-slate-900">Merch &amp; extras</h2>
+          <p className="mt-1 text-sm text-slate-600">Add it to your pickup order and it will be waiting with your donuts.</p>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {MERCH.map((item) => <MerchCard key={item.id} item={item} left={(size) => merch.left(item.id, size)} inCart={(size) => merchCart[stockKey(item.id, size)] ?? 0} add={(size, n) => addMerch(stockKey(item.id, size), n)} />)}
+          </div>
+        </section>
         <p className="text-xs text-slate-500">All donuts contain wheat, egg, milk and soy. Made in a kitchen that also handles tree nuts.</p>
       </main>
 
@@ -172,7 +194,7 @@ export function Shop() {
         cart={cart}
         add={add}
         count={count}
-        total={t.total}
+        total={t.total + mt.total}
         onCheckout={() => setOpen(true)}
       />
 
@@ -181,9 +203,11 @@ export function Shop() {
           loose={order.loose}
           boxes={order.boxes}
           add={add}
+          merch={mLines}
+          addMerch={addMerch}
           removeBox={(i) => (i < boxes.length ? setBoxes((b) => b.filter((_, k) => k !== i)) : box.clear())}
           onClose={() => setOpen(false)}
-          onPlaced={(o) => { setPlaced(o); setCart({}); setBoxes([]); box.clear(); setBoxOpen(false); setOpen(false); }}
+          onPlaced={(o) => { setPlaced(o); setCart({}); setMerchCart({}); setBoxes([]); box.clear(); setBoxOpen(false); setOpen(false); }}
         />
       )}
       {placed && <Confirmation order={placed} onClose={() => setPlaced(null)} />}
@@ -252,7 +276,9 @@ function MenuCard({ item, live, qty, soldOut, add, box, boxOpen }: { item: MenuI
   );
 }
 
-function Checkout({ loose: cartLoose, boxes, add, removeBox, onClose, onPlaced }: {
+function Checkout({ loose: cartLoose, boxes, add, merch, addMerch, removeBox, onClose, onPlaced }: {
+  merch: MerchLine[];
+  addMerch: (key: string, n: number) => void;
   loose: OrderLine[];
   boxes: string[][];
   add: (id: string, n: number) => void;
@@ -284,11 +310,14 @@ function Checkout({ loose: cartLoose, boxes, add, removeBox, onClose, onPlaced }
   const qty = Object.fromEntries(cartLoose.map((l) => [l.itemId, l.qty]));
   const loose = cartLoose.map((l) => ({ ...l, lineCents: linePrice(menu[l.itemId], l.qty) }));
   const lines = cartLines(qty, boxes, menu);
-  const t = totals(lines, menu);
+  const food = totals(lines, menu);
+  const mt = merchTotals(merch);
+  const t = { subtotal: food.subtotal + mt.subtotal, tax: food.tax + mt.tax, total: food.total + mt.total };
+  const shelf = useMerch();
   const offers = upsells.stats.on ? suggestOffers(lines, menu, (id) => !!demo.state.bake[id]?.soldOut).filter((o) => !taken.some((x) => x.kind === o.kind)) : [];
   const digits = phone.replace(/\D/g, '');
   const pickup = slot || slots[0]?.toISOString() || '';
-  const ready = lines.length > 0 && name.trim().length > 1 && digits.length === 10 && pickup;
+  const ready = (lines.length > 0 || merch.length > 0) && name.trim().length > 1 && digits.length === 10 && pickup;
   const member = digits.length === 10 ? demo.findMember(digits) : undefined;
 
   const place = () => {
@@ -297,8 +326,10 @@ function Checkout({ loose: cartLoose, boxes, add, removeBox, onClose, onPlaced }
       source: 'online', pickupAt: pickup, customerName: name.trim(), phone: digits, lines,
       subtotal: t.subtotal, tax: t.tax, tip: 0, total: t.total, payment: 'online', status: 'new',
       ...(boxes.length ? { boxes } : {}),
+      ...(merch.length ? { merch } : {}),
       ...(fund ? { fundraiser: fund.code } : {}),
     });
+    if (merch.length) shelf.sell(merch);
     if (rewards) demo.punchVisit(digits, name.trim());
     upsells.record(offers.length > 0 || taken.length > 0, taken.filter((o) => (qty[o.itemId] ?? 0) >= o.qty).map((o) => ({ kind: o.kind, cents: o.addCents })));
     onPlaced(order);
@@ -343,6 +374,24 @@ function Checkout({ loose: cartLoose, boxes, add, removeBox, onClose, onPlaced }
                     <button aria-label="More" onClick={() => add(l.itemId, 1)} className="flex h-7 w-7 items-center justify-center rounded-full border border-slate-200"><Plus size={13} /></button>
                   </div>
                   <span className="tabular w-16 text-right text-sm font-semibold">{money(l.lineCents)}</span>
+                </li>
+              );
+            })}
+            {merch.map((l) => {
+              const item = MERCH_BY_ID[l.id];
+              const key = stockKey(l.id, l.size);
+              return (
+                <li key={key} className="flex items-center gap-3 py-2.5">
+                  <MerchArt item={item} size={36} />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-semibold">{item.name}{l.size ? `, ${l.size}` : ''}</p>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <button aria-label="Less" onClick={() => addMerch(key, -1)} className="flex h-7 w-7 items-center justify-center rounded-full border border-slate-200"><Minus size={13} /></button>
+                    <span className="tabular w-7 text-center text-sm font-semibold">{l.qty}</span>
+                    <button aria-label="More" onClick={() => addMerch(key, 1)} className="flex h-7 w-7 items-center justify-center rounded-full border border-slate-200"><Plus size={13} /></button>
+                  </div>
+                  <span className="tabular w-16 text-right text-sm font-semibold">{money(l.cents)}</span>
                 </li>
               );
             })}
@@ -419,6 +468,45 @@ function Checkout({ loose: cartLoose, boxes, add, removeBox, onClose, onPlaced }
         </div>
       </div>
     </div>
+  );
+}
+
+function MerchCard({ item, left, inCart, add }: { item: MerchItem; left: (size?: string) => number; inCart: (size?: string) => number; add: (size: string | undefined, n: number) => void }) {
+  const firstIn = item.sizes?.find((s) => left(s) > 0);
+  const [size, setSize] = useState(firstIn);
+  const have = left(size);
+  const qty = inCart(size);
+  const gone = item.sizes ? !firstIn : have === 0;
+  return (
+    <article className="flex gap-3 rounded-2xl border border-slate-200 bg-white p-3">
+      <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-xl bg-slate-50"><MerchArt item={item} size={60} /></div>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-start justify-between gap-2">
+          <h3 className="font-display font-bold leading-tight text-slate-900">{item.name}</h3>
+          <span className="tabular text-sm font-bold text-slate-900">{money(item.priceCents)}</span>
+        </div>
+        <p className="mt-0.5 text-xs text-slate-500">{item.blurb}</p>
+        {item.sizes && (
+          <div className="mt-1.5 flex flex-wrap gap-1">
+            {item.sizes.map((s) => (
+              <button key={s} disabled={left(s) === 0} onClick={() => setSize(s)} aria-pressed={size === s} aria-label={`Size ${s}${left(s) === 0 ? ', sold out' : ''}`} className={`rounded-full px-2.5 py-1 text-xs font-bold disabled:line-through disabled:opacity-40 ${size === s ? 'bg-ink-900 text-white' : 'bg-slate-100 text-slate-700'}`}>{s}</button>
+            ))}
+          </div>
+        )}
+        <div className="mt-2 flex items-center justify-between gap-2">
+          <span className={`text-xs ${gone ? 'font-semibold text-rose-600' : 'text-amber-700'}`}>{gone ? 'Sold out' : have <= 3 ? `Only ${have} left` : ''}</span>
+          {qty > 0 ? (
+            <div className="flex items-center gap-1">
+              <button aria-label={`One fewer ${item.name}`} onClick={() => add(size, -1)} className="flex h-8 w-8 items-center justify-center rounded-full border border-slate-200"><Minus size={14} /></button>
+              <span className="tabular w-6 text-center text-sm font-bold">{qty}</span>
+              <button aria-label={`One more ${item.name}`} disabled={qty >= have} onClick={() => add(size, 1)} className="flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 disabled:opacity-40"><Plus size={14} /></button>
+            </div>
+          ) : (
+            <button disabled={gone} onClick={() => add(size, 1)} aria-label={`Add ${item.name}`} className="rounded-full bg-box-500 px-4 py-1.5 text-xs font-bold text-white hover:bg-box-600 disabled:bg-slate-300">Add</button>
+          )}
+        </div>
+      </div>
+    </article>
   );
 }
 

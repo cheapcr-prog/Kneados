@@ -5,9 +5,9 @@ import { ItemArt } from '../components/ItemArt';
 import { MENU } from '../data/shop';
 
 const SCREENS = [
-  { to: '/demo/shop', icon: ShoppingBag, name: 'Shop website', body: 'Your menu online with pickup ordering and pre-orders by the dozen. Customers pay ahead and skip the line.' },
-  { to: '/demo/register', icon: Tablet, name: 'Register', body: 'A fast iPad register built for a donut counter: one tap per item, dozen pricing on its own, tips and rewards built in.' },
-  { to: '/demo/kitchen', icon: ChefHat, name: 'Kitchen screen', body: "Pickup orders and today's bake list on one screen. Mark an item sold out and it drops off the register and the website." },
+  { to: '/demo/shop', icon: ShoppingBag, name: 'Shop website', body: 'Your menu online. Customers pack their own box, bag and cup holder, pay ahead and skip the line.' },
+  { to: '/demo/register', icon: Tablet, name: 'Register', body: 'A fast iPad register built for a donut counter: one tap per item, tips and rewards built in, and a packing list for every pickup order.' },
+  { to: '/demo/kitchen', icon: ChefHat, name: 'Kitchen screen', body: "The bakers' screen: today's bake list and tomorrow's pre-orders. Mark an item sold out and it drops off the register and the website." },
   { to: '/demo/owner', icon: LayoutDashboard, name: 'Owner dashboard', body: "Tomorrow's bake plan, the time clock, the tip split, rewards and reports. Check it from your phone." },
 ];
 

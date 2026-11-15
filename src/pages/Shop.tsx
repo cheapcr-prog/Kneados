@@ -14,7 +14,7 @@ import { PUNCHES_PER_REWARD } from '../lib/rewards';
 
 const CATEGORIES: Category[] = ['Classics', 'Filled', 'Specialty', 'Drinks'];
 
-/** Pickup slots every 15 minutes, starting 20 minutes from now so the kitchen has time. */
+/** Pickup slots every 15 minutes, starting 20 minutes from now so the counter has time to pack. */
 function pickupSlots(dayOffset: number): Date[] {
   const slots: Date[] = [];
   const base = new Date();
@@ -370,7 +370,7 @@ function Confirmation({ order, onClose }: { order: Order; onClose: () => void })
           <span className="font-semibold text-slate-900">{timeLabel(order.pickupAt!)}</span>.
         </p>
         <p className="mt-3 rounded-xl bg-slate-50 p-3 text-xs text-slate-600">
-          This order just landed on the <span className="font-semibold">Kitchen</span> screen and is counted in the bake plan. Switch screens in the bar at the top to see it.
+          This order just landed in <span className="font-semibold">Pickup orders</span> on the Register, where the counter staff pack it. It is also counted in the bake plan.
         </p>
         <button onClick={onClose} className="mt-5 w-full rounded-xl bg-slate-900 py-3 text-sm font-bold text-white">Done</button>
       </div>

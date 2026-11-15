@@ -1,96 +1,33 @@
-import { Ban, CalendarClock, Check, Flame, PackageCheck } from 'lucide-react';
+import { Ban, CalendarClock, Check, Flame } from 'lucide-react';
 import { ItemArt } from '../components/ItemArt';
 import { MENU, MENU_BY_ID } from '../data/shop';
 import { useDemo } from '../data/store';
-import type { Order, OrderStatus } from '../data/types';
+import type { Order } from '../data/types';
 import { isoDate, longDate, timeLabel } from '../lib/dates';
-import { formatPhone } from '../lib/money';
-import { boxCounts } from '../lib/pricing';
-
-const NEXT: Record<OrderStatus, { to: OrderStatus; label: string } | null> = {
-  new: { to: 'making', label: 'Start' },
-  making: { to: 'ready', label: 'Ready' },
-  ready: { to: 'done', label: 'Picked up' },
-  done: null,
-};
-
-const STATUS_STYLE: Record<OrderStatus, string> = {
-  new: 'border-amber-400 bg-amber-400/10',
-  making: 'border-sky-400 bg-sky-400/10',
-  ready: 'border-emerald-400 bg-emerald-400/10',
-  done: 'border-white/10 bg-white/5 opacity-60',
-};
 
 export function Kitchen() {
   const demo = useDemo();
   const { today } = demo.state;
   const online = demo.state.orders.filter((o) => o.source === 'online' && o.pickupAt);
   const dayOf = (o: Order) => isoDate(new Date(o.pickupAt!));
-  const todays = online.filter((o) => dayOf(o) === today).sort((a, b) => a.pickupAt!.localeCompare(b.pickupAt!));
-  const open = todays.filter((o) => o.status !== 'done');
-  const finished = todays.filter((o) => o.status === 'done');
   const tomorrows = online.filter((o) => dayOf(o) === demo.tomorrow).sort((a, b) => a.pickupAt!.localeCompare(b.pickupAt!));
   const baked = MENU.filter((m) => m.baked);
 
   return (
     <div className="min-h-[calc(100vh-48px)] bg-ink-950 p-3 text-white md:p-4">
-      <div className="mx-auto grid max-w-[1400px] gap-4 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]">
+      <div className="mx-auto grid max-w-[1400px] gap-4 lg:grid-cols-[minmax(0,4fr)_minmax(0,8fr)]">
         <section>
-          <h2 className="flex items-center gap-2 font-display text-xl font-bold"><PackageCheck size={20} className="text-glaze-400" /> Pickup orders today</h2>
-          <div className="mt-3 space-y-3">
-            {open.length === 0 && <p className="rounded-2xl border border-white/10 p-6 text-center text-sm text-slate-400">No open pickup orders. New online orders show up here the moment they're placed.</p>}
-            {[...open, ...finished].map((o) => {
-              const next = NEXT[o.status];
-              const minutes = Math.round((new Date(o.pickupAt!).getTime() - Date.now()) / 60_000);
-              return (
-                <article key={o.id} className={`rounded-2xl border-l-4 p-4 ${STATUS_STYLE[o.status]}`}>
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="font-display text-lg font-bold leading-tight">#{o.number} · {o.customerName}</p>
-                      <p className="text-sm text-slate-300">
-                        Pickup {timeLabel(o.pickupAt!)}
-                        {o.status !== 'done' && <span className={minutes < 15 ? 'font-semibold text-amber-300' : 'text-slate-400'}> · {minutes >= 0 ? `in ${minutes} min` : `${-minutes} min late`}</span>}
-                        {o.phone && <span className="text-slate-500"> · {formatPhone(o.phone)}</span>}
-                      </p>
-                    </div>
-                    <span className="rounded-full bg-white/10 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider">{o.status === 'new' ? 'New' : o.status === 'making' ? 'Making' : o.status === 'ready' ? 'Ready' : 'Done'}</span>
-                  </div>
-                  <ul className="mt-3 space-y-1">
-                    {o.lines.map((l) => (
-                      <li key={l.itemId} className="flex items-baseline gap-2 text-[15px]">
-                        <span className="tabular w-10 text-right font-display text-xl font-extrabold text-glaze-300">{l.qty}</span>
-                        <span className="font-medium">{MENU_BY_ID[l.itemId].name}</span>
-                        {l.qty % 12 === 0 && l.qty >= 12 && <span className="text-xs text-slate-400">({l.qty / 12} doz)</span>}
-                      </li>
-                    ))}
-                  </ul>
-                  {o.boxes?.map((box, i) => (
-                    <p key={i} className="mt-2 rounded-lg bg-white/10 px-3 py-2 text-sm">
-                      <span className="font-bold text-glaze-300">Pack one mixed dozen box:</span>{' '}
-                      {boxCounts(box).map(([id, n]) => `${n} ${MENU_BY_ID[id].name}`).join(', ')}
-                    </p>
-                  ))}
-                  {next && (
-                    <button onClick={() => demo.setStatus(o.id, next.to)} className="mt-3 w-full rounded-xl bg-white py-3 text-sm font-bold text-ink-900 active:bg-slate-200">
-                      {next.label}
-                    </button>
-                  )}
-                </article>
-              );
-            })}
-          </div>
-
-          <h2 className="mt-6 flex items-center gap-2 font-display text-xl font-bold"><CalendarClock size={20} className="text-glaze-400" /> Pre-orders for {longDate(demo.tomorrow).split(',')[0]}</h2>
+          <h2 className="flex items-center gap-2 font-display text-xl font-bold"><CalendarClock size={20} className="text-glaze-400" /> Pre-orders for {longDate(demo.tomorrow).split(',')[0]}</h2>
           <div className="mt-3 space-y-2">
             {tomorrows.length === 0 && <p className="rounded-2xl border border-white/10 p-4 text-sm text-slate-400">None yet.</p>}
             {tomorrows.map((o) => (
               <div key={o.id} className="rounded-xl border border-white/10 bg-white/5 px-4 py-3">
                 <p className="text-sm font-semibold">{timeLabel(o.pickupAt!)} · {o.customerName}</p>
                 <p className="text-sm text-slate-400">{o.lines.map((l) => `${l.qty} ${MENU_BY_ID[l.itemId].name}`).join(', ')}</p>
-                {o.boxes && <p className="text-xs font-semibold text-glaze-300">Includes {o.boxes.length === 1 ? 'a mixed dozen box' : `${o.boxes.length} mixed dozen boxes`}</p>}
+                {o.boxes && o.boxes.length > 0 && <p className="text-xs font-semibold text-glaze-300">Includes {o.boxes.length === 1 ? 'a mixed dozen box' : `${o.boxes.length} mixed dozen boxes`}</p>}
               </div>
             ))}
-            <p className="text-xs text-slate-500">These are already added to tomorrow's bake plan.</p>
+            <p className="text-xs text-slate-500">These are already added to tomorrow's bake plan. Today's pickup orders are packed at the counter, from the Register.</p>
           </div>
         </section>
 

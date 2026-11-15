@@ -105,7 +105,7 @@ const callReview: CallReview = async (apiKey, user, onProgress) => {
     betas: ['server-side-fallback-2026-07-01'],
     fallbacks: 'default',
     system: REVIEW_SYSTEM,
-    output_config: { effort: 'high', format: { type: 'json_schema', schema: REVIEW_SCHEMA } },
+    output_config: { effort: 'medium', format: { type: 'json_schema', schema: REVIEW_SCHEMA } },
     messages: [{ role: 'user', content: user }],
   });
   stream.on('text', (delta) => { chars += delta.length; onProgress(chars); });

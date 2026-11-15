@@ -2,12 +2,13 @@ import type { Decision, ShopFacts } from '../src/lib/brain';
 
 /** The deep review reads everything at once, so it runs on the most capable model. Elias approved this on 2026-11-15. */
 export const REVIEW_MODEL = 'claude-fable-5-2';
-export const REVIEW_MAX_TOKENS = 16_000;
+/** Thinking and the written review share this. The first live run thought its way through 16,000 and was cut off, so it has room now. */
+export const REVIEW_MAX_TOKENS = 32_000;
 export const REVIEW_MAX_BODY_BYTES = 80_000;
 /** The review has its own monthly budget, apart from the chat's daily one. */
 export const DEFAULT_REVIEW_MONTHLY_CAP_CENTS = 500;
 /** Held back when a review starts, so a run that is cut off still counts against the budget. */
-export const REVIEW_RESERVE_MICROS = 700_000;
+export const REVIEW_RESERVE_MICROS = 1_400_000;
 /** A new review can be asked for this long after the last one. */
 export const REVIEW_GAP_HOURS = 6;
 /** How long a running review blocks another from starting. */

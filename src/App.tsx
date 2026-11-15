@@ -1,7 +1,9 @@
 import { lazy, Suspense, useEffect } from 'react';
 import { Route, Routes, useLocation } from 'react-router-dom';
 import { DemoBar } from './components/DemoBar';
+import { EventSync } from './components/Events';
 import { SubscriptionSync } from './components/Subscriptions';
+import { Events } from './pages/Events';
 import { Fridays } from './pages/Fridays';
 import { RewardsCardPage } from './pages/RewardsCardPage';
 import { StaffLogin } from './components/Session';
@@ -31,10 +33,12 @@ function DemoRoutes() {
     <div className="flex min-h-full flex-col">
       <DemoBar />
       <SubscriptionSync />
+      <EventSync />
       <div className="flex-1">
         <Routes>
           <Route path="shop" element={<Shop />} />
           <Route path="shop/fridays" element={<Fridays />} />
+          <Route path="shop/events" element={<Events />} />
           <Route path="shop/card/:code" element={<RewardsCardPage />} />
           <Route path="login" element={<StaffLogin />} />
           <Route path="register" element={<Register />} />

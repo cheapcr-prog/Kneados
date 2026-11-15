@@ -1,8 +1,9 @@
 import { Check, Clock, GripVertical, MapPin, Minus, Phone, Plus, Trash2, X } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { useMemo, useState } from 'react';
 import { OrderTray, useBox } from '../components/BoxBuilder';
 import type { Box } from '../components/BoxBuilder';
+import { useEvents } from '../components/Events';
 import { ItemArt } from '../components/ItemArt';
 import { usePricing, useUpsells } from '../components/Pricing';
 import { MENU, MENU_BY_ID, SHOP } from '../data/shop';
@@ -41,6 +42,9 @@ export function Shop() {
   const [cart, setCart] = useState<Record<string, number>>({});
   const [open, setOpen] = useState(false);
   const [placed, setPlaced] = useState<Order | null>(null);
+  const events = useEvents();
+  const [params] = useSearchParams();
+  const fund = params.get('fund') ? events.fundFor(params.get('fund')!) : undefined;
 
   /** Dozen boxes that are full and set aside. The box being filled lives in `box`. */
   const [boxes, setBoxes] = useState<string[][]>([]);
@@ -111,10 +115,18 @@ export function Shop() {
             <Link to="/demo/shop/fridays" className="inline-flex rounded-full border border-white/50 px-6 py-3 text-sm font-bold text-white hover:bg-white/10">
               Donut Fridays for your office
             </Link>
+            <Link to="/demo/shop/events" className="inline-flex rounded-full border border-white/50 px-6 py-3 text-sm font-bold text-white hover:bg-white/10">
+              Order for an event
+            </Link>
           </div>
         </div>
       </header>
 
+      {fund && (
+        <section className="bg-emerald-600 text-white">
+          <p className="mx-auto max-w-6xl px-5 py-3 text-sm font-semibold">You are ordering for {fund.org}. {Math.round(fund.share * 100)}% of your order goes to them, through {longDate(fund.end)}. The code is already on your order.</p>
+        </section>
+      )}
       <section className="border-b border-slate-200 bg-slate-50">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-x-8 gap-y-2 px-5 py-4 text-sm text-slate-700">
           <span className="font-display text-base font-bold text-slate-900">Dough Rewards</span>
@@ -256,6 +268,10 @@ function Checkout({ loose: cartLoose, boxes, add, removeBox, onClose, onPlaced }
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [rewards, setRewards] = useState(true);
+  const events = useEvents();
+  const [params] = useSearchParams();
+  const [fundCode, setFundCode] = useState(params.get('fund') ?? '');
+  const fund = fundCode.trim() ? events.fundFor(fundCode) : undefined;
   const prices = usePricing();
   const upsells = useUpsells();
   const [taken, setTaken] = useState<Offer[]>([]);
@@ -281,6 +297,7 @@ function Checkout({ loose: cartLoose, boxes, add, removeBox, onClose, onPlaced }
       source: 'online', pickupAt: pickup, customerName: name.trim(), phone: digits, lines,
       subtotal: t.subtotal, tax: t.tax, tip: 0, total: t.total, payment: 'online', status: 'new',
       ...(boxes.length ? { boxes } : {}),
+      ...(fund ? { fundraiser: fund.code } : {}),
     });
     if (rewards) demo.punchVisit(digits, name.trim());
     upsells.record(offers.length > 0 || taken.length > 0, taken.filter((o) => (qty[o.itemId] ?? 0) >= o.qty).map((o) => ({ kind: o.kind, cents: o.addCents })));
@@ -383,6 +400,10 @@ function Checkout({ loose: cartLoose, boxes, add, removeBox, onClose, onPlaced }
                 </span>
               </span>
             </label>
+            <input value={fundCode} onChange={(e) => setFundCode(e.target.value)} placeholder="Fundraiser code (optional)" aria-label="Fundraiser code" className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm" />
+            {fundCode.trim() && (fund
+              ? <p className="text-sm font-semibold text-emerald-700">{money(Math.round(t.subtotal * fund.share))} of this order goes to {fund.org}.</p>
+              : <p className="text-sm text-amber-700">That code is not for a fundraiser running today.</p>)}
           </div>
         </div>
         <div className="border-t border-slate-200 px-5 py-4">

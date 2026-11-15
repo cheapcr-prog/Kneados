@@ -88,6 +88,10 @@ export interface Order {
   /** Part of the total paid with a gift card, in cents. */
   giftCents?: number;
   rewardRedeemed?: boolean;
+  /** Paid up front on an event order, in cents. The rest is due at pickup. */
+  depositCents?: number;
+  /** The code of the fundraiser this order supports. */
+  fundraiser?: string;
   /** Mixed dozen boxes the customer built online. Their donuts are already counted in `lines`. */
   boxes?: string[][];
 }

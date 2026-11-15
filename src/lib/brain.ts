@@ -4,7 +4,7 @@
  * Nothing here guesses a figure: it only decides what is worth the owner's attention and words it.
  */
 
-export type Area = 'Counter' | 'Bake plan' | 'Supplies' | 'Team' | 'Equipment' | 'Tasks' | 'Waste' | 'Prices' | 'Wholesale' | 'Delivery' | 'Locations' | 'Customers' | 'Health';
+export type Area = 'Counter' | 'Bake plan' | 'Supplies' | 'Team' | 'Equipment' | 'Tasks' | 'Waste' | 'Prices' | 'Wholesale' | 'Delivery' | 'Locations' | 'Customers' | 'Health' | 'Events';
 export type Urgency = 'now' | 'today' | 'week';
 
 export interface Decision {
@@ -46,6 +46,8 @@ export interface ShopFacts {
   health?: { city: string; score: number; issues: { title: string; detail: string; major: boolean }[]; comingUp: { title: string; detail: string }[] };
   /** Customer texts that are due, by campaign, and whether each sends on its own. */
   customers?: { members: number; texts: { kind: string; title: string; due: number; names: string[]; auto: boolean; offer: string }[]; sentLast30Days: number };
+  /** Event bookings still to come, and fundraisers with what each group has earned. */
+  events?: { upcoming: number; dozensNext7Days: number; bookedCents: number; balanceDueCents: number; next?: { name: string; dozens: number; when: string }; fundraisers: { org: string; state: string; raisedCents: number; orders: number; endedDaysAgo?: number }[] };
   menu?: { attention: { id: string; name: string; verdict: string; advice: string; monthlyCents?: number }[] };
 }
 
@@ -180,6 +182,14 @@ export function decide(f: ShopFacts): Decision[] {
     });
   }
 
+  for (const fr of f.events?.fundraisers.filter((x) => x.state === 'ended' && x.raisedCents > 0) ?? []) {
+    out.push({
+      id: `events:payout:${fr.org}`, area: 'Events', urgency: 'week', title: `Send ${fr.org} their fundraiser check for ${usd(fr.raisedCents)}`,
+      why: `Their fundraiser ended ${plural(fr.endedDaysAgo ?? 0, 'day')} ago with ${plural(fr.orders, 'order')}. The group is waiting on the money.`,
+      action: 'Open Events & fundraisers', then: 'Mark the check sent there once it is in the mail.',
+    });
+  }
+
   for (const t of f.customers?.texts ?? []) {
     if (t.due === 0 || t.auto) continue;
     out.push({
@@ -281,6 +291,10 @@ const TOPICS: Topic[] = [
     say: (f) => `${plural(f.team.onClock, 'person', 'people')} on the clock. ${f.team.breaks.length > 0 ? f.team.breaks.join(' ') : 'Nobody is due a break right now.'} Next week's labor is planned at ${pct(f.team.laborShareNextWeek)} of forecast sales against a goal of ${pct(f.team.laborTargetHigh)}.${f.team.scheduleNotes.length > 0 ? ` ${f.team.scheduleNotes[0]}` : ''}` },
   { words: ['equipment', 'repair', 'broken', 'fryer', 'machine', 'service', 'task', 'clean'], areas: ['Equipment', 'Tasks'],
     say: (f) => `${f.equipment.openRepairs.length === 0 ? 'No open repairs.' : `${plural(f.equipment.openRepairs.length, 'open repair')}: ${f.equipment.openRepairs.map((r) => `${r.name} (${r.problem.replace(/\.$/, '')})`).join(', ')}.`} ${f.equipment.serviceOverdue.length > 0 ? `Service is overdue on the ${list(f.equipment.serviceOverdue.map((n) => n.toLowerCase()))}.` : ''} ${f.tasks.overdue.length > 0 ? `${plural(f.tasks.overdue.length, 'task')} overdue.` : 'No tasks overdue.'}`.replace(/\s+/g, ' ').trim() },
+  { words: ['event', 'fundraiser', 'deposit', 'party', 'booking', 'booked'], areas: ['Events'],
+    say: (f) => (f.events
+      ? `${plural(f.events.upcoming, 'event')} ${f.events.upcoming === 1 ? 'is' : 'are'} booked, worth ${usd(f.events.bookedCents)}, with ${f.events.dozensNext7Days} dozen in the next 7 days and ${usd(f.events.balanceDueCents)} still to collect at pickup.${f.events.next ? ` Next up is ${f.events.next.name}, ${f.events.next.dozens} dozen ${f.events.next.when}.` : ''}${f.events.fundraisers.length > 0 ? ` Fundraisers: ${f.events.fundraisers.map((x) => `${x.org} (${x.state}) has raised ${usd(x.raisedCents)}`).join('; ')}.` : ''}`
+      : 'KneadOS has no event bookings for this shop yet.') },
   { words: ['health', 'inspect', 'inspector', 'compliance', 'temperature', 'sanitizer', 'permit', 'food handler', 'card', 'grease', 'pest'], areas: ['Health'],
     say: (f) => (f.health
       ? `The shop's health inspection ready score is ${f.health.score} out of 100 under the ${f.health.city} rules. ${f.health.issues.length === 0 ? 'Nothing is overdue.' : `${plural(f.health.issues.length, 'item')} need fixing: ${f.health.issues.slice(0, 3).map((i) => `${i.title} (${i.detail.replace(/\.$/, '')})`).join('; ')}.`}${f.health.comingUp.length > 0 ? ` Coming up: ${f.health.comingUp.slice(0, 2).map((c) => c.title).join('; ')}.` : ''}`

@@ -19,6 +19,7 @@ import { Assistant } from './owner/Assistant';
 import { DeepReview } from './owner/DeepReview';
 import { Campaigns } from './owner/Campaigns';
 import { HealthSafety } from './owner/HealthSafety';
+import { Events } from './owner/Events';
 import { useHealth } from '../components/Health';
 import { useSession } from '../components/Session';
 import { DeliveryApps, GiftCards, Wholesale } from './owner/Channels';
@@ -40,7 +41,7 @@ const NAV = [
   { group: 'Kitchen', tabs: ['Bake plan', 'Drink bar', 'Waste', 'Supplies', 'Labels'] },
   { group: 'Team', tabs: ['Staff & tips', 'Schedule', 'Payroll'] },
   { group: 'Customers', tabs: ['Rewards', 'Customer texts', 'Gift cards'] },
-  { group: 'Sales channels', tabs: ['Delivery apps', 'Wholesale', 'Subscriptions', 'Delivery route'] },
+  { group: 'Sales channels', tabs: ['Delivery apps', 'Wholesale', 'Subscriptions', 'Delivery route', 'Events & fundraisers'] },
   { group: 'Growth', tabs: ['Pricing', 'Menu insights'] },
   { group: 'Money', tabs: ['Reports', 'Profit & loss', 'Accounting'] },
 ] as const;
@@ -109,6 +110,7 @@ export function Owner() {
         {tab === 'Subscriptions' && <Subscriptions demo={demo} onOpen={setTab} />}
         {tab === 'Delivery route' && <DeliveryRoute demo={demo} />}
         {tab === 'Wholesale' && <Wholesale demo={demo} />}
+        {tab === 'Events & fundraisers' && <Events />}
         {tab === 'Waste' && <Waste demo={demo} />}
         {tab === 'Labels' && <Labels demo={demo} />}
         {tab === 'Tasks' && <ShopTasks />}

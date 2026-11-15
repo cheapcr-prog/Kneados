@@ -11,18 +11,17 @@ export function linePrice(item: MenuItem, qty: number): number {
 
 export const BOX_SIZE = 12;
 
-/** Donuts that can go in a mixed dozen box: anything sold by the dozen, plus specialty items with a set extra. */
+/** Every donut sold by the dozen can go in a mixed dozen box. */
 export function isBoxable(item: MenuItem): boolean {
-  return item.dozenPrice !== undefined || item.boxUpcharge !== undefined;
+  return item.dozenPrice !== undefined;
 }
 
 /**
- * A mixed dozen is one base price, and specialty donuts add an extra each.
- * This is the extra for one donut, in cents. A plain glazed adds nothing.
+ * A mixed dozen is one price for any regular donuts, bars included.
+ * Only specialty donuts (filled, fritters, rolls) add an extra, and it is the same extra for each.
  */
 export function boxUpcharge(item: MenuItem): number {
-  if (item.boxUpcharge !== undefined) return item.boxUpcharge;
-  return Math.max(0, Math.round(((item.dozenPrice ?? item.price * BOX_SIZE) - SHOP.dozenBase) / BOX_SIZE));
+  return item.specialty ? SHOP.specialtyExtra : 0;
 }
 
 /** What `count` of one donut adds to a box: its share of the base dozen price plus its extras. */

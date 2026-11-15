@@ -68,6 +68,7 @@ const CHANNEL: Record<NonNullable<Order['channel']>, { label: string; color: str
   ubereats: { label: 'Uber Eats', color: '#16a34a', when: 'Driver at', note: 'Uber Eats tells the driver the moment this is marked packed.' },
   grubhub: { label: 'Grubhub', color: '#f97316', when: 'Driver at', note: 'Grubhub tells the driver the moment this is marked packed.' },
   wholesale: { label: 'Wholesale', color: '#0f172a', when: 'Ready by', note: 'Standing order. It goes on this account\'s weekly invoice.' },
+  subscription: { label: 'Donut Fridays', color: '#db2777', when: 'Van leaves', note: 'Weekly office box. It goes out on the delivery route and bills to the card on file.' },
   catering: { label: 'Catering', color: '#7c3aed', when: 'Pickup', note: 'Catering order. It goes on an invoice.' },
 };
 
@@ -138,7 +139,7 @@ export function PickupQueue({ me }: { me?: string }) {
                   {o.phone && <span className="text-slate-400"> · {formatPhone(o.phone)}</span>}
                 </p>
               </div>
-              <span className={`rounded-full px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider ${STATUS[o.status].pill}`}>{o.status === 'done' && ch ? (ch.when === 'Driver at' ? 'With driver' : o.channel === 'wholesale' ? 'Delivered' : STATUS.done.label) : STATUS[o.status].label}</span>
+              <span className={`rounded-full px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider ${STATUS[o.status].pill}`}>{o.status === 'done' && ch ? (ch.when === 'Driver at' ? 'With driver' : o.channel === 'wholesale' || o.channel === 'subscription' ? 'On the van' : STATUS.done.label) : STATUS[o.status].label}</span>
             </div>
             {job && o.status !== 'ready' && (
               <p className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
@@ -165,7 +166,7 @@ export function PickupQueue({ me }: { me?: string }) {
             })()}
             {next && (
               <button onClick={() => demo.setStatus(o.id, next.to)} className="mt-3 w-full rounded-xl bg-ink-900 py-3 text-sm font-bold text-white active:bg-ink-700">
-                {next.to === 'done' && ch ? (ch.when === 'Driver at' ? 'Handed to driver' : o.channel === 'wholesale' ? 'Out for delivery' : next.label) : next.label}
+                {next.to === 'done' && ch ? (ch.when === 'Driver at' ? 'Handed to driver' : o.channel === 'wholesale' || o.channel === 'subscription' ? 'Out for delivery' : next.label) : next.label}
               </button>
             )}
           </article>

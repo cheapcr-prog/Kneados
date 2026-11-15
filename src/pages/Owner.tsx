@@ -22,6 +22,7 @@ import { Accounting, ProfitLoss } from './owner/Money';
 import { Payroll } from './owner/Payroll';
 import { Waste } from './owner/Waste';
 import { Schedule } from './owner/Schedule';
+import { DeliveryRoute, Subscriptions } from './owner/Subscriptions';
 import { Supplies, useAutoPurchasing, useSupplyPlans } from './owner/Supplies';
 
 /** The owner's screens, grouped the way an owner thinks about the shop. */
@@ -30,7 +31,7 @@ const NAV = [
   { group: 'Kitchen', tabs: ['Bake plan', 'Waste', 'Supplies', 'Labels'] },
   { group: 'Team', tabs: ['Staff & tips', 'Schedule', 'Payroll'] },
   { group: 'Customers', tabs: ['Rewards', 'Gift cards'] },
-  { group: 'Sales channels', tabs: ['Delivery apps', 'Wholesale'] },
+  { group: 'Sales channels', tabs: ['Delivery apps', 'Wholesale', 'Subscriptions', 'Delivery route'] },
   { group: 'Money', tabs: ['Reports', 'Profit & loss', 'Accounting'] },
 ] as const;
 type Tab = (typeof NAV)[number]['tabs'][number];
@@ -90,6 +91,8 @@ export function Owner() {
         {tab === 'Rewards' && <Rewards demo={demo} />}
         {tab === 'Gift cards' && <GiftCards demo={demo} />}
         {tab === 'Delivery apps' && <DeliveryApps demo={demo} />}
+        {tab === 'Subscriptions' && <Subscriptions demo={demo} onOpen={setTab} />}
+        {tab === 'Delivery route' && <DeliveryRoute demo={demo} />}
         {tab === 'Wholesale' && <Wholesale demo={demo} />}
         {tab === 'Waste' && <Waste demo={demo} />}
         {tab === 'Labels' && <Labels demo={demo} />}

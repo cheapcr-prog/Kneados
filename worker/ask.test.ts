@@ -8,7 +8,7 @@ const good = JSON.stringify({ question: 'What needs ordering?', facts, decisions
 
 function kv(start: Record<string, string> = {}) {
   const data = new Map(Object.entries(start));
-  return { data, get: async (k: string) => data.get(k) ?? null, put: async (k: string, v: string) => void data.set(k, v) };
+  return { data, get: async (k: string) => data.get(k) ?? null, put: async (k: string, v: string) => void data.set(k, v), delete: async (k: string) => void data.delete(k) };
 }
 const env = (over: Partial<Env> = {}): Env => ({ ASSETS: { fetch: async () => new Response('page') }, USAGE: kv(), ANTHROPIC_API_KEY: 'test-key', ...over });
 const post = (body: string, origin = 'https://kneados.app') => new Request('https://kneados.app/api/ask', { method: 'POST', body, headers: { origin, 'cf-connecting-ip': '1.2.3.4' } });

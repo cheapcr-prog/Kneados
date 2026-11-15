@@ -9,8 +9,9 @@ import { explainForecast } from '../lib/forecast';
 import { formatPhone, money, moneyShort } from '../lib/money';
 import { PUNCHES_PER_REWARD } from '../lib/rewards';
 import { isTipEligible, splitTipPool } from '../lib/tips';
+import { Supplies, useSupplyPlans } from './owner/Supplies';
 
-const TABS = ['Today', 'Bake plan', 'Staff & tips', 'Rewards', 'Reports'] as const;
+const TABS = ['Today', 'Bake plan', 'Supplies', 'Staff & tips', 'Rewards', 'Reports'] as const;
 type Tab = (typeof TABS)[number];
 
 const TEAL = '#0d9488';
@@ -19,6 +20,10 @@ const SLATE = '#cbd5e1';
 export function Owner() {
   const demo = useDemo();
   const [tab, setTab] = useState<Tab>('Today');
+  /** Supplies the owner has marked as ordered: supply id to quantity on the way. */
+  const [ordered, setOrdered] = useState<Record<string, number>>({});
+  const supplyPlans = useSupplyPlans(demo, ordered);
+  const toOrder = supplyPlans.filter((p) => p.status === 'order-now').length;
   return (
     <div className="min-h-[calc(100vh-48px)] bg-slate-50">
       <div className="border-b border-slate-200 bg-white">
@@ -27,7 +32,10 @@ export function Owner() {
           <h1 className="font-display text-3xl font-bold tracking-tight">Owner dashboard</h1>
           <div className="mt-4 flex gap-1 overflow-x-auto">
             {TABS.map((t) => (
-              <button key={t} onClick={() => setTab(t)} className={`shrink-0 border-b-2 px-3 pb-2.5 text-sm font-semibold ${tab === t ? 'border-glaze-600 text-glaze-700' : 'border-transparent text-slate-500 hover:text-slate-800'}`}>{t}</button>
+              <button key={t} onClick={() => setTab(t)} className={`shrink-0 border-b-2 px-3 pb-2.5 text-sm font-semibold ${tab === t ? 'border-glaze-600 text-glaze-700' : 'border-transparent text-slate-500 hover:text-slate-800'}`}>
+                {t}
+                {t === 'Supplies' && toOrder > 0 && <span className="tabular ml-1.5 rounded-full bg-rose-600 px-1.5 py-0.5 text-[11px] font-bold text-white">{toOrder}</span>}
+              </button>
             ))}
           </div>
         </div>
@@ -35,6 +43,7 @@ export function Owner() {
       <div className="mx-auto max-w-6xl px-4 py-6">
         {tab === 'Today' && <Today demo={demo} />}
         {tab === 'Bake plan' && <BakePlan demo={demo} />}
+        {tab === 'Supplies' && <Supplies demo={demo} plans={supplyPlans} ordered={ordered} onOrder={(items) => setOrdered((o) => ({ ...o, ...Object.fromEntries(Object.entries(items).map(([id, q]) => [id, (o[id] ?? 0) + q])) }))} />}
         {tab === 'Staff & tips' && <StaffTips demo={demo} />}
         {tab === 'Rewards' && <Rewards demo={demo} />}
         {tab === 'Reports' && <Reports demo={demo} />}

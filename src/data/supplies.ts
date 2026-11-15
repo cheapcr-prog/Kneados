@@ -53,3 +53,6 @@ export const RECIPES: Record<string, Record<string, number>> = {
   icedcoffee: { coffee: 0.028, milk: 0.02, cups: 1 },
   milk: { milk: 0.0625, cups: 1 },
 };
+
+/** What the shop pays for items it buys in finished, in cents each. Example prices. */
+export const PURCHASED: Record<string, number> = { croissant: 210, almondcroissant: 190 };

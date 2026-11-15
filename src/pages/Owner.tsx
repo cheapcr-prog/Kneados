@@ -12,14 +12,16 @@ import { formatPhone, money, moneyShort } from '../lib/money';
 import { PUNCHES_PER_REWARD } from '../lib/rewards';
 import { isTipEligible, splitTipPool } from '../lib/tips';
 import { Equipment, ShopTasks } from './owner/Equipment';
+import { Labels } from './owner/Labels';
 import { Payroll } from './owner/Payroll';
+import { Waste } from './owner/Waste';
 import { Schedule } from './owner/Schedule';
 import { Supplies, useAutoPurchasing, useSupplyPlans } from './owner/Supplies';
 
 /** The owner's screens, grouped the way an owner thinks about the shop. */
 const NAV = [
   { group: 'Shop', tabs: ['Today', 'Tasks', 'Equipment'] },
-  { group: 'Kitchen', tabs: ['Bake plan', 'Supplies'] },
+  { group: 'Kitchen', tabs: ['Bake plan', 'Waste', 'Supplies', 'Labels'] },
   { group: 'Team', tabs: ['Staff & tips', 'Schedule', 'Payroll'] },
   { group: 'Customers', tabs: ['Rewards'] },
   { group: 'Money', tabs: ['Reports'] },
@@ -77,6 +79,8 @@ export function Owner() {
         {tab === 'Supplies' && <Supplies demo={demo} plans={supplyPlans} />}
         {tab === 'Staff & tips' && <StaffTips demo={demo} />}
         {tab === 'Rewards' && <Rewards demo={demo} />}
+        {tab === 'Waste' && <Waste demo={demo} />}
+        {tab === 'Labels' && <Labels demo={demo} />}
         {tab === 'Tasks' && <ShopTasks />}
         {tab === 'Equipment' && <Equipment />}
         {tab === 'Schedule' && <Schedule demo={demo} />}

@@ -48,6 +48,8 @@ export interface ShopFacts {
   customers?: { members: number; texts: { kind: string; title: string; due: number; names: string[]; auto: boolean; offer: string }[]; sentLast30Days: number };
   /** Event bookings still to come, and fundraisers with what each group has earned. */
   events?: { upcoming: number; dozensNext7Days: number; bookedCents: number; balanceDueCents: number; next?: { name: string; dozens: number; when: string }; fundraisers: { org: string; state: string; raisedCents: number; orders: number; endedDaysAgo?: number }[] };
+  /** The merch shelf: what sold, what it kept and what is running low. */
+  merch?: { salesCents28: number; profitCents28: number; low: { name: string; onHand: number; daysLeft?: number; reorderQty: number; costCents: number }[]; best?: string };
   menu?: { attention: { id: string; name: string; verdict: string; advice: string; monthlyCents?: number }[] };
 }
 
@@ -190,6 +192,15 @@ export function decide(f: ShopFacts): Decision[] {
     });
   }
 
+  const lowMerch = f.merch?.low ?? [];
+  if (lowMerch.length > 0) {
+    out.push({
+      id: 'merch:reorder', area: 'Supplies', urgency: 'week', title: `Reorder ${list(lowMerch.map((m) => m.name))}`,
+      why: lowMerch.map((m) => `${m.name}: ${m.onHand} left${m.daysLeft !== undefined ? `, about ${plural(m.daysLeft, 'day')} at the recent pace` : ''}.`).join(' '),
+      action: 'Open Merch', then: `The reorder buttons are there. All of them together cost ${usd(lowMerch.reduce((a, m) => a + m.reorderQty * m.costCents, 0))}.`,
+    });
+  }
+
   for (const t of f.customers?.texts ?? []) {
     if (t.due === 0 || t.auto) continue;
     out.push({
@@ -291,6 +302,10 @@ const TOPICS: Topic[] = [
     say: (f) => `${plural(f.team.onClock, 'person', 'people')} on the clock. ${f.team.breaks.length > 0 ? f.team.breaks.join(' ') : 'Nobody is due a break right now.'} Next week's labor is planned at ${pct(f.team.laborShareNextWeek)} of forecast sales against a goal of ${pct(f.team.laborTargetHigh)}.${f.team.scheduleNotes.length > 0 ? ` ${f.team.scheduleNotes[0]}` : ''}` },
   { words: ['equipment', 'repair', 'broken', 'fryer', 'machine', 'service', 'task', 'clean'], areas: ['Equipment', 'Tasks'],
     say: (f) => `${f.equipment.openRepairs.length === 0 ? 'No open repairs.' : `${plural(f.equipment.openRepairs.length, 'open repair')}: ${f.equipment.openRepairs.map((r) => `${r.name} (${r.problem.replace(/\.$/, '')})`).join(', ')}.`} ${f.equipment.serviceOverdue.length > 0 ? `Service is overdue on the ${list(f.equipment.serviceOverdue.map((n) => n.toLowerCase()))}.` : ''} ${f.tasks.overdue.length > 0 ? `${plural(f.tasks.overdue.length, 'task')} overdue.` : 'No tasks overdue.'}`.replace(/\s+/g, ' ').trim() },
+  { words: ['merch', 'shirt', 'tee', 'mug', 'hat', 'tote', 'sticker', 'beans'], areas: ['Supplies'],
+    say: (f) => (f.merch
+      ? `Merch and extras brought in ${usd(f.merch.salesCents28)} over the last 28 days and kept ${usd(f.merch.profitCents28)} after cost.${f.merch.best ? ` ${f.merch.best} earns the most.` : ''} ${f.merch.low.length === 0 ? 'Nothing is running low.' : `Running low: ${f.merch.low.map((m) => `${m.name} (${m.onHand} left)`).join(', ')}.`}`
+      : 'KneadOS is not tracking merch for this shop yet.') },
   { words: ['event', 'fundraiser', 'deposit', 'party', 'booking', 'booked'], areas: ['Events'],
     say: (f) => (f.events
       ? `${plural(f.events.upcoming, 'event')} ${f.events.upcoming === 1 ? 'is' : 'are'} booked, worth ${usd(f.events.bookedCents)}, with ${f.events.dozensNext7Days} dozen in the next 7 days and ${usd(f.events.balanceDueCents)} still to collect at pickup.${f.events.next ? ` Next up is ${f.events.next.name}, ${f.events.next.dozens} dozen ${f.events.next.when}.` : ''}${f.events.fundraisers.length > 0 ? ` Fundraisers: ${f.events.fundraisers.map((x) => `${x.org} (${x.state}) has raised ${usd(x.raisedCents)}`).join('; ')}.` : ''}`

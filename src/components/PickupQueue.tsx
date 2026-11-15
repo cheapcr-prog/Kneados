@@ -1,4 +1,4 @@
-import { Coffee, MessageSquareText, Package, ShoppingBag, Sparkles } from 'lucide-react';
+import { Coffee, MessageSquareText, Package, Shirt, ShoppingBag, Sparkles } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { MENU_BY_ID, STAFF, STAFF_BY_ID } from '../data/shop';
 import { useDemo } from '../data/store';
@@ -11,6 +11,7 @@ import { planWorkload } from '../lib/workload';
 import type { Workload } from '../lib/workload';
 import { useEvents } from './Events';
 import { ItemArt } from './ItemArt';
+import { merchLabel } from './Merch';
 
 const NEXT: Record<OrderStatus, { to: OrderStatus; label: string } | null> = {
   new: { to: 'making', label: 'Start packing' },
@@ -161,6 +162,15 @@ export function PickupQueue({ me }: { me?: string }) {
               ))}
               {plan.bag.length > 0 && <PackRow icon={<ShoppingBag size={15} />} label="Paper bag" items={plan.bag} />}
               {plan.cups.length > 0 && <PackRow icon={<Coffee size={15} />} label="Cup holder" items={plan.cups} />}
+              {o.merch && o.merch.length > 0 && (
+                <div className="flex items-start gap-2.5 rounded-xl bg-white/80 px-2.5 py-2">
+                  <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-slate-900 text-white"><Shirt size={15} /></span>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500">From the merch shelf</p>
+                    <p className="mt-0.5 text-sm font-medium text-slate-700">{o.merch.map(merchLabel).join(', ')}</p>
+                  </div>
+                </div>
+              )}
             </div>
             {(() => {
               const sent = demo.state.texts.find((t) => t.orderId === o.id && t.kind === 'ready');

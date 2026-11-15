@@ -360,17 +360,35 @@ function Checkout({ loose, boxes, lines, add, removeBox, onClose, onPlaced }: {
 }
 
 function Confirmation({ order, onClose }: { order: Order; onClose: () => void }) {
+  const demo = useDemo();
+  const live = demo.state.orders.find((o) => o.id === order.id) ?? order;
+  const texts = demo.state.texts.filter((t) => t.orderId === order.id).reverse();
+  const ready = live.status === 'ready' || live.status === 'done';
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-slate-900/50 p-4" onClick={onClose}>
       <div className="w-full max-w-sm rounded-3xl bg-white p-6 text-center shadow-2xl" onClick={(e) => e.stopPropagation()}>
         <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-emerald-100 text-emerald-600"><Check size={28} /></div>
-        <h2 className="mt-4 font-display text-2xl font-bold">Order #{order.number} is in</h2>
+        <h2 className="mt-4 font-display text-2xl font-bold">{ready ? `Order #${order.number} is ready` : `Order #${order.number} is in`}</h2>
         <p className="mt-1 text-sm text-slate-600">
           Pick up {isoLocal(order.pickupAt!) === isoLocal(new Date().toISOString()) ? 'today' : 'on ' + longDate(isoLocal(order.pickupAt!))} at{' '}
           <span className="font-semibold text-slate-900">{timeLabel(order.pickupAt!)}</span>.
         </p>
+        {texts.length > 0 && (
+          <div className="mt-4 rounded-2xl bg-slate-100 p-3 text-left">
+            <p className="text-center text-[11px] font-semibold uppercase tracking-wider text-slate-500">Texts to {formatPhone(order.phone ?? '')}</p>
+            <ul className="mt-2 space-y-1.5">
+              {texts.map((t, i) => (
+                <li key={i} className="donut-drop max-w-[92%] rounded-2xl rounded-bl-md bg-white px-3 py-2 text-[13px] leading-snug text-slate-800 shadow-sm">
+                  {t.body}
+                  <span className="mt-0.5 block text-[10px] text-slate-400">{timeLabel(t.at)}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
         <p className="mt-3 rounded-xl bg-slate-50 p-3 text-xs text-slate-600">
-          This order just landed in <span className="font-semibold">Pickup orders</span> on the Register, where the counter staff pack it. It is also counted in the bake plan.
+          This order just landed in <span className="font-semibold">Pickup orders</span> on the Register, where the counter staff pack it.
+          {order.phone ? ' When they tap "Packed and ready", the customer gets a text.' : ''} Demo: texts are shown here, not sent.
         </p>
         <button onClick={onClose} className="mt-5 w-full rounded-xl bg-slate-900 py-3 text-sm font-bold text-white">Done</button>
       </div>

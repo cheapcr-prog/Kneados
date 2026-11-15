@@ -1,10 +1,12 @@
-import { Check, Sparkles, Truck } from 'lucide-react';
+import { Sparkles } from 'lucide-react';
 import { useMemo } from 'react';
 import { MENU } from '../../data/shop';
 import { forecastFor, type Demo } from '../../data/store';
 import { RECIPES, SUPPLIES } from '../../data/supplies';
 import { addDays, DOW_NAMES, dowOf, shortDate } from '../../lib/dates';
 import { money } from '../../lib/money';
+import { delivered, onOrder } from '../../lib/purchasing';
+import { PurchasingPanel, useAutoPurchasing } from './Purchasing';
 import { planSupply, SAFETY_DAYS, supplyUsage, type SupplyPlan } from '../../lib/supplies';
 
 /** How many days of the bake plan to look ahead. */
@@ -28,10 +30,12 @@ function dayName(today: string) {
 
 /**
  * Checks every supply against the next three weeks of the bake plan.
- * `ordered` holds what the owner has already ordered: supply id to quantity on the way.
+ * Purchase orders that are sent count as on the way, and received ones are added to the stock on hand.
  */
-export function useSupplyPlans(demo: Demo, ordered: Record<string, number>): SupplyPlan[] {
-  const { today, orders, tomorrowRain } = demo.state;
+export function useSupplyPlans(demo: Demo): SupplyPlan[] {
+  const { today, orders, tomorrowRain, pos } = demo.state;
+  const ordered = useMemo(() => onOrder(pos), [pos]);
+  const got = useMemo(() => delivered(pos), [pos]);
   const usage = useMemo(() => {
     return Array.from({ length: HORIZON }, (_, d) => {
       const date = addDays(today, d);
@@ -42,27 +46,28 @@ export function useSupplyPlans(demo: Demo, ordered: Record<string, number>): Sup
   return useMemo(() => {
     const rank = { 'order-now': 0, 'order-soon': 1, ok: 2 };
     return SUPPLIES
-      .map((s) => planSupply(s, usage.map((u) => u[s.id] ?? 0), today, ordered[s.id] ?? 0, dayName(today)))
+      .map((s) => planSupply({ ...s, onHand: s.onHand + (got[s.id] ?? 0) }, usage.map((u) => u[s.id] ?? 0), today, ordered[s.id] ?? 0, dayName(today)))
       .sort((a, b) => rank[a.status] - rank[b.status] || (a.daysLeft ?? 99) - (b.daysLeft ?? 99));
-  }, [usage, today, ordered]);
+  }, [usage, today, ordered, got]);
 }
 
 const qtyLabel = (n: number, unit: string) => `${n >= 100 ? Math.round(n) : Math.round(n * 10) / 10} ${unit}`;
 
-export function Supplies({ demo, plans, ordered, onOrder }: { demo: Demo; plans: SupplyPlan[]; ordered: Record<string, number>; onOrder: (items: Record<string, number>) => void }) {
+export { useAutoPurchasing };
+
+export function Supplies({ demo, plans }: { demo: Demo; plans: SupplyPlan[] }) {
   const today = demo.state.today;
   const name = dayName(today);
+  const sentToday = demo.state.pos.filter((p) => p.date === today && p.status !== 'draft').length;
   const due = plans.filter((p) => p.status === 'order-now');
   const soon = plans.filter((p) => p.status === 'order-soon');
-  const suppliers = [...new Set(due.map((p) => p.supply.supplier))];
-  const onTheWay = SUPPLIES.filter((s) => ordered[s.id]);
 
   return (
     <div className="space-y-4">
       <section className="rounded-2xl bg-ink-900 p-5 text-white">
         <p className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-glaze-300"><Sparkles size={13} /> KneadOS checked your supplies</p>
         <h2 className="mt-1 font-display text-2xl font-bold tracking-tight">
-          {due.length === 0 ? 'Nothing needs ordering today.' : `${due.length} thing${due.length === 1 ? '' : 's'} to order today, about ${money(due.reduce((a, p) => a + p.cents, 0))}.`}
+          {due.length === 0 ? (sentToday > 0 ? `Today's orders are in. Nothing else needs ordering.` : 'Nothing needs ordering today.') : `${due.length} thing${due.length === 1 ? '' : 's'} to order today, about ${money(due.reduce((a, p) => a + p.cents, 0))}.`}
         </h2>
         <p className="mt-1 max-w-3xl text-sm text-slate-300">
           It takes the bake plan for the next {HORIZON} days, works out how much of each supply that uses, and counts back from the day each one runs out.
@@ -71,55 +76,7 @@ export function Supplies({ demo, plans, ordered, onOrder }: { demo: Demo; plans:
         </p>
       </section>
 
-      {suppliers.map((supplier) => {
-        const rows = due.filter((p) => p.supply.supplier === supplier);
-        const lead = rows[0].supply.leadDays;
-        return (
-          <section key={supplier} className="rounded-2xl border border-rose-200 bg-white p-4">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <h3 className="font-display text-lg font-bold tracking-tight">Order from {supplier} today</h3>
-                <p className="text-xs text-slate-500">
-                  {lead === 0 ? 'Same-day pickup run.' : `Arrives ${name(addDays(today, lead))} if ordered today.`} Total about {money(rows.reduce((a, p) => a + p.cents, 0))}.
-                </p>
-              </div>
-              <button
-                onClick={() => onOrder(Object.fromEntries(rows.map((p) => [p.supply.id, p.packs * p.supply.packSize])))}
-                className="flex items-center gap-1.5 rounded-full bg-ink-900 px-4 py-2.5 text-sm font-bold text-white hover:bg-ink-700"
-              >
-                <Check size={15} /> Mark as ordered
-              </button>
-            </div>
-            <ul className="mt-3 divide-y divide-slate-100">
-              {rows.map((p) => (
-                <li key={p.supply.id} className="flex flex-wrap items-baseline gap-x-4 gap-y-1 py-2.5">
-                  <p className="min-w-0 flex-1 basis-64">
-                    <span className="font-semibold text-slate-900">{p.supply.name}</span>
-                    <span className="block text-sm text-slate-600">{p.reason}</span>
-                  </p>
-                  <p className="tabular text-right text-sm">
-                    <span className="font-display text-lg font-bold text-slate-900">{p.packs} × {p.supply.packLabel}</span>
-                    <span className="block text-slate-500">{money(p.cents)}</span>
-                  </p>
-                </li>
-              ))}
-            </ul>
-          </section>
-        );
-      })}
-
-      {onTheWay.length > 0 && (
-        <section className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
-          <h3 className="flex items-center gap-2 font-display text-lg font-bold tracking-tight text-emerald-900"><Truck size={18} /> On the way</h3>
-          <ul className="mt-1.5 space-y-0.5 text-sm text-emerald-900">
-            {onTheWay.map((s) => (
-              <li key={s.id}>
-                {qtyLabel(ordered[s.id], s.unit)} of {s.name.toLowerCase()} from {s.supplier}, {s.leadDays === 0 ? 'picked up today' : `arriving ${name(addDays(today, s.leadDays))}`}
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
+      <PurchasingPanel demo={demo} plans={plans} />
 
       <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
         <div className="px-4 pb-2 pt-4">
@@ -162,7 +119,7 @@ export function Supplies({ demo, plans, ordered, onOrder }: { demo: Demo; plans:
 
       <p className="text-xs text-slate-500">
         Demo numbers: the stock counts, recipes, pack sizes and prices are examples. In a live shop, stock goes down as the bake plan is made and up when a delivery is received,
-        with a quick count each week to correct it. Nothing is ordered for you here. A later step is letting KneadOS draft the order to each supplier for the owner to approve.
+        with a quick count each week to correct it. Purchase orders are shown here and not really emailed.
       </p>
     </div>
   );

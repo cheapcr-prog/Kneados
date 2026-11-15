@@ -1,4 +1,4 @@
-import { Coffee, Package, ShoppingBag, Sparkles } from 'lucide-react';
+import { Coffee, MessageSquareText, Package, ShoppingBag, Sparkles } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { MENU_BY_ID, STAFF, STAFF_BY_ID } from '../data/shop';
 import { useDemo } from '../data/store';
@@ -147,6 +147,12 @@ export function PickupQueue({ me }: { me?: string }) {
               {plan.bag.length > 0 && <PackRow icon={<ShoppingBag size={15} />} label="Paper bag" items={plan.bag} />}
               {plan.cups.length > 0 && <PackRow icon={<Coffee size={15} />} label="Cup holder" items={plan.cups} />}
             </div>
+            {(() => {
+              const sent = demo.state.texts.find((t) => t.orderId === o.id && t.kind === 'ready');
+              if (sent) return <p className="mt-2.5 flex items-center gap-1.5 text-xs font-semibold text-emerald-700"><MessageSquareText size={13} /> Texted {formatPhone(sent.to)} at {timeLabel(sent.at)}: ready for pickup</p>;
+              if (o.status !== 'ready' && o.status !== 'done') return <p className="mt-2.5 flex items-center gap-1.5 text-xs text-slate-500"><MessageSquareText size={13} /> {o.phone ? 'The customer gets a text the moment this is marked packed.' : 'No phone number, so no text for this one.'}</p>;
+              return null;
+            })()}
             {next && (
               <button onClick={() => demo.setStatus(o.id, next.to)} className="mt-3 w-full rounded-xl bg-ink-900 py-3 text-sm font-bold text-white active:bg-ink-700">
                 {next.label}

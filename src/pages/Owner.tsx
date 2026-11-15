@@ -18,6 +18,9 @@ import { isTipEligible, splitTipPool } from '../lib/tips';
 import { Assistant } from './owner/Assistant';
 import { DeepReview } from './owner/DeepReview';
 import { Campaigns } from './owner/Campaigns';
+import { HealthSafety } from './owner/HealthSafety';
+import { useHealth } from '../components/Health';
+import { useSession } from '../components/Session';
 import { DeliveryApps, GiftCards, Wholesale } from './owner/Channels';
 import { DrinkBar } from './owner/DrinkBar';
 import { Equipment, ShopTasks } from './owner/Equipment';
@@ -33,7 +36,7 @@ import { Supplies, useAutoPurchasing, useSupplyPlans } from './owner/Supplies';
 
 /** The owner's screens, grouped the way an owner thinks about the shop. */
 const NAV = [
-  { group: 'Shop', tabs: ['Briefing', 'Deep review', 'Today', 'Locations', 'Tasks', 'Equipment'] },
+  { group: 'Shop', tabs: ['Briefing', 'Deep review', 'Today', 'Locations', 'Tasks', 'Health & safety', 'Equipment'] },
   { group: 'Kitchen', tabs: ['Bake plan', 'Drink bar', 'Waste', 'Supplies', 'Labels'] },
   { group: 'Team', tabs: ['Staff & tips', 'Schedule', 'Payroll'] },
   { group: 'Customers', tabs: ['Rewards', 'Customer texts', 'Gift cards'] },
@@ -55,7 +58,9 @@ export function Owner() {
   useAutoPurchasing(demo, supplyPlans);
   const toOrder = supplyPlans.filter((p) => p.status === 'order-now').length;
   const upkeep = useUpkeep();
-  const counts: Partial<Record<Tab, number>> = { Supplies: toOrder, Tasks: upkeep.overdue.length, Equipment: upkeep.openRepairs.length };
+  const health = useHealth();
+  const session = useSession();
+  const counts: Partial<Record<Tab, number>> = { Supplies: toOrder, Tasks: upkeep.overdue.length, 'Health & safety': health.ready.issues.length, Equipment: upkeep.openRepairs.length };
   const badge = (t: Tab) => (counts[t] ? <span className="tabular ml-1.5 rounded-full bg-rose-600 px-1.5 py-0.5 text-[11px] font-bold text-white">{counts[t]}</span> : null);
   return (
     <div className="min-h-[calc(100vh-48px)] bg-slate-50">
@@ -107,6 +112,7 @@ export function Owner() {
         {tab === 'Waste' && <Waste demo={demo} />}
         {tab === 'Labels' && <Labels demo={demo} />}
         {tab === 'Tasks' && <ShopTasks />}
+        {tab === 'Health & safety' && <HealthSafety me={session.staff?.id ?? 'rosa'} />}
         {tab === 'Equipment' && <Equipment />}
         {tab === 'Schedule' && <Schedule demo={demo} />}
         {tab === 'Payroll' && <Payroll demo={demo} />}

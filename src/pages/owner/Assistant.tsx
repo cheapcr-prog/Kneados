@@ -2,6 +2,7 @@ import { Check, MessageCircle, Send, Sparkles, X } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { FALLBACK_NOTE, askServer, useClaudeReady } from '../../components/Ask';
 import { useCampaigns } from '../../components/Campaigns';
+import { useHealth } from '../../components/Health';
 import type { CampaignKind } from '../../lib/campaigns';
 import { adviceText, useBreakAdvice, useTick } from '../../components/Breaks';
 import { useDeliverySettings, useGiftCards, useInvoices } from '../../components/Channels';
@@ -52,6 +53,7 @@ export function useShopFacts({ demo, plans, upkeep, weather, alerts }: Sources) 
   const pricing = usePricing();
   const insights = useMenuInsights(demo);
   const campaigns = useCampaigns();
+  const health = useHealth();
   const [shifts] = useShopState<Shift[]>('schedule', () => SCHEDULE.map((s) => ({ ...s })));
   const cost = useMemo(() => menuCosts(MENU.map((m) => m.id), RECIPES, SUPPLIES, PURCHASED), []);
   const baked = MENU.filter((m) => m.baked);
@@ -140,6 +142,11 @@ export function useShopFacts({ demo, plans, upkeep, weather, alerts }: Sources) 
       count: locs.locations.length, transfers: locs.open.map((t) => ({ qty: t.qty, item: MENU_BY_ID[t.itemId].name, from: locs.name(t.from), to: locs.name(t.to) })),
       transferCents: locs.open.reduce((a, t) => a + t.qty * MENU_BY_ID[t.itemId].price, 0),
     },
+    health: {
+      city: health.pack.city, score: health.ready.score,
+      issues: health.ready.issues.map((i) => ({ title: i.title, detail: i.detail, major: i.major })),
+      comingUp: health.ready.warnings.map((w) => ({ title: w.title, detail: w.detail })),
+    },
     customers: {
       members: demo.state.members.length, sentLast30Days: campaigns.sentThisMonth,
       texts: campaigns.campaigns.map((c) => ({ kind: c.kind, title: c.short, due: c.problems.length === 0 ? c.recipients.length : 0, names: c.recipients.map((r) => r.member.name), auto: c.auto, offer: c.offer })),
@@ -200,7 +207,7 @@ function DecisionCard({ d, onApprove, onDismiss }: { d: Decision; onApprove: () 
   );
 }
 
-export function Assistant(props: Sources & { onOpen: (tab: 'Schedule' | 'Menu insights') => void }) {
+export function Assistant(props: Sources & { onOpen: (tab: 'Schedule' | 'Menu insights' | 'Health & safety') => void }) {
   const { demo } = props;
   const { facts, apply } = useShopFacts(props);
   const [log, setLog] = useShopState<Logged[]>(`decisions-${demo.state.today}`, () => []);
@@ -217,6 +224,7 @@ export function Assistant(props: Sources & { onOpen: (tab: 'Schedule' | 'Menu in
       apply(d);
       if (d.id === 'schedule') props.onOpen('Schedule');
       if (d.id.startsWith('menu:')) props.onOpen('Menu insights');
+      if (d.id.startsWith('health')) props.onOpen('Health & safety');
     }
     setLog((l) => [{ id: d.id, title: d.title, then: d.then, at: new Date().toISOString(), approved }, ...l]);
   };

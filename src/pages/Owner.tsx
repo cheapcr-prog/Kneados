@@ -3,6 +3,7 @@ import { useMemo, useState, type ReactNode } from 'react';
 import { Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { BreakPlanCard, TONE, breakSummary, tracksBreaks, useTick } from '../components/Breaks';
 import { ItemArt } from '../components/ItemArt';
+import { useUpkeep } from '../components/Upkeep';
 import { MENU, MENU_BY_ID, SCHEDULE, SHOP, STAFF, STAFF_BY_ID, shiftHours } from '../data/shop';
 import { useDemo, type Demo } from '../data/store';
 import { DOW_NAMES, DOW_SHORT, dowOf, holidayFor, longDate, shortDate, timeLabel } from '../lib/dates';
@@ -10,13 +11,14 @@ import { explainForecast } from '../lib/forecast';
 import { formatPhone, money, moneyShort } from '../lib/money';
 import { PUNCHES_PER_REWARD } from '../lib/rewards';
 import { isTipEligible, splitTipPool } from '../lib/tips';
+import { Equipment, ShopTasks } from './owner/Equipment';
 import { Payroll } from './owner/Payroll';
 import { Schedule } from './owner/Schedule';
 import { Supplies, useAutoPurchasing, useSupplyPlans } from './owner/Supplies';
 
 /** The owner's screens, grouped the way an owner thinks about the shop. */
 const NAV = [
-  { group: 'Shop', tabs: ['Today'] },
+  { group: 'Shop', tabs: ['Today', 'Tasks', 'Equipment'] },
   { group: 'Kitchen', tabs: ['Bake plan', 'Supplies'] },
   { group: 'Team', tabs: ['Staff & tips', 'Schedule', 'Payroll'] },
   { group: 'Customers', tabs: ['Rewards'] },
@@ -34,7 +36,9 @@ export function Owner() {
   const supplyPlans = useSupplyPlans(demo);
   useAutoPurchasing(demo, supplyPlans);
   const toOrder = supplyPlans.filter((p) => p.status === 'order-now').length;
-  const badge = (t: Tab) => (t === 'Supplies' && toOrder > 0 ? <span className="tabular ml-1.5 rounded-full bg-rose-600 px-1.5 py-0.5 text-[11px] font-bold text-white">{toOrder}</span> : null);
+  const upkeep = useUpkeep();
+  const counts: Partial<Record<Tab, number>> = { Supplies: toOrder, Tasks: upkeep.overdue.length, Equipment: upkeep.openRepairs.length };
+  const badge = (t: Tab) => (counts[t] ? <span className="tabular ml-1.5 rounded-full bg-rose-600 px-1.5 py-0.5 text-[11px] font-bold text-white">{counts[t]}</span> : null);
   return (
     <div className="min-h-[calc(100vh-48px)] bg-slate-50">
       <div className="border-b border-slate-200 bg-white">
@@ -73,6 +77,8 @@ export function Owner() {
         {tab === 'Supplies' && <Supplies demo={demo} plans={supplyPlans} />}
         {tab === 'Staff & tips' && <StaffTips demo={demo} />}
         {tab === 'Rewards' && <Rewards demo={demo} />}
+        {tab === 'Tasks' && <ShopTasks />}
+        {tab === 'Equipment' && <Equipment />}
         {tab === 'Schedule' && <Schedule demo={demo} />}
         {tab === 'Payroll' && <Payroll demo={demo} />}
         {tab === 'Reports' && <Reports demo={demo} />}

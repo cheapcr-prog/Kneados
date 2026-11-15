@@ -24,3 +24,8 @@ export function redeemReward(member: RewardsMember): RewardsMember {
 export function rewardText(shopName: string): string {
   return `Dough Rewards: You earned a free donut at ${shopName}! Show this text at the counter. Reply STOP to opt out.`;
 }
+
+/** The text a new member gets, with the link to their card for Apple or Google Wallet. */
+export function welcomeText(shopName: string, cardLink: string): string {
+  return `Dough Rewards: Welcome to ${shopName}! That was punch 1 of ${PUNCHES_PER_REWARD}. Save your card to your phone so we can scan it next time: ${cardLink} Reply STOP to opt out.`;
+}

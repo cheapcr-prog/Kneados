@@ -1,9 +1,10 @@
-import { Banknote, Check, ClipboardCheck, CreditCard, Gift, LogOut, MessageCircle, Minus, PackageCheck, Plus, Timer, Trash2, X } from 'lucide-react';
+import { Banknote, Check, ClipboardCheck, CreditCard, Gift, Keyboard, LogOut, MessageCircle, Minus, PackageCheck, Plus, ScanLine, Timer, Trash2, X } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { BreakButton, BreakScreen } from '../components/Breaks';
 import { useGiftCards } from '../components/Channels';
 import { ItemArt } from '../components/ItemArt';
 import { usePricing, useUpsells } from '../components/Pricing';
+import { RewardsEntry } from '../components/Rewards';
 import { ShopTasksPanel, useUpkeep } from '../components/Upkeep';
 import { StaffLogin, useSession } from '../components/Session';
 import { PickupQueue, useTodaysPickups, useWorkload } from '../components/PickupQueue';
@@ -39,6 +40,7 @@ function Till({ staff, onLogout }: { staff: StaffMember; onLogout: () => void })
   const [tab, setTab] = useState<Category | 'All'>('All');
   const [ticket, setTicket] = useState<Record<string, number>>({});
   const [phone, setPhone] = useState('');
+  const [entry, setEntry] = useState<'keypad' | 'scan' | null>(null);
   const [redeem, setRedeem] = useState(false);
   const [stage, setStage] = useState<Stage>('ticket');
   const [tip, setTip] = useState(0);
@@ -193,8 +195,8 @@ function Till({ staff, onLogout }: { staff: StaffMember; onLogout: () => void })
   return (
     <div className="flex h-[calc(100vh-48px)] flex-col bg-slate-100 lg:flex-row">
       <div className="flex min-h-0 flex-1 flex-col">
-        <div className="flex items-center gap-2 border-b border-slate-200 bg-white px-3 py-2">
-          <div className="flex flex-1 gap-1 overflow-x-auto">
+        <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 bg-white px-3 py-2">
+          <div className="flex min-w-0 flex-1 basis-full gap-1 overflow-x-auto md:basis-0">
             {TABS.map((c) => (
               <button key={c} onClick={() => setTab(c)} className={`shrink-0 rounded-lg px-3.5 py-2 text-sm font-semibold ${tab === c ? 'bg-ink-900 text-white' : 'text-slate-600 hover:bg-slate-100'}`}>{c}</button>
             ))}
@@ -291,8 +293,13 @@ function Till({ staff, onLogout }: { staff: StaffMember; onLogout: () => void })
           </div>
         )}
         <div className="border-t border-slate-100 px-4 py-2.5">
-          <label className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Dough Rewards phone</label>
-          <input value={formatPhone(phone)} onChange={(e) => { setPhone(e.target.value); setRedeem(false); }} inputMode="tel" placeholder="(562) 555-0101" className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
+          <label htmlFor="rewards-phone" className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Dough Rewards</label>
+          <div className="mt-1 grid grid-cols-2 gap-2">
+            <button onClick={() => setEntry('keypad')} className="flex items-center justify-center gap-1.5 rounded-xl bg-slate-100 py-3 text-sm font-bold text-slate-800 hover:bg-slate-200"><Keyboard size={16} /> Phone number</button>
+            <button onClick={() => setEntry('scan')} className="flex items-center justify-center gap-1.5 rounded-xl bg-slate-100 py-3 text-sm font-bold text-slate-800 hover:bg-slate-200"><ScanLine size={16} /> Scan card</button>
+          </div>
+          <input id="rewards-phone" value={formatPhone(phone)} onChange={(e) => { setPhone(e.target.value); setRedeem(false); }} inputMode="tel" placeholder="or type the number" className="mt-2 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
+          {entry && <RewardsEntry start={entry} initial={phone} onClose={() => setEntry(null)} onDone={(p) => { setPhone(p); setRedeem(false); setEntry(null); }} />}
           {digits.length === 10 && (
             <div className="mt-1.5 flex items-center justify-between gap-2 text-xs">
               <span className="text-slate-600">

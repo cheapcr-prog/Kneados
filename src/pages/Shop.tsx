@@ -13,6 +13,7 @@ import { formatPhone, money } from '../lib/money';
 import { boxCounts, boxPrice, boxUpcharge, cartLines, isBoxable, linePrice, totals } from '../lib/pricing';
 import type { OrderLine } from '../data/types';
 import { PUNCHES_PER_REWARD } from '../lib/rewards';
+import { cardCode } from '../lib/wallet';
 import { applyPrices, type LivePrice } from '../lib/smartpricing';
 import { suggestOffers, type Offer } from '../lib/upsell';
 
@@ -117,7 +118,7 @@ export function Shop() {
       <section className="border-b border-slate-200 bg-slate-50">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-x-8 gap-y-2 px-5 py-4 text-sm text-slate-700">
           <span className="font-display text-base font-bold text-slate-900">Dough Rewards</span>
-          <span>Every {PUNCHES_PER_REWARD}th visit, your donut is free. Just give your phone number at checkout.</span>
+          <span>Every {PUNCHES_PER_REWARD}th visit, your donut is free. Give your phone number at checkout, or show the card in your phone wallet.</span>
         </div>
       </section>
 
@@ -426,6 +427,11 @@ function Confirmation({ order, onClose }: { order: Order; onClose: () => void })
               ))}
             </ul>
           </div>
+        )}
+        {order.phone && demo.findMember(order.phone) && (
+          <Link to={`/demo/shop/card/${cardCode(order.phone)}`} className="mt-3 flex items-center justify-center gap-2 rounded-xl bg-box-50 px-3 py-2.5 text-sm font-semibold text-box-700 hover:bg-box-100">
+            Get your Dough Rewards card for your phone wallet
+          </Link>
         )}
         <p className="mt-3 rounded-xl bg-slate-50 p-3 text-xs text-slate-600">
           This order just landed in <span className="font-semibold">Pickup orders</span> on the Register, where the counter staff pack it.

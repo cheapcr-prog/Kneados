@@ -12,6 +12,8 @@ export const SHOP = {
   closeHour: 13,
   tippingEnabled: true,
   tipChoices: [100, 200, 300],
+  /** What a mixed dozen costs before any specialty extras, in cents. */
+  dozenBase: 1800,
 };
 
 const d = (id: string, name: string, category: MenuItem['category'], price: number, dozenPrice: number | undefined, baseDaily: number, icing: string, dough: string, description: string, allergens: string[], extra: Partial<MenuItem> = {}): MenuItem => ({
@@ -28,9 +30,9 @@ export const MENU: MenuItem[] = [
   d('oldfashioned', 'Old Fashioned', 'Classics', 200, 2100, 55, '#f3dcae', '#b9782f', 'Craggy, crisp edges, soft cake center.', WHEAT),
   d('sugar', 'Sugar Twist', 'Classics', 200, 2100, 45, '#fff6e5', '#d99a4e', 'Hand-twisted and rolled in sugar.', WHEAT),
   d('jelly', 'Raspberry Jelly', 'Filled', 250, 2700, 50, '#fff6e5', '#d99a4e', 'Powdered shell, raspberry filling.', WHEAT),
-  d('custard', 'Boston Cream', 'Filled', 275, 2900, 45, '#5a3a22', '#d99a4e', 'Vanilla custard inside, chocolate on top.', WHEAT),
-  d('fritter', 'Apple Fritter', 'Specialty', 350, undefined, 40, '#f3dcae', '#a5631f', 'Big, crisp, loaded with apple and cinnamon.', WHEAT),
-  d('cinnamon', 'Cinnamon Roll', 'Specialty', 375, undefined, 35, '#fff6e5', '#b9782f', 'Rolled by hand, iced while warm.', WHEAT),
+  d('custard', 'Boston Cream', 'Filled', 275, 3000, 45, '#5a3a22', '#d99a4e', 'Vanilla custard inside, chocolate on top.', WHEAT),
+  d('fritter', 'Apple Fritter', 'Specialty', 350, undefined, 40, '#f3dcae', '#a5631f', 'Big, crisp, loaded with apple and cinnamon.', WHEAT, { boxUpcharge: 150 }),
+  d('cinnamon', 'Cinnamon Roll', 'Specialty', 375, undefined, 35, '#fff6e5', '#b9782f', 'Rolled by hand, iced while warm.', WHEAT, { boxUpcharge: 150 }),
   d('croissant', 'Ham & Cheese Croissant', 'Specialty', 550, undefined, 30, '#f6c36a', '#d99a4e', 'Baked every morning. Great with coffee.', WHEAT, { taxable: true }),
   d('holes', 'Donut Holes (dozen)', 'Classics', 350, undefined, 38, '#fde9c4', '#d99a4e', 'A dozen glazed holes in a bag.', WHEAT),
   d('coffee', 'Hot Coffee', 'Drinks', 250, undefined, 120, '#3b2a1e', '#f8fafc', 'Fresh pot every 30 minutes.', [], { baked: false, taxable: true }),

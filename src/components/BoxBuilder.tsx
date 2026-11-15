@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import { MENU, MENU_BY_ID, SHOP } from '../data/shop';
 import { money } from '../lib/money';
-import { BOX_SIZE, boxPrice } from '../lib/pricing';
+import { BOX_SIZE, boxPrice, boxUpcharge, isBoxable } from '../lib/pricing';
 import { ItemArt } from './ItemArt';
 
 type Slots = (string | null)[];
@@ -12,8 +12,7 @@ type Target = number | 'box' | null;
 interface Drag { itemId: string; from: number | null; x: number; y: number }
 
 const EMPTY: Slots = Array(BOX_SIZE).fill(null);
-/** Only donuts sold by the dozen can go in the box. */
-const BOXABLE = MENU.filter((m) => m.dozenPrice);
+const BOXABLE = MENU.filter(isBoxable);
 
 function targetAt(x: number, y: number): Target {
   const el = document.elementFromPoint(x, y) as HTMLElement | null;
@@ -112,13 +111,13 @@ export function BoxBuilder({ isSoldOut, onAdd }: { isSoldOut: (id: string) => bo
       <div className="mx-auto max-w-6xl px-5 py-10">
         <h2 className="font-display text-3xl font-bold tracking-tight text-slate-900">Build your dozen</h2>
         <p className="mt-1 max-w-xl text-sm text-slate-600">
-          Drag donuts into the box, or tap one to drop it in the next open spot. Mix any twelve and every donut gets its dozen price.
+          Drag donuts into the box, or tap one to drop it in the next open spot. A dozen is {money(SHOP.dozenBase)}. Specialty donuts add a little extra, shown on each one.
         </p>
 
         <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,5fr)_minmax(0,6fr)] lg:items-start">
           <div>
             <p className="text-xs font-bold uppercase tracking-widest text-box-700">The case</p>
-            <div className="mt-2 grid grid-cols-4 gap-2 sm:gap-3">
+            <div className="mt-2 grid grid-cols-5 gap-1.5 sm:gap-3">
               {BOXABLE.map((item) => {
                 const out = isSoldOut(item.id);
                 return (
@@ -129,11 +128,13 @@ export function BoxBuilder({ isSoldOut, onAdd }: { isSoldOut: (id: string) => bo
                     onPointerDown={(e) => !out && startDrag(e, item.id, null)}
                     onClick={tap(() => place(item.id, null, 'box'))}
                     aria-label={`Add ${item.name} to the box`}
-                    className="group flex touch-none select-none flex-col items-center rounded-2xl border border-box-100 bg-white px-1 pb-2 pt-3 shadow-sm transition enabled:cursor-grab enabled:hover:-translate-y-0.5 enabled:hover:border-box-400 enabled:hover:shadow-md enabled:active:cursor-grabbing disabled:opacity-45"
+                    className="group flex touch-none select-none flex-col items-center rounded-2xl border border-box-100 bg-white px-0.5 pb-2 pt-2.5 shadow-sm sm:px-1 sm:pt-3 transition enabled:cursor-grab enabled:hover:-translate-y-0.5 enabled:hover:border-box-400 enabled:hover:shadow-md enabled:active:cursor-grabbing disabled:opacity-45"
                   >
-                    <ItemArt item={item} size={52} />
-                    <span className="mt-1.5 line-clamp-2 min-h-[2.2em] text-center text-[11px] font-semibold leading-tight text-slate-800 sm:text-xs">{item.name}</span>
-                    <span className="tabular text-[11px] text-slate-500">{out ? 'Sold out' : money(item.price)}</span>
+                    <span className="block h-10 w-10 sm:h-[52px] sm:w-[52px] [&>svg]:h-full [&>svg]:w-full"><ItemArt item={item} /></span>
+                    <span className="mt-1.5 line-clamp-2 min-h-[2.2em] text-center text-[10px] font-semibold leading-tight text-slate-800 sm:text-xs">{item.name}</span>
+                    <span className={`tabular text-[11px] font-semibold ${out ? 'text-slate-500' : boxUpcharge(item) > 0 ? 'text-box-700' : 'text-emerald-700'}`}>
+                      {out ? 'Sold out' : boxUpcharge(item) > 0 ? `+${money(boxUpcharge(item))}` : 'Included'}
+                    </span>
                   </button>
                 );
               })}
@@ -183,15 +184,18 @@ export function BoxBuilder({ isSoldOut, onAdd }: { isSoldOut: (id: string) => bo
               <div className="min-w-0 basis-full xl:flex-1 xl:basis-auto">
                 {added && filled.length === 0 ? (
                   <p className="text-sm font-semibold text-emerald-700">Box added to your order. Build another, or check out below.</p>
-                ) : full ? (
-                  <p className="text-sm text-slate-700">
-                    <span className="tabular font-display text-2xl font-bold text-slate-900">{money(price.cents)}</span>
-                    {price.singles > price.cents && <span className="ml-2 whitespace-nowrap font-semibold text-emerald-700">You save {money(price.singles - price.cents)}</span>}
-                  </p>
                 ) : (
-                  <p className="text-sm text-slate-600">
-                    {filled.length === 0 ? 'Your box is empty.' : `${BOX_SIZE - filled.length} more to fill the box.`}
-                  </p>
+                  <>
+                    <p className="text-sm text-slate-700">
+                      <span className="tabular font-display text-2xl font-bold text-slate-900">{money(SHOP.dozenBase + price.extras)}</span>
+                      {full && price.singles > price.cents && <span className="ml-2 whitespace-nowrap font-semibold text-emerald-700">You save {money(price.singles - price.cents)}</span>}
+                    </p>
+                    <p className="tabular text-xs text-slate-600">
+                      Dozen {money(SHOP.dozenBase)}
+                      {price.extras > 0 && ` + ${money(price.extras)} specialty`}
+                      {!full && ` · ${filled.length === 0 ? 'your box is empty' : `${BOX_SIZE - filled.length} more to fill the box`}`}
+                    </p>
+                  </>
                 )}
               </div>
               <button type="button" onClick={fillRest} disabled={full} className="flex items-center gap-1.5 rounded-full border border-box-200 bg-white px-3.5 py-2 text-xs font-bold text-box-700 hover:bg-box-100 disabled:opacity-40">

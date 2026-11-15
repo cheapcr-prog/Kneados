@@ -10,10 +10,20 @@ import { explainForecast } from '../lib/forecast';
 import { formatPhone, money, moneyShort } from '../lib/money';
 import { PUNCHES_PER_REWARD } from '../lib/rewards';
 import { isTipEligible, splitTipPool } from '../lib/tips';
+import { Payroll } from './owner/Payroll';
+import { Schedule } from './owner/Schedule';
 import { Supplies, useAutoPurchasing, useSupplyPlans } from './owner/Supplies';
 
-const TABS = ['Today', 'Bake plan', 'Supplies', 'Staff & tips', 'Rewards', 'Reports'] as const;
-type Tab = (typeof TABS)[number];
+/** The owner's screens, grouped the way an owner thinks about the shop. */
+const NAV = [
+  { group: 'Shop', tabs: ['Today'] },
+  { group: 'Kitchen', tabs: ['Bake plan', 'Supplies'] },
+  { group: 'Team', tabs: ['Staff & tips', 'Schedule', 'Payroll'] },
+  { group: 'Customers', tabs: ['Rewards'] },
+  { group: 'Money', tabs: ['Reports'] },
+] as const;
+type Tab = (typeof NAV)[number]['tabs'][number];
+const TABS: Tab[] = NAV.flatMap((n) => [...n.tabs]);
 
 const TEAL = '#0d9488';
 const SLATE = '#cbd5e1';
@@ -24,29 +34,49 @@ export function Owner() {
   const supplyPlans = useSupplyPlans(demo);
   useAutoPurchasing(demo, supplyPlans);
   const toOrder = supplyPlans.filter((p) => p.status === 'order-now').length;
+  const badge = (t: Tab) => (t === 'Supplies' && toOrder > 0 ? <span className="tabular ml-1.5 rounded-full bg-rose-600 px-1.5 py-0.5 text-[11px] font-bold text-white">{toOrder}</span> : null);
   return (
     <div className="min-h-[calc(100vh-48px)] bg-slate-50">
       <div className="border-b border-slate-200 bg-white">
-        <div className="mx-auto max-w-6xl px-4 pt-5">
+        <div className="mx-auto max-w-7xl px-4 pb-4 pt-5 lg:pb-5">
           <p className="text-xs font-semibold uppercase tracking-widest text-slate-500">{SHOP.name} · {longDate(demo.state.today)}</p>
           <h1 className="font-display text-3xl font-bold tracking-tight">Owner dashboard</h1>
-          <div className="mt-4 flex gap-1 overflow-x-auto">
+          <div className="-mb-4 mt-4 flex gap-1 overflow-x-auto lg:hidden">
             {TABS.map((t) => (
               <button key={t} onClick={() => setTab(t)} className={`shrink-0 border-b-2 px-3 pb-2.5 text-sm font-semibold ${tab === t ? 'border-glaze-600 text-glaze-700' : 'border-transparent text-slate-500 hover:text-slate-800'}`}>
-                {t}
-                {t === 'Supplies' && toOrder > 0 && <span className="tabular ml-1.5 rounded-full bg-rose-600 px-1.5 py-0.5 text-[11px] font-bold text-white">{toOrder}</span>}
+                {t}{badge(t)}
               </button>
             ))}
           </div>
         </div>
       </div>
-      <div className="mx-auto max-w-6xl px-4 py-6">
+      <div className="mx-auto flex max-w-7xl gap-6 px-4 py-6">
+        <nav className="hidden w-44 shrink-0 lg:block" aria-label="Owner sections">
+          <div className="sticky top-4 space-y-4">
+            {NAV.map((n) => (
+              <div key={n.group}>
+                <p className="px-3 text-[11px] font-bold uppercase tracking-wider text-slate-400">{n.group}</p>
+                <div className="mt-1 space-y-0.5">
+                  {n.tabs.map((t) => (
+                    <button key={t} onClick={() => setTab(t)} className={`flex w-full items-center rounded-lg px-3 py-1.5 text-left text-sm font-semibold ${tab === t ? 'bg-ink-900 text-white' : 'text-slate-600 hover:bg-slate-200/70'}`}>
+                      {t}{badge(t)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </nav>
+        <div className="min-w-0 flex-1">
         {tab === 'Today' && <Today demo={demo} />}
         {tab === 'Bake plan' && <BakePlan demo={demo} />}
         {tab === 'Supplies' && <Supplies demo={demo} plans={supplyPlans} />}
         {tab === 'Staff & tips' && <StaffTips demo={demo} />}
         {tab === 'Rewards' && <Rewards demo={demo} />}
+        {tab === 'Schedule' && <Schedule demo={demo} />}
+        {tab === 'Payroll' && <Payroll demo={demo} />}
         {tab === 'Reports' && <Reports demo={demo} />}
+        </div>
       </div>
     </div>
   );

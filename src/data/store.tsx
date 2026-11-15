@@ -7,7 +7,7 @@ import { buildHistory, buildPreorders, buildTodayOrders } from './history';
 import { MENU, SCHEDULE, SEED_MEMBERS, SHOP, STAFF, shiftHours } from './shop';
 import type { BakeProgress, DayHistory, Order, OrderStatus, RewardsMember } from './types';
 
-const STORAGE_KEY = 'kneados-demo-v2';
+const STORAGE_KEY = 'kneados-demo-v3';
 
 interface ClockState {
   /** ISO time the person clocked in, when they are on the clock. */

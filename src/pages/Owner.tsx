@@ -12,6 +12,8 @@ import { DOW_NAMES, DOW_SHORT, dowOf, holidayFor, longDate, shortDate, timeLabel
 import { explainForecast } from '../lib/forecast';
 import { formatPhone, money, moneyShort } from '../lib/money';
 import { PUNCHES_PER_REWARD } from '../lib/rewards';
+import { cardCode } from '../lib/wallet';
+import { Link } from 'react-router-dom';
 import { isTipEligible, splitTipPool } from '../lib/tips';
 import { Assistant } from './owner/Assistant';
 import { DeliveryApps, GiftCards, Wholesale } from './owner/Channels';
@@ -463,13 +465,14 @@ function Rewards({ demo }: { demo: Demo }) {
                   ))}
                 </div>
                 {m.rewards > 0 && <span className="flex items-center gap-1 rounded-full bg-box-50 px-2 py-0.5 text-xs font-semibold text-box-700"><Gift size={12} /> {m.rewards} free</span>}
+                <Link to={`/demo/shop/card/${cardCode(m.phone)}`} className="text-xs font-semibold text-glaze-700 underline">Wallet card</Link>
               </li>
             ))}
           </ul>
         </Card>
         <Card title="Texts sent" note="Order updates and reward texts. Each one names the shop it came from.">
           {demo.state.texts.length === 0 ? (
-            <p className="text-sm text-slate-500">None yet today. Try it: on the Register, enter (562) 555-0101 (Carla, 9 punches) and ring up a sale.</p>
+            <p className="text-sm text-slate-500">None yet today. Try it: on the Register, tap Phone number, key in (562) 555-0101 (Carla, 9 punches) and ring up a sale.</p>
           ) : (
             <ul className="space-y-2">
               {demo.state.texts.map((t, i) => (

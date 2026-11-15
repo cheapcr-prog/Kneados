@@ -4,7 +4,8 @@ import { addDays, dowOf, holidayFor, isoDate } from '../lib/dates';
 import { forecastItem, type ItemDayObservation, type ItemForecast } from '../lib/forecast';
 import { orderReadyText, orderReceivedText } from '../lib/notify';
 import type { PurchaseOrder, Supplier } from '../lib/purchasing';
-import { addVisit, redeemReward, rewardText } from '../lib/rewards';
+import { addVisit, redeemReward, rewardText, welcomeText } from '../lib/rewards';
+import { cardCode } from '../lib/wallet';
 import { buildHistory, buildPreorders, buildTodayOrders } from './history';
 import { buildChannelOrders } from './channels';
 import { clearShopState } from './local';
@@ -312,10 +313,14 @@ export function DemoProvider({ children }: { children: ReactNode }) {
       },
       punchVisit: (phone, name) => {
         const digits = phone.replace(/\D/g, '');
-        const current = findMember(digits) ?? { phone: digits, name: name || 'Guest', punches: 0, rewards: 0, visits: 0, joined: state.today };
+        const known = findMember(digits);
+        const current = known ?? { phone: digits, name: name || 'Guest', punches: 0, rewards: 0, visits: 0, joined: state.today };
         const { member, earnedReward } = addVisit(current);
         const others = state.members.filter((m) => m.phone !== digits);
-        const text = earnedReward ? { to: digits, body: rewardText(SHOP.name), at: new Date().toISOString() } : undefined;
+        const at = new Date().toISOString();
+        const text = earnedReward
+          ? { to: digits, body: rewardText(SHOP.name), at }
+          : !known ? { to: digits, body: welcomeText(SHOP.name, `kneados.app/demo/shop/card/${cardCode(digits)}`), at } : undefined;
         dispatch({ type: 'setMembers', members: [...others, member], text });
         return { earnedReward };
       },

@@ -1,17 +1,21 @@
-import { Banknote, Check, ClipboardCheck, CreditCard, Gift, LogOut, Minus, PackageCheck, Plus, Timer, Trash2, X } from 'lucide-react';
+import { Banknote, Check, ClipboardCheck, CreditCard, Gift, LogOut, MessageCircle, Minus, PackageCheck, Plus, Timer, Trash2, X } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { BreakButton, BreakScreen } from '../components/Breaks';
 import { useGiftCards } from '../components/Channels';
 import { ItemArt } from '../components/ItemArt';
+import { usePricing, useUpsells } from '../components/Pricing';
 import { ShopTasksPanel, useUpkeep } from '../components/Upkeep';
 import { StaffLogin, useSession } from '../components/Session';
 import { PickupQueue, useTodaysPickups, useWorkload } from '../components/PickupQueue';
-import { MENU, MENU_BY_ID, SHOP } from '../data/shop';
+import { SHOP } from '../data/shop';
 import { useDemo } from '../data/store';
 import type { Category, StaffMember } from '../data/types';
 import { formatPhone, money } from '../lib/money';
 import { linePrice, rewardDiscount, totals } from '../lib/pricing';
 import { PUNCHES_PER_REWARD } from '../lib/rewards';
+import { hourLabel } from '../lib/smartpricing';
+import { suggestOffers, type Offer } from '../lib/upsell';
+import { DOW_NAMES } from '../lib/dates';
 
 const TABS: (Category | 'All')[] = ['All', 'Classics', 'Filled', 'Specialty', 'Drinks'];
 
@@ -40,6 +44,12 @@ function Till({ staff, onLogout }: { staff: StaffMember; onLogout: () => void })
   const [tip, setTip] = useState(0);
   const [result, setResult] = useState<{ number: number; total: number; payment: Pay; earned: boolean; giftCents: number; giftLeft?: number } | null>(null);
   const gift = useGiftCards();
+  const prices = usePricing();
+  const MENU = prices.menu, MENU_BY_ID = prices.byId;
+  const upsells = useUpsells();
+  /** Suggestions the customer said yes to on this ticket. */
+  const [taken, setTaken] = useState<Offer[]>([]);
+  const [sawOffer, setSawOffer] = useState(false);
   const [giftCode, setGiftCode] = useState('');
   const [pickupsOpen, setPickupsOpen] = useState(false);
   const [tasksOpen, setTasksOpen] = useState(false);
@@ -52,8 +62,11 @@ function Till({ staff, onLogout }: { staff: StaffMember; onLogout: () => void })
 
   const lines = useMemo(
     () => Object.entries(ticket).filter(([, q]) => q > 0).map(([itemId, qty]) => ({ itemId, qty, lineCents: linePrice(MENU_BY_ID[itemId], qty) })),
-    [ticket],
+    [ticket, MENU_BY_ID],
   );
+  const offers = upsells.stats.on ? suggestOffers(lines, MENU_BY_ID, (id) => !!demo.state.bake[id]?.soldOut).filter((o) => !taken.some((t) => t.kind === o.kind)) : [];
+  if (offers.length > 0 && !sawOffer) setSawOffer(true);
+  const takeOffer = (o: Offer) => { setTicket((c) => ({ ...c, [o.itemId]: (c[o.itemId] ?? 0) + o.qty })); setTaken((t) => [...t, o]); };
   const digits = phone.replace(/\D/g, '');
   const member = digits.length === 10 ? demo.findMember(digits) : undefined;
   const canRedeem = !!member && member.rewards > 0;
@@ -64,7 +77,7 @@ function Till({ staff, onLogout }: { staff: StaffMember; onLogout: () => void })
   const tipping = demo.state.tippingEnabled;
 
   const add = (id: string, n: number) => setTicket((c) => ({ ...c, [id]: Math.max(0, (c[id] ?? 0) + n) }));
-  const clear = () => { setTicket({}); setPhone(''); setRedeem(false); setTip(0); setGiftCode(''); setStage('ticket'); };
+  const clear = () => { setTicket({}); setTaken([]); setSawOffer(false); setPhone(''); setRedeem(false); setTip(0); setGiftCode(''); setStage('ticket'); };
 
   const giftCard = giftCode.replace(/[^a-z0-9]/gi, '').length >= 8 ? gift.find(giftCode) : undefined;
   /** What the gift card on screen would cover of this bill. */
@@ -76,6 +89,8 @@ function Till({ staff, onLogout }: { staff: StaffMember; onLogout: () => void })
       source: 'register', lines, subtotal: t.subtotal, tax: t.tax, tip: tipCents, total: t.total + tipCents,
       payment, status: 'done', phone: digits.length === 10 ? digits : undefined, rewardRedeemed: discount > 0, giftCents: giftCents || undefined,
     });
+    // Only count a suggestion the customer kept: the added items are still on the ticket.
+    upsells.record(sawOffer, taken.filter((o) => (ticket[o.itemId] ?? 0) >= o.qty).map((o) => ({ kind: o.kind, cents: o.addCents })));
     let earned = false;
     if (digits.length === 10) {
       if (discount > 0) demo.redeem(digits);
@@ -203,6 +218,7 @@ function Till({ staff, onLogout }: { staff: StaffMember; onLogout: () => void })
             <LogOut size={14} /> {staff.name}
           </button>
         </div>
+        {prices.preview && <p className="bg-amber-100 px-3 py-1.5 text-xs font-semibold text-amber-900">Previewing prices as if it were {DOW_NAMES[prices.preview.dow]} at {hourLabel(prices.preview.hour)}. Turn this off under Owner, Pricing.</p>}
         <div className="grid flex-1 auto-rows-min grid-cols-3 gap-2 overflow-y-auto p-3 sm:grid-cols-4 xl:grid-cols-5">
           {MENU.filter((m) => tab === 'All' || m.category === tab).map((item) => {
             const soldOut = demo.state.bake[item.id]?.soldOut;
@@ -216,7 +232,9 @@ function Till({ staff, onLogout }: { staff: StaffMember; onLogout: () => void })
               >
                 <ItemArt item={item} size={48} />
                 <span className="mt-1 text-[13px] font-semibold leading-tight text-slate-900">{item.name}</span>
-                <span className="tabular text-xs text-slate-500">{soldOut ? 'Sold out' : money(item.price)}</span>
+                <span className="tabular text-xs text-slate-500">
+                  {soldOut ? 'Sold out' : prices.live[item.id]?.tag ? <><span className="mr-1 line-through">{money(prices.live[item.id].baseCents)}</span><span className={`font-bold ${prices.live[item.id].tag === 'weekend' ? 'text-slate-900' : 'text-rose-600'}`}>{money(item.price)}</span></> : money(item.price)}
+                </span>
                 {qty > 0 && <span className="tabular absolute right-1.5 top-1.5 flex h-6 min-w-6 items-center justify-center rounded-full bg-glaze-600 px-1.5 text-xs font-bold text-white">{qty}</span>}
               </button>
             );
@@ -243,6 +261,7 @@ function Till({ staff, onLogout }: { staff: StaffMember; onLogout: () => void })
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-sm font-semibold">{item.name}</p>
                       {item.dozenPrice && l.qty >= 12 && <p className="text-[11px] font-medium text-glaze-700">Dozen price</p>}
+                      {prices.live[l.itemId]?.tag && <p className="text-[11px] font-medium text-rose-600">{prices.live[l.itemId].label}</p>}
                     </div>
                     <button aria-label="Less" onClick={() => add(l.itemId, -1)} className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-100"><Minus size={14} /></button>
                     <span className="tabular w-7 text-center text-sm font-bold">{l.qty}</span>
@@ -258,6 +277,19 @@ function Till({ staff, onLogout }: { staff: StaffMember; onLogout: () => void })
           )}
         </div>
 
+        {offers.length > 0 && (
+          <div className="border-t border-slate-100 bg-glaze-50 px-4 py-2.5">
+            <p className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-glaze-700"><MessageCircle size={12} /> Ask the customer</p>
+            <div className="mt-1.5 space-y-1.5">
+              {offers.map((o) => (
+                <button key={o.kind} onClick={() => takeOffer(o)} className="flex w-full items-center gap-2 rounded-xl bg-white px-3 py-2 text-left text-sm font-semibold text-slate-900 ring-1 ring-glaze-200 hover:ring-glaze-500">
+                  <span className="min-w-0 flex-1">{o.ask}</span>
+                  <span className="shrink-0 rounded-lg bg-glaze-600 px-2 py-1 text-xs font-bold text-white">Yes, add</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
         <div className="border-t border-slate-100 px-4 py-2.5">
           <label className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Dough Rewards phone</label>
           <input value={formatPhone(phone)} onChange={(e) => { setPhone(e.target.value); setRedeem(false); }} inputMode="tel" placeholder="(562) 555-0101" className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />

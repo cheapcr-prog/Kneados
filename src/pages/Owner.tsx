@@ -16,6 +16,7 @@ import { isTipEligible, splitTipPool } from '../lib/tips';
 import { Assistant } from './owner/Assistant';
 import { DeliveryApps, GiftCards, Wholesale } from './owner/Channels';
 import { Equipment, ShopTasks } from './owner/Equipment';
+import { MenuInsights, Pricing } from './owner/Growth';
 import { Labels } from './owner/Labels';
 import { Locations } from './owner/Locations';
 import { Accounting, ProfitLoss } from './owner/Money';
@@ -32,6 +33,7 @@ const NAV = [
   { group: 'Team', tabs: ['Staff & tips', 'Schedule', 'Payroll'] },
   { group: 'Customers', tabs: ['Rewards', 'Gift cards'] },
   { group: 'Sales channels', tabs: ['Delivery apps', 'Wholesale', 'Subscriptions', 'Delivery route'] },
+  { group: 'Growth', tabs: ['Pricing', 'Menu insights'] },
   { group: 'Money', tabs: ['Reports', 'Profit & loss', 'Accounting'] },
 ] as const;
 type Tab = (typeof NAV)[number]['tabs'][number];
@@ -103,6 +105,8 @@ export function Owner() {
         {tab === 'Locations' && <Locations demo={demo} alerts={toOrder + upkeep.overdue.length + upkeep.openRepairs.length} />}
         {tab === 'Profit & loss' && <ProfitLoss demo={demo} />}
         {tab === 'Accounting' && <Accounting demo={demo} />}
+        {tab === 'Pricing' && <Pricing demo={demo} />}
+        {tab === 'Menu insights' && <MenuInsights demo={demo} />}
         {tab === 'Reports' && <Reports demo={demo} />}
         </div>
       </div>

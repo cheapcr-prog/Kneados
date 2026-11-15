@@ -3,6 +3,7 @@ import { useMemo, useState } from 'react';
 import { FALLBACK_NOTE, askServer, useClaudeReady } from '../../components/Ask';
 import { adviceText, useBreakAdvice, useTick } from '../../components/Breaks';
 import { useDeliverySettings, useGiftCards, useInvoices } from '../../components/Channels';
+import { usePricing } from '../../components/Pricing';
 import { useSession } from '../../components/Session';
 import type { Upkeep } from '../../components/Upkeep';
 import type { useWeather } from '../../components/Weather';
@@ -24,6 +25,8 @@ import type { SupplyPlan } from '../../lib/supplies';
 import { wasteByItem } from '../../lib/waste';
 import { describeWeather } from '../../lib/weather';
 import { TARGETS } from '../../data/finance';
+import { hourLabel } from '../../lib/smartpricing';
+import { useMenuInsights } from './Growth';
 import { useLocations } from './Locations';
 import { pnlFor } from './Money';
 import { forecastSales } from './Schedule';
@@ -44,6 +47,8 @@ function useShopFacts({ demo, plans, upkeep, weather, alerts }: Sources) {
   const [delivery, setDelivery] = useDeliverySettings();
   const gift = useGiftCards();
   const locs = useLocations(demo, alerts);
+  const pricing = usePricing();
+  const insights = useMenuInsights(demo);
   const [shifts] = useShopState<Shift[]>('schedule', () => SCHEDULE.map((s) => ({ ...s })));
   const cost = useMemo(() => menuCosts(MENU.map((m) => m.id), RECIPES, SUPPLIES, PURCHASED), []);
   const baked = MENU.filter((m) => m.baked);
@@ -132,6 +137,16 @@ function useShopFacts({ demo, plans, upkeep, weather, alerts }: Sources) {
       count: locs.locations.length, transfers: locs.open.map((t) => ({ qty: t.qty, item: MENU_BY_ID[t.itemId].name, from: locs.name(t.from), to: locs.name(t.to) })),
       transferCents: locs.open.reduce((a, t) => a + t.qty * MENU_BY_ID[t.itemId].price, 0),
     },
+    pricing: {
+      markdownOn: pricing.rules.markdown.on, markdownPct: pricing.rules.markdown.pct, startsAt: hourLabel(pricing.rules.markdown.fromHour),
+      // Worth raising from two hours before the markdown would start until the doors close.
+      closingSoon: hour >= pricing.rules.markdown.fromHour - 2 && hour < SHOP.closeHour,
+      extras: pricing.markdown.lines.map((l) => ({ name: l.name, extra: l.extra, toCents: l.toCents })), recoverCents: pricing.markdown.recoverCents,
+      changedNow: Object.values(pricing.live).filter((l) => l.tag).length,
+    },
+    menu: {
+      attention: insights.rows.filter((r) => ['losing', 'drop', 'thin', 'waste'].includes(r.verdict)).map((r) => ({ id: r.itemId, name: MENU_BY_ID[r.itemId].name, verdict: r.verdict, advice: r.advice, monthlyCents: r.monthlyCents })),
+    },
   };
 
   /** Does the thing a decision asks for, where the demo can really do it. */
@@ -143,6 +158,8 @@ function useShopFacts({ demo, plans, upkeep, weather, alerts }: Sources) {
       for (const r of upkeep.openRepairs.filter((x) => x.status === 'open')) upkeep.updateRepair(r.id, { status: 'scheduled', visit: tomorrow });
     } else if (d.id === 'transfers') {
       locs.send(locs.open.map(locs.key));
+    } else if (d.id === 'markdown') {
+      pricing.setRules((r) => ({ ...r, markdown: { ...r.markdown, on: true } }));
     } else if (d.id === 'markup') {
       setDelivery((s) => ({ ...s, markup: Math.ceil(facts.delivery.breakEvenMarkup * 20) / 20 }));
     }
@@ -174,7 +191,7 @@ function DecisionCard({ d, onApprove, onDismiss }: { d: Decision; onApprove: () 
   );
 }
 
-export function Assistant(props: Sources & { onOpen: (tab: 'Schedule') => void }) {
+export function Assistant(props: Sources & { onOpen: (tab: 'Schedule' | 'Menu insights') => void }) {
   const { demo } = props;
   const { facts, apply } = useShopFacts(props);
   const [log, setLog] = useShopState<Logged[]>(`decisions-${demo.state.today}`, () => []);
@@ -190,6 +207,7 @@ export function Assistant(props: Sources & { onOpen: (tab: 'Schedule') => void }
     if (approved) {
       apply(d);
       if (d.id === 'schedule') props.onOpen('Schedule');
+      if (d.id.startsWith('menu:')) props.onOpen('Menu insights');
     }
     setLog((l) => [{ id: d.id, title: d.title, then: d.then, at: new Date().toISOString(), approved }, ...l]);
   };
@@ -272,7 +290,7 @@ export function Assistant(props: Sources & { onOpen: (tab: 'Schedule') => void }
           </div>
         </Card>
       </div>
-      <DemoNote>Demo: every figure in the briefing and the decisions is worked out from the shop's own data by KneadOS, and what to raise is rule-based. {claude ? "In the chat, Claude reads those same figures and answers in its own words. It is told to use only those figures, but check anything important before you act on it. Questions and the shop's figures are sent to Anthropic to be answered." : 'The chat answers from built-in rules.'} Approving sends purchase orders, books repairs, moves trays and changes app prices inside the demo. The other approvals are recorded here, and nothing is emailed or texted.</DemoNote>
+      <DemoNote>Demo: every figure in the briefing and the decisions is worked out from the shop's own data by KneadOS, and what to raise is rule-based. {claude ? "In the chat, Claude reads those same figures and answers in its own words. It is told to use only those figures, but check anything important before you act on it. Questions and the shop's figures are sent to Anthropic to be answered." : 'The chat answers from built-in rules.'} Approving sends purchase orders, books repairs, moves trays, turns on the markdown and changes app prices inside the demo. The other approvals are recorded here, and nothing is emailed or texted.</DemoNote>
     </div>
   );
 }

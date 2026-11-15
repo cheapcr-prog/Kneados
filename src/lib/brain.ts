@@ -39,6 +39,10 @@ export interface ShopFacts {
   delivery: { ordersToday: number; grossCents: number; feesCents: number; markup: number; breakEvenMarkup: number; shortCents: number };
   giftCards: { outstandingCents: number; cards: number };
   locations: { count: number; transfers: { qty: number; item: string; from: string; to: string }[]; transferCents: number };
+  /** End-of-day markdown: whether the rule is on, when it starts, and what it would cover with the rack as it is. */
+  pricing?: { markdownOn: boolean; markdownPct: number; startsAt: string; closingSoon: boolean; extras: { name: string; extra: number; toCents: number }[]; recoverCents: number; changedNow: number };
+  /** Menu items that need a change, worst first, with the advice worked out by menu insights. */
+  menu?: { attention: { id: string; name: string; verdict: string; advice: string; monthlyCents?: number }[] };
 }
 
 const usd = (cents: number) => `$${(cents / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -143,6 +147,25 @@ export function decide(f: ShopFacts): Decision[] {
     });
   }
 
+  const pr = f.pricing;
+  if (pr && !pr.markdownOn && pr.closingSoon && pr.extras.length > 0) {
+    const top = pr.extras[0];
+    out.push({
+      id: 'markdown', area: 'Prices', urgency: 'now',
+      title: `Mark down ${top.extra} extra ${top.name} to ${usd(top.toCents)} at ${pr.startsAt}${pr.extras.length > 1 ? ` and ${plural(pr.extras.length - 1, 'other donut')}` : ''}`,
+      why: `${list(pr.extras.slice(0, 4).map((e) => `${e.extra} ${e.name}`))} ${pr.extras.length === 1 && pr.extras[0].extra === 1 ? 'is' : 'are'} on the rack beyond what is still expected to sell today. At ${pct(pr.markdownPct)} off they bring in up to ${usd(pr.recoverCents)} instead of going to the day-old rack or the bin.`,
+      impactCents: pr.recoverCents, per: 'today', action: 'Turn on the markdown', then: `The register and the shop website drop those prices at ${pr.startsAt} on their own, today and every day.`,
+    });
+  }
+  // The waste decision already covers the worst item for leftovers, so this picks a different one.
+  const m = f.menu?.attention.find((a) => (a.verdict === 'losing' || a.verdict === 'drop') && a.name !== f.waste.worst?.name);
+  if (m) {
+    out.push({
+      id: `menu:${m.id}`, area: 'Prices', urgency: 'week', title: m.verdict === 'losing' ? `Take ${m.name} off the menu or raise its price` : `Make ${m.name} only on your busiest days`,
+      why: m.advice, impactCents: m.monthlyCents, per: 'a month', action: 'Open menu insights', then: 'Menu insights opens with every item and what it earns.',
+    });
+  }
+
   const d = f.delivery;
   if (d.markup < d.breakEvenMarkup - 0.02) {
     const to = Math.ceil(d.breakEvenMarkup * 20) / 20;
@@ -212,7 +235,9 @@ const TOPICS: Topic[] = [
   { words: ['sale', 'sold', 'today', 'busy', 'slow', 'revenue', 'how are we'], areas: ['Counter'],
     say: (f) => `Today is at ${usd(f.today.salesCents)} from ${plural(f.today.orders, 'order')}. A usual full ${f.today.dayName} brings in about ${usd0(f.today.typicalCents)}, so you are ${pct(f.today.typicalCents > 0 ? f.today.salesCents / f.today.typicalCents : 0)} of the way there.` },
   { words: ['profit', 'margin', 'losing', 'food cost', 'p&l', 'earn', 'price'], areas: ['Prices'],
-    say: (f) => `Over the last ${f.money.days} days sales were ${usd0(f.money.salesCents)} and profit was ${usd0(f.money.netCents)}, which is ${pct(f.money.netShare)}. Food cost ran ${pct(f.money.foodShare)} against a goal of ${pct(f.money.foodTarget)}, and labor ${pct(f.money.laborShare)} against ${pct(f.money.laborTarget)}.${f.money.thinnest ? ` The thinnest item is ${f.money.thinnest.name} at ${pct(f.money.thinnest.margin)} margin.` : ''}` },
+    say: (f) => `Over the last ${f.money.days} days sales were ${usd0(f.money.salesCents)} and profit was ${usd0(f.money.netCents)}, which is ${pct(f.money.netShare)}. Food cost ran ${pct(f.money.foodShare)} against a goal of ${pct(f.money.foodTarget)}, and labor ${pct(f.money.laborShare)} against ${pct(f.money.laborTarget)}.${f.money.thinnest ? ` The thinnest item is ${f.money.thinnest.name} at ${pct(f.money.thinnest.margin)} margin.` : ''}${f.menu && f.menu.attention.length > 0 ? ` On the menu, ${plural(f.menu.attention.length, 'item needs', 'items need')} a change, starting with ${f.menu.attention[0].name}.` : ''}` },
+  { words: ['markdown', 'mark down', 'discount', 'special', 'on sale', 'sale price'], areas: ['Prices'],
+    say: (f) => !f.pricing ? 'Smart pricing is not set up yet.' : `The end-of-day markdown is ${f.pricing.markdownOn ? `on: ${pct(f.pricing.markdownPct)} off from ${f.pricing.startsAt}` : 'off'}. ${f.pricing.extras.length === 0 ? 'Nothing on the rack is running ahead of what will sell.' : `Right now ${list(f.pricing.extras.slice(0, 3).map((e) => `${e.extra} ${e.name}`))} ${f.pricing.extras.length === 1 && f.pricing.extras[0].extra === 1 ? 'is' : 'are'} more than will sell at full price.`} ${plural(f.pricing.changedNow, 'price is', 'prices are')} changed at this moment.` },
   { words: ['waste', 'toss', 'thrown', 'losing', 'leftover', 'day-old', 'day old'], areas: ['Waste'],
     say: (f) => `In the last ${f.waste.days} days ${pct(f.waste.rate)} of what was baked went unsold, ${usd(f.waste.costCents)} in ingredients.${f.waste.worst ? ` ${f.waste.worst.name} is the worst at ${pct(f.waste.worst.rate)}, about ${Math.round(f.waste.worst.perDay)} a day.` : ''}` },
   { words: ['suppl', 'order', 'stock', 'run out', 'flour', 'mix', 'buy', 'purchase'], areas: ['Supplies'],

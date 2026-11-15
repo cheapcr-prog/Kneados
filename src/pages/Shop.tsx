@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react';
 import { OrderTray, useBox } from '../components/BoxBuilder';
 import type { Box } from '../components/BoxBuilder';
 import { ItemArt } from '../components/ItemArt';
+import { usePricing, useUpsells } from '../components/Pricing';
 import { MENU, MENU_BY_ID, SHOP } from '../data/shop';
 import { useDemo } from '../data/store';
 import type { Category, MenuItem, Order } from '../data/types';
@@ -12,6 +13,8 @@ import { formatPhone, money } from '../lib/money';
 import { boxCounts, boxPrice, boxUpcharge, cartLines, isBoxable, linePrice, totals } from '../lib/pricing';
 import type { OrderLine } from '../data/types';
 import { PUNCHES_PER_REWARD } from '../lib/rewards';
+import { applyPrices, type LivePrice } from '../lib/smartpricing';
+import { suggestOffers, type Offer } from '../lib/upsell';
 
 const CATEGORIES: Category[] = ['Classics', 'Filled', 'Specialty', 'Drinks'];
 
@@ -33,6 +36,7 @@ function pickupSlots(dayOffset: number): Date[] {
 
 export function Shop() {
   const demo = useDemo();
+  const prices = usePricing();
   const [cart, setCart] = useState<Record<string, number>>({});
   const [open, setOpen] = useState(false);
   const [placed, setPlaced] = useState<Order | null>(null);
@@ -53,12 +57,12 @@ export function Shop() {
     const allBoxes = box.full ? [...boxes, box.filled] : boxes;
     return {
       boxes: allBoxes,
-      loose: Object.entries(loose).filter(([, q]) => q > 0).map(([itemId, qty]) => ({ itemId, qty, lineCents: linePrice(MENU_BY_ID[itemId], qty) })),
-      lines: cartLines(loose, allBoxes, MENU_BY_ID),
+      loose: Object.entries(loose).filter(([, q]) => q > 0).map(([itemId, qty]) => ({ itemId, qty, lineCents: linePrice(prices.byId[itemId], qty) })),
+      lines: cartLines(loose, allBoxes, prices.byId),
     };
-  }, [cart, boxes, box.filled.join(), box.full]);
+  }, [cart, boxes, box.filled.join(), box.full, prices.byId]);
   const count = order.lines.reduce((a, l) => a + l.qty, 0);
-  const t = totals(order.lines, MENU_BY_ID);
+  const t = totals(order.lines, prices.byId);
   /** Taking one away comes out of the bag first, then out of the box being filled. */
   const add = (id: string, n: number) => {
     if (n < 0 && (cart[id] ?? 0) === 0 && box.removeOne(id)) return;
@@ -137,7 +141,7 @@ export function Shop() {
             <h2 className="font-display text-2xl font-bold tracking-tight text-slate-900">{cat}</h2>
             <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {MENU.filter((m) => m.category === cat).map((item) => (
-                <MenuCard key={item.id} item={item} qty={cart[item.id] ?? 0} soldOut={soldOut(item.id)} add={add} box={box} boxOpen={boxOpen} />
+                <MenuCard key={item.id} item={item} live={prices.live[item.id]} qty={cart[item.id] ?? 0} soldOut={soldOut(item.id)} add={add} box={box} boxOpen={boxOpen} />
               ))}
             </div>
           </section>
@@ -163,7 +167,6 @@ export function Shop() {
         <Checkout
           loose={order.loose}
           boxes={order.boxes}
-          lines={order.lines}
           add={add}
           removeBox={(i) => (i < boxes.length ? setBoxes((b) => b.filter((_, k) => k !== i)) : box.clear())}
           onClose={() => setOpen(false)}
@@ -176,7 +179,7 @@ export function Shop() {
 }
 
 /** The picture is the handle: drag it into the box, the bag or the cup holder. */
-function MenuCard({ item, qty, soldOut, add, box, boxOpen }: { item: MenuItem; qty: number; soldOut: boolean; add: (id: string, n: number) => void; box: Box; boxOpen: boolean }) {
+function MenuCard({ item, live, qty, soldOut, add, box, boxOpen }: { item: MenuItem; live?: LivePrice; qty: number; soldOut: boolean; add: (id: string, n: number) => void; box: Box; boxOpen: boolean }) {
   const boxing = boxOpen && isBoxable(item);
   const extra = boxUpcharge(item);
   return (
@@ -199,8 +202,14 @@ function MenuCard({ item, qty, soldOut, add, box, boxOpen }: { item: MenuItem; q
       <div className="min-w-0 flex-1">
         <div className="flex items-start justify-between gap-2">
           <h3 className="font-semibold leading-tight text-slate-900">{item.name}</h3>
-          <span className="tabular shrink-0 text-sm font-semibold text-slate-900">{money(item.price)}</span>
+          {live?.tag ? (
+            <span className="tabular shrink-0 text-right text-sm font-semibold text-slate-900">
+              {live.tag !== 'weekend' && <span className="mr-1 text-xs font-normal text-slate-400 line-through">{money(live.baseCents)}</span>}
+              <span className={live.tag === 'weekend' ? '' : 'text-rose-600'}>{money(live.cents)}</span>
+            </span>
+          ) : <span className="tabular shrink-0 text-sm font-semibold text-slate-900">{money(item.price)}</span>}
         </div>
+        {live?.tag && live.tag !== 'weekend' && <p className="mt-0.5 w-fit rounded-full bg-rose-50 px-2 py-0.5 text-[11px] font-bold text-rose-700">{live.label}, pickup today</p>}
         <p className="mt-0.5 line-clamp-2 text-xs text-slate-500">{item.description}</p>
         <div className="mt-2 flex items-center gap-2">
           {soldOut ? (
@@ -230,10 +239,9 @@ function MenuCard({ item, qty, soldOut, add, box, boxOpen }: { item: MenuItem; q
   );
 }
 
-function Checkout({ loose, boxes, lines, add, removeBox, onClose, onPlaced }: {
+function Checkout({ loose: cartLoose, boxes, add, removeBox, onClose, onPlaced }: {
   loose: OrderLine[];
   boxes: string[][];
-  lines: OrderLine[];
   add: (id: string, n: number) => void;
   removeBox: (index: number) => void;
   onClose: () => void;
@@ -247,7 +255,20 @@ function Checkout({ loose, boxes, lines, add, removeBox, onClose, onPlaced }: {
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [rewards, setRewards] = useState(true);
-  const t = totals(lines, MENU_BY_ID);
+  const prices = usePricing();
+  const upsells = useUpsells();
+  const [taken, setTaken] = useState<Offer[]>([]);
+  /** Sale prices and specials are for today. An order for tomorrow pays tomorrow's usual prices. */
+  const menu = useMemo(() => {
+    if (day === 0) return prices.byId;
+    const next = applyPrices(MENU, prices.rules, { ...prices.ctx, dow: (prices.ctx.dow + 1) % 7, hour: 0, holiday: false, extra: {} }).menu;
+    return Object.fromEntries(next.map((m) => [m.id, m]));
+  }, [day, prices.byId, prices.rules, prices.ctx]);
+  const qty = Object.fromEntries(cartLoose.map((l) => [l.itemId, l.qty]));
+  const loose = cartLoose.map((l) => ({ ...l, lineCents: linePrice(menu[l.itemId], l.qty) }));
+  const lines = cartLines(qty, boxes, menu);
+  const t = totals(lines, menu);
+  const offers = upsells.stats.on ? suggestOffers(lines, menu, (id) => !!demo.state.bake[id]?.soldOut).filter((o) => !taken.some((x) => x.kind === o.kind)) : [];
   const digits = phone.replace(/\D/g, '');
   const pickup = slot || slots[0]?.toISOString() || '';
   const ready = lines.length > 0 && name.trim().length > 1 && digits.length === 10 && pickup;
@@ -261,6 +282,7 @@ function Checkout({ loose, boxes, lines, add, removeBox, onClose, onPlaced }: {
       ...(boxes.length ? { boxes } : {}),
     });
     if (rewards) demo.punchVisit(digits, name.trim());
+    upsells.record(offers.length > 0 || taken.length > 0, taken.filter((o) => (qty[o.itemId] ?? 0) >= o.qty).map((o) => ({ kind: o.kind, cents: o.addCents })));
     onPlaced(order);
   };
 
@@ -307,6 +329,21 @@ function Checkout({ loose, boxes, lines, add, removeBox, onClose, onPlaced }: {
               );
             })}
           </ul>
+
+          {offers.length > 0 && (
+            <div className="rounded-2xl bg-box-50 p-3">
+              <p className="text-xs font-bold uppercase tracking-wider text-box-700">Goes well with your order</p>
+              <div className="mt-2 space-y-1.5">
+                {offers.map((o) => (
+                  <button key={o.kind} onClick={() => { add(o.itemId, o.qty); setTaken((x) => [...x, o]); }} className="flex w-full items-center gap-2.5 rounded-xl bg-white p-2 text-left text-sm font-semibold text-slate-900 ring-1 ring-box-100 hover:ring-box-400">
+                    <ItemArt item={menu[o.itemId]} size={34} />
+                    <span className="min-w-0 flex-1">{o.ask}</span>
+                    <span className="shrink-0 rounded-full bg-box-500 px-3 py-1 text-xs font-bold text-white">Add</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
 
           <div>
             <p className="text-sm font-semibold text-slate-900">Pickup</p>

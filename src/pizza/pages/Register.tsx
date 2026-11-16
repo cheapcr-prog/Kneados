@@ -156,7 +156,7 @@ export function PizzaRegister() {
 
       {build && (
         <Modal onClose={() => setBuild(false)} title="Build a pizza" wide>
-          <Builder out={state.out} onAdd={(l) => { add(l); setBuild(false); }} addLabel="Add to ticket" />
+          <Builder out={state.out} onAdd={(l) => { add(l); setBuild(false); }} addLabel="Add to ticket" guided={false} />
         </Modal>
       )}
     </div>

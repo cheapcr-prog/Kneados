@@ -342,7 +342,7 @@ export function ToppingSwatch({ t, size = 28 }: { t: Topping; size?: number }) {
 
 // Half-width of each topping's photo, in pie units (the pie is 200 across).
 const PHOTO_SIZE: Record<string, number> = {
-  pepperoni: 9, cupchar: 6.5, sausage: 6, bacon: 7.5, ham: 6, chicken: 6.5, meatball: 7.5, mushroom: 7.5, onion: 8, greenpepper: 7.5,
+  pepperoni: 9, cupchar: 6.5, sausage: 6, bacon: 7.5, ham: 6, chicken: 6.5, meatball: 7.5, mushroom: 7.5, onion: 8, greenpepper: 9,
   olive: 4.5, jalapeno: 5.5, banana: 5.5, pineapple: 6, tomato: 8, spinach: 8, basil: 7.5, garlic: 4, freshmozz: 8.5, ricotta: 7,
 };
 

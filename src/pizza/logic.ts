@@ -139,6 +139,27 @@ export function pizzaDetails(c: PizzaConfig, specialtyId?: string): string[] {
   return out;
 }
 
+/** Bake and cut notes in groups: only one from each group can be on a pizza. */
+export const NOTE_GROUPS: { label: string; options: string[]; needsSauce?: boolean }[] = [
+  { label: 'Bake', options: ['Well done', 'Light bake'] },
+  { label: 'Cut', options: ['Square cut', 'Uncut'] },
+  { label: 'Sauce amount', options: ['Light sauce', 'Extra sauce'], needsSauce: true },
+];
+
+/** Turns a note on or off. Turning one on turns off the others in its group; sauce amounts need a sauce. */
+export function toggleNote(notes: string[] = [], note: string, sauce: PizzaConfig['sauce']): string[] {
+  const group = NOTE_GROUPS.find((g) => g.options.includes(note));
+  if (!group || (group.needsSauce && sauce === 'none')) return notes.filter((n) => n !== note);
+  if (notes.includes(note)) return notes.filter((n) => n !== note);
+  return [...notes.filter((n) => !group.options.includes(n)), note];
+}
+
+/** Drops notes that no longer make sense, such as a sauce amount on a pizza with no sauce. */
+export function validNotes(notes: string[] = [], sauce: PizzaConfig['sauce']): string[] {
+  const sauceNotes = NOTE_GROUPS.find((g) => g.needsSauce)!.options;
+  return notes.filter((n) => !(sauce === 'none' && sauceNotes.includes(n)));
+}
+
 export const lineCents = (l: Line) => l.unitCents * l.qty;
 export const piesIn = (o: Pick<PizzaOrder, 'lines'>) => o.lines.reduce((a, l) => a + (l.kind === 'pizza' ? l.qty : 0), 0);
 

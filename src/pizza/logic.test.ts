@@ -127,3 +127,26 @@ describe('packs and upsells', () => {
     expect(ups.some((u) => u.id === 'wings')).toBe(true);
   });
 });
+
+describe('bake and cut notes', () => {
+  it('keeps only one choice from each group', async () => {
+    const { toggleNote } = await import('./logic');
+    let n = toggleNote([], 'Well done', 'red');
+    n = toggleNote(n, 'Light bake', 'red');
+    n = toggleNote(n, 'Square cut', 'red');
+    n = toggleNote(n, 'Uncut', 'red');
+    n = toggleNote(n, 'Light sauce', 'red');
+    n = toggleNote(n, 'Extra sauce', 'red');
+    expect(n.sort()).toEqual(['Extra sauce', 'Light bake', 'Uncut']);
+    expect(toggleNote(n, 'Uncut', 'red')).not.toContain('Uncut');
+  });
+  it('has no sauce amount without sauce', async () => {
+    const { toggleNote, validNotes } = await import('./logic');
+    expect(toggleNote([], 'Extra sauce', 'none')).toEqual([]);
+    expect(validNotes(['Extra sauce', 'Well done'], 'none')).toEqual(['Well done']);
+  });
+  it('puts the notes on the kitchen ticket', async () => {
+    const { pizzaDetails } = await import('./logic');
+    expect(pizzaDetails({ ...configFor('pepperoni', 'L'), notes: ['Well done', 'Square cut'] }, 'pepperoni')).toEqual(expect.arrayContaining(['Well done', 'Square cut']));
+  });
+});

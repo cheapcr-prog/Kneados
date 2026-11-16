@@ -64,10 +64,10 @@ const newText: Sample = {
   steps: [
     {
       customer: '2 large pizzas for delivery. one supreme no olives, one half pepperoni half pineapple and jalapeno, make that one detroit style',
-      turn: { say: "Got it!\n1. Large Supreme, no olives\n2. Large Detroit pan: pepperoni on one half, pineapple and jalapeños on the other\nWhat's the delivery address, and a name for the order?", order: { items: bigItems, fulfillment: 'delivery', name: '', address: '', payment: '', note: '' }, action: 'continue' },
+      turn: { say: "Got it!\n1. Large Supreme, no olives\n2. Large Detroit pan: pepperoni on one half, pineapple and jalapeños on the other\nWhat's the delivery address?", order: { items: bigItems, fulfillment: 'delivery', name: '', address: '', payment: '', note: '' }, action: 'continue' },
     },
     {
-      customer: 'Sam, 1925 Redondo Ave. also 3 buffalo wings and 2 garlic breads',
+      customer: '1925 Redondo Ave, name is Sam. also 3 buffalo wings and 2 garlic breads',
       turn: { say: "Added 3 buffalo wings and 2 garlic breads, Sam. Since this is your first order with us, delivery is paid ahead on a secure link instead of cash at the door. Total is {total}, about {minutes} min to your door. OK if I text the link?", order: big({}), action: 'continue' },
     },
     {

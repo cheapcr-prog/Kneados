@@ -5,7 +5,7 @@ import { useFraud } from '../../components/Fraud';
 import { formatPhone, money } from '../../lib/money';
 import { PIZZA_SHOP, PIZZA_STAFF, SIDE_BY_ID, SPECIALTY_BY_ID, ZONES } from '../data';
 import { MINUTE, lineCents, pizzaDetails, pizzaTitle, quoteTime, upsells, type PizzaLine } from '../logic';
-import { EMPTY_ORDER, fill, greeting, missing, ticketFor, turnContext, type BotOrder, type BotTurn, type Caller, type ShopNow, type Surface, type Ticket, type TranscriptLine } from '../orderbot';
+import { EMPTY_ORDER, fill, greeting, missing, offersWrongPayment, oneQuestion, quickReplies, ticketFor, turnContext, type BotOrder, type BotTurn, type Caller, type ShopNow, type Surface, type Ticket, type TranscriptLine } from '../orderbot';
 import { SAMPLES, type Sample } from '../orderbotSamples';
 import { PizzaArt } from '../PizzaArt';
 import { usePizzaBrain } from '../brain';
@@ -151,6 +151,8 @@ export function AiOrders() {
   const ticket = useMemo(() => ticketFor(order, caller, shop), [order, caller, shop]);
   const suggest = useCallback((t: Ticket) => upsells(t.lines, history, brain.facts.tomorrow.event ?? undefined).slice(0, 2).map((u) => `${u.title}. ${u.why}.`), [history, brain.facts.tomorrow.event]);
   const needs = missing(order, ticket, surface);
+  const lastRow = rows[rows.length - 1];
+  const replies = phase === 'live' && lastRow?.who === 'ai' ? quickReplies(lastRow.text, order, ticket) : [];
 
   const reset = useCallback((nextPhase: Phase = 'idle') => {
     live.current.run++;
@@ -207,8 +209,13 @@ export function AiOrders() {
     } else if (turn.action === 'end') next = 'ended';
     else {
       // The customer picked a way to pay that this order cannot use (the total may have just crossed a limit): KneadOS says so right away.
-      const pay = open.find((n) => turn.order.payment && n.note.startsWith(`"${turn.order.payment}" is not allowed`));
+      const pay = open.find((n) => n.code === 'payment_not_allowed');
+      const ask = open.find((n) => n.code === 'payment');
       if (pay) { say = pay.ask; turn = { ...turn, order: { ...turn.order, payment: '' } }; }
+      // The AI offered a way to pay that does not fit this order (the counter on a delivery): KneadOS asks with the right ones.
+      else if (ask && !t.policy.noDelivery && offersWrongPayment(say, turn.order)) say = ask.ask;
+      // One question at a time, so a plain "yes" always has one meaning.
+      else say = oneQuestion(say);
     }
     const after: Row[] = [...transcript, { who: 'ai', text: say }, ...extra];
     if (live.current.run !== run) return after;
@@ -422,6 +429,12 @@ export function AiOrders() {
                     <button onClick={() => reset()} className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-white/10 px-4 py-3 text-sm font-bold hover:bg-white/20"><RotateCcw size={15} /> New {surface === 'call' ? 'call' : 'text'}</button>
                   </div>
                 ) : (
+                  <>
+                  {!busy && !listening && replies.length > 0 && (
+                    <div className="flex flex-wrap justify-end gap-2 px-3 pb-2" aria-label="Quick replies">
+                      {replies.map((r) => <button key={r} type="button" onClick={() => void send(r)} className="rounded-full border border-emerald-400/60 px-3.5 py-2 text-sm font-semibold text-emerald-200 hover:bg-emerald-500 hover:text-white">{r}</button>)}
+                    </div>
+                  )}
                   <form onSubmit={(e) => { e.preventDefault(); void send(draft); }} className="flex items-center gap-2 border-t border-white/10 p-3">
                     {surface === 'call' && canHear && (
                       <button type="button" aria-label={listening ? 'Stop listening' : 'Talk'} onClick={() => { if (listening) rec.current?.stop(); else { handsFree.current = true; listen(); } }} disabled={busy} className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full ${listening ? 'animate-pulse bg-rose-500' : 'bg-emerald-500 hover:bg-emerald-400'} disabled:opacity-40`}>
@@ -431,6 +444,7 @@ export function AiOrders() {
                     <input value={draft} onChange={(e) => setDraft(e.target.value)} maxLength={500} placeholder={surface === 'call' ? 'Or type what you would say' : 'Text message'} className="min-w-0 flex-1 rounded-full bg-white/10 px-4 py-3 text-[15px] text-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-400" />
                     <button type="submit" aria-label="Send" disabled={busy || !draft.trim()} className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-white text-ink-900 disabled:opacity-30"><Send size={18} /></button>
                   </form>
+                  </>
                 )}
               </>
             )}

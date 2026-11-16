@@ -117,9 +117,9 @@ export function PizzaArt({ config, size = 320, className = '', animate = false, 
               {pic('raw/dough')}
               {stage >= 1 && config.sauce !== 'none' && <g key={config.sauce} className={animate ? 'pz-spread' : undefined}>{pic(`raw/sauce-${config.sauce}`)}</g>}
               {stage >= 2 && config.cheese !== 'none' && (
-                <g key={config.cheese} className={animate ? 'pz-melt' : undefined} style={{ opacity: config.cheese === 'light' ? 0.7 : 1, filter: config.cheese === 'vegan' ? 'saturate(0.4) brightness(1.05)' : undefined }}>
-                  {pic('raw/cheese')}
-                  {config.cheese === 'extra' && <g transform="rotate(137)">{pic('raw/cheese')}</g>}
+                <g key={config.cheese} className={animate ? 'pz-melt' : undefined} style={{ filter: config.cheese === 'vegan' ? 'saturate(0.4) brightness(1.05)' : undefined }}>
+                  {/* Light is a sparse scatter with the sauce showing; extra buries the sauce. */}
+                  {pic(config.cheese === 'light' ? 'raw/cheese-light' : config.cheese === 'extra' ? 'raw/cheese-extra' : 'raw/cheese')}
                 </g>
               )}
               {/* The oven: the baked photo fades in over the raw pie. */}

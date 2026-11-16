@@ -4,6 +4,7 @@ import type { PointerEvent as ReactPointerEvent, ReactNode } from 'react';
 import { MENU, MENU_BY_ID, SHOP, isDrink } from '../data/shop';
 import { money } from '../lib/money';
 import { BOX_SIZE, boxPrice, isBoxable } from '../lib/pricing';
+import type { ToppingLine } from '../lib/toppings';
 import { ItemArt } from './ItemArt';
 
 type Slots = (string | null)[];
@@ -143,7 +144,10 @@ function Zone({ zone, hot, label, hint, empty, className, children }: { zone: 'b
  * The order as the customer would carry it out: a dozen box, a paper bag and a cup holder.
  * It slides up from the bottom of the menu. The bag and the cup holder show the ordinary cart.
  */
-export function OrderTray({ box, boxOpen, onOpenBox, onCloseBox, closedBoxes, onAnotherBox, cart, add, count, total, onCheckout }: {
+export function OrderTray({ box, boxOpen, onOpenBox, onCloseBox, closedBoxes, onAnotherBox, cart, add, toppings, removeTopping, count, total, onCheckout }: {
+  /** Which drink each topping is in. */
+  toppings: ToppingLine[];
+  removeTopping: (drink: string, addon: string) => void;
   box: Box;
   boxOpen: boolean;
   onOpenBox: () => void;
@@ -162,8 +166,6 @@ export function OrderTray({ box, boxOpen, onOpenBox, onCloseBox, closedBoxes, on
   const loose = Object.entries(cart).filter(([, q]) => q > 0).map(([id, q]) => ({ item: MENU_BY_ID[id], qty: q }));
   const bag = loose.filter((l) => !isDrink(l.item));
   const cups = loose.filter((l) => isDrink(l.item) && !l.item.addon).flatMap((l) => Array<typeof l.item>(l.qty).fill(l.item));
-  /** Toppings ride in the cup holder next to the drinks, so they can be taken back out. */
-  const toppings = loose.filter((l) => l.item.addon);
   const boxHot = drag !== null && (over === 'box' || typeof over === 'number');
 
   return (
@@ -261,13 +263,16 @@ export function OrderTray({ box, boxOpen, onOpenBox, onCloseBox, closedBoxes, on
                 </div>
                 {toppings.length > 0 && (
                   <div className="mt-1 flex flex-wrap gap-1">
-                    {toppings.map(({ item, qty }) => (
-                      <button key={item.id} type="button" onClick={() => add(item.id, -1)} aria-label={`Remove one ${item.name.replace(/^Add /, '')}`} title="Tap to take one off" className="donut-drop flex items-center gap-1 rounded-full bg-white px-1.5 py-0.5 text-[10px] font-bold text-slate-700 shadow-sm">
-                        <ItemArt item={item} size={14} />
-                        {qty > 1 ? `${qty} ` : ''}{item.name.replace(/^Add /, '')}
-                        <X size={10} />
-                      </button>
-                    ))}
+                    {toppings.map((t) => {
+                      const what = MENU_BY_ID[t.addon].name.replace(/^Add /, '');
+                      const drink = MENU_BY_ID[t.drink].name.replace(/ Smoothie/, '');
+                      return (
+                        <button key={`${t.drink}-${t.addon}`} type="button" onClick={() => removeTopping(t.drink, t.addon)} aria-label={`Take ${what} out of one ${MENU_BY_ID[t.drink].name}`} title="Tap to take one off" className="donut-drop flex items-center gap-1 rounded-full bg-white px-1.5 py-0.5 text-left text-[10px] font-bold leading-tight text-slate-700 shadow-sm">
+                          {t.qty > 1 ? `${t.qty} ` : ''}{what} in {drink}
+                          <X size={10} className="shrink-0" />
+                        </button>
+                      );
+                    })}
                   </div>
                 )}
               </Zone>

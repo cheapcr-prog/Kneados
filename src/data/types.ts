@@ -94,6 +94,8 @@ export interface Order {
   fundraiser?: string;
   /** Merch and extras on the order. They are not food, so they are kept apart from `lines`, but their price and tax are in the totals. */
   merch?: { id: string; size?: string; qty: number; cents: number }[];
+  /** Which drink each topping goes into. The toppings are also in `lines`, where they are charged. */
+  toppings?: { drink: string; addon: string; qty: number }[];
   /** Mixed dozen boxes the customer built online. Their donuts are already counted in `lines`. */
   boxes?: string[][];
 }

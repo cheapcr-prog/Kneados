@@ -162,6 +162,9 @@ export function PickupQueue({ me }: { me?: string }) {
               ))}
               {plan.bag.length > 0 && <PackRow icon={<ShoppingBag size={15} />} label="Paper bag" items={plan.bag} />}
               {plan.cups.length > 0 && <PackRow icon={<Coffee size={15} />} label="Cup holder" items={plan.cups} />}
+              {o.toppings && o.toppings.length > 0 && (
+                <p className="rounded-xl bg-amber-50 px-2.5 py-1.5 text-sm font-semibold text-amber-900">{o.toppings.map((t) => `${MENU_BY_ID[t.addon].name.replace(/^Add /, '')} in ${t.qty} ${MENU_BY_ID[t.drink].name}`).join(' · ')}</p>
+              )}
               {o.merch && o.merch.length > 0 && (
                 <div className="flex items-start gap-2.5 rounded-xl bg-white/80 px-2.5 py-2">
                   <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-slate-900 text-white"><Shirt size={15} /></span>

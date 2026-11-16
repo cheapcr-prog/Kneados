@@ -78,7 +78,7 @@ export function Builder({ start, out = [], onAdd, addLabel = 'Add to order', dar
     say(off ? `Took the ${name.toLowerCase()} off` : `${name} on ${SIDE_WORDS[side!]}`);
   };
   const startFrom = (id: string) => {
-    if (!id) { setSpecialtyId(undefined); setConfig(plainConfig(config.size)); say('Back to a plain cheese pizza'); return; }
+    if (!id) { setSpecialtyId(undefined); setConfig(plainConfig(config.size)); say('Back to a fresh build your own'); return; }
     setSpecialtyId(id);
     setConfig({ ...configFor(id, config.size), crust: config.crust });
     say(`Starting from the ${SPECIALTY_BY_ID[id].name}`);
@@ -151,7 +151,7 @@ export function Builder({ start, out = [], onAdd, addLabel = 'Add to order', dar
           <button onClick={() => startFrom('')} className={`flex items-center gap-1 text-xs font-semibold ${muted}`}><RotateCcw size={12} /> Start over</button>
         </div>
         <select value={specialtyId ?? ''} onChange={(e) => startFrom(e.target.value)} className={`mt-2 w-full rounded-xl border px-3 py-2.5 text-sm font-semibold ${dark ? 'border-white/15 bg-ink-800' : 'border-slate-200 bg-white'}`}>
-          <option value="">Build your own (cheese pizza)</option>
+          <option value="">Build your own</option>
           {SPECIALTIES.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
         </select>
         {sp && <p className={`mt-1 text-xs ${muted}`}>{sp.blurb} Its toppings are included; anything you add is extra.</p>}

@@ -80,7 +80,7 @@ export function pizzaPrice(config: PizzaConfig, specialtyId?: string): { cents: 
   const sp = specialtyId ? SPECIALTY_BY_ID[specialtyId] : undefined;
   const parts: { label: string; cents: number }[] = [];
   if (sp) parts.push({ label: `${size.label} ${sp.name}`, cents: sp.prices[config.size] });
-  else parts.push({ label: `${size.label} ${size.inches}" cheese pizza`, cents: size.baseCents });
+  else parts.push({ label: `${size.label} ${size.inches}" build your own`, cents: size.baseCents });
   const crust = CRUSTS.find((c) => c.id === config.crust);
   if (crust?.extraCents) parts.push({ label: crust.label, cents: crust.extraCents });
   const sauce = SAUCES.find((s) => s.id === config.sauce);

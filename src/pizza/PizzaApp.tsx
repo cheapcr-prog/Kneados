@@ -1,4 +1,4 @@
-import { Bike, ChefHat, ChevronDown, Delete, LayoutDashboard, LogOut, RotateCcw, ShoppingBag, Tablet, UserRound } from 'lucide-react';
+import { Bike, Bot, ChefHat, ChevronDown, Delete, LayoutDashboard, LogOut, RotateCcw, ShoppingBag, Tablet, UserRound } from 'lucide-react';
 import { lazy, Suspense, useState } from 'react';
 import { Link, NavLink, Route, Routes, useNavigate } from 'react-router-dom';
 import { Logo } from '../components/DemoBar';
@@ -10,12 +10,14 @@ import { PizzaRegister } from './pages/Register';
 import { MakeLine } from './pages/MakeLine';
 import { Dispatch } from './pages/Dispatch';
 import { PayInvoice } from './pages/Pay';
+import { AiOrders } from './pages/AiOrders';
 
 const PizzaOwner = lazy(() => import('./pages/Owner').then((m) => ({ default: m.PizzaOwner })));
 
 const SCREENS = [
   { to: '/pizza/demo/shop', label: 'Shop website', icon: ShoppingBag },
   { to: '/pizza/demo/register', label: 'Register', icon: Tablet },
+  { to: '/pizza/demo/ai', label: 'AI phone & text', icon: Bot },
   { to: '/pizza/demo/kitchen', label: 'Make line', icon: ChefHat },
   { to: '/pizza/demo/dispatch', label: 'Dispatch', icon: Bike },
   { to: '/pizza/demo/owner', label: 'Owner', icon: LayoutDashboard },
@@ -44,6 +46,7 @@ export function PizzaDemoRoutes() {
           <Routes>
             <Route path="shop" element={<PizzaShop />} />
             <Route path="register" element={<PizzaRegister />} />
+            <Route path="ai" element={<AiOrders />} />
             <Route path="kitchen" element={<MakeLine />} />
             <Route path="dispatch" element={<Dispatch />} />
             <Route path="login" element={<PizzaLogin />} />

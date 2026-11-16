@@ -1,5 +1,6 @@
-import { Bike, Delete, MapPin, Phone, PhoneIncoming, Sparkles, Store, Trash2, UserRound, X } from 'lucide-react';
+import { Bike, Bot, Delete, MapPin, Phone, PhoneIncoming, Sparkles, Store, Trash2, UserRound, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useTick } from '../../components/Breaks';
 import { formatPhone, money } from '../../lib/money';
 import { ADDRESSES, SIDES, SIDE_BY_ID, SIZES, SPECIALTIES, SPECIALTY_BY_ID, ZONES } from '../data';
@@ -144,6 +145,7 @@ export function PizzaRegister() {
               <p className="truncate text-sm font-bold">{formatPhone(call)} · {known(call)?.name ?? 'New caller'}</p>
             </div>
             <button onClick={answer} className="rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-bold text-white">Answer</button>
+            <Link to={`/pizza/demo/ai?caller=${call}`} title="Let the AI take this call" className="flex items-center gap-1 rounded-xl bg-white px-3 py-2.5 text-sm font-bold text-slate-900"><Bot size={15} /> AI</Link>
             <button aria-label="Ignore call" onClick={() => { setCall(null); setRings((n) => n + 1); }} className="rounded-full p-1.5 hover:bg-black/10"><X size={16} /></button>
           </div>
         )}

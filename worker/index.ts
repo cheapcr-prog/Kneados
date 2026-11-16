@@ -1,6 +1,8 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { DRAFTS_PER_VISITOR, DRAFT_MAX_TOKENS, DRAFT_MODEL, DRAFT_SCHEMA, DRAFT_SYSTEM, draftMessage, parseDraft, parseDraftBody } from './draft';
 import { DEFAULT_REVIEW_MONTHLY_CAP_CENTS, REVIEW_LOCK_SECONDS, REVIEW_MAX_BODY_BYTES, REVIEW_MAX_TOKENS, REVIEW_MODEL, REVIEW_RESERVE_MICROS, REVIEW_SCHEMA, REVIEW_SYSTEM, budgetMonth, parseReview, parseReviewBody, reviewBlock, reviewMessage, type ReviewError, type ReviewEvent, type ReviewStatus, type SavedReview } from './review';
+import { ORDER_MAX_BODY_BYTES, ORDER_MAX_TOKENS, ORDER_MODEL, ORDER_SYSTEM, ORDER_TURNS_PER_VISITOR, TURN_SCHEMA, orderMessage, parseOrderBody } from './order';
+import { parseTurn, type BotTurn } from '../src/pizza/orderbot';
 import { DEFAULT_DAILY_CAP_CENTS, MAX_BODY_BYTES, MAX_OUTPUT_TOKENS, MODEL, OUTPUT_SCHEMA, QUESTIONS_PER_VISITOR, PIZZA_SYSTEM, SYSTEM, budgetDay, costMicros, parseBody, parseReply, userMessage, type AskError, type AskReply, type Usage } from './ask';
 
 interface KV {
@@ -49,7 +51,7 @@ const callClaude: CallModel = async (apiKey, user, system = SYSTEM) => {
 /** Headers on every /api answer: never cached, never sniffed as something else, never framed. */
 const API_HEADERS = { 'cache-control': 'no-store', 'x-content-type-options': 'nosniff', 'x-frame-options': 'DENY', 'referrer-policy': 'no-referrer' };
 
-const json = (body: AskReply | ReviewStatus | { text: string } | { error: AskError | ReviewError } | { ready: boolean }, status = 200) =>
+const json = (body: AskReply | BotTurn | ReviewStatus | { text: string } | { error: AskError | ReviewError } | { ready: boolean }, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json', ...API_HEADERS } });
 
 /**
@@ -156,6 +158,63 @@ export async function handleDraft(request: Request, env: Env, call: CallModel = 
   const text = raw ? parseDraft(raw) : null;
   if (!text) return json({ error: 'busy' }, 502);
   return json({ text });
+}
+
+/** One turn of a phone or text order. Swapped for a stand-in by the tests. */
+const callOrder: CallModel = async (apiKey, user) => {
+  const client = new Anthropic({ apiKey, maxRetries: 1, timeout: 25_000 });
+  return client.beta.messages.create({
+    model: ORDER_MODEL,
+    max_tokens: ORDER_MAX_TOKENS,
+    betas: ['server-side-fallback-2026-07-01'],
+    fallbacks: 'default',
+    // The rules and the whole menu never change between turns, so every turn after the first reads them from the cache.
+    system: [{ type: 'text', text: ORDER_SYSTEM, cache_control: { type: 'ephemeral' } }],
+    output_config: { effort: 'low', format: { type: 'json_schema', schema: TURN_SCHEMA } },
+    messages: [{ role: 'user', content: user }],
+  });
+};
+
+/**
+ * POST takes the next thing a customer said on a call or in a text and returns what the AI says back
+ * plus the whole order. It shares the chat's daily budget and has its own count per visitor.
+ * Prices are never taken from the reply: the page (and, live, the server) works them out from the order.
+ */
+export async function handleOrder(request: Request, env: Env, call: CallModel = callOrder, now = new Date()): Promise<Response> {
+  const ready = !!env.ANTHROPIC_API_KEY && !!env.USAGE;
+  if (request.method === 'GET') return json({ ready });
+  if (request.method !== 'POST') return json({ error: 'bad' }, 405);
+  if (!sameOrigin(request)) return json({ error: 'bad' }, 403);
+  if (!ready) return json({ error: 'off' }, 503);
+  if (Number(request.headers.get('content-length') ?? 0) > ORDER_MAX_BODY_BYTES) return json({ error: 'bad' }, 413);
+  const body = parseOrderBody(await request.text());
+  if (!body) return json({ error: 'bad' }, 400);
+
+  const usage = env.USAGE!;
+  const day = budgetDay(now);
+  const capMicros = Math.max(0, Number(env.DAILY_CAP_CENTS ?? DEFAULT_DAILY_CAP_CENTS) || 0) * 10_000;
+  const spendKey = `spend:${day}`;
+  const visitorKey = `orders:${day}:${request.headers.get('cf-connecting-ip') ?? 'unknown'}`;
+  const [spent, asked] = (await Promise.all([usage.get(spendKey), usage.get(visitorKey)])).map((v) => Number(v ?? 0) || 0);
+  if (spent >= capMicros) return json({ error: 'capped' }, 429);
+  if (asked >= ORDER_TURNS_PER_VISITOR) return json({ error: 'limit' }, 429);
+  await usage.put(visitorKey, String(asked + 1), { expirationTtl: 2 * DAY });
+
+  let result: ModelResult;
+  try {
+    result = await call(env.ANTHROPIC_API_KEY!, orderMessage(body));
+  } catch (error) {
+    if (error instanceof Anthropic.APIError) console.error('Order turn failed', error.status, error.message);
+    else console.error('Order turn failed', error);
+    return json({ error: 'busy' }, 502);
+  }
+  const latest = Number((await usage.get(spendKey)) ?? 0) || 0;
+  await usage.put(spendKey, String(latest + costMicros(result.usage, ORDER_MODEL)), { expirationTtl: 40 * DAY });
+  if (result.stop_reason === 'refusal') return json({ error: 'refused' }, 200);
+  const text = result.content.find((b) => b.type === 'text')?.text;
+  const turn = text ? parseTurn(text) : null;
+  if (!turn) return json({ error: 'busy' }, 502);
+  return json(turn);
 }
 
 /** Writes the deep review. Reports how much has been written so far, so the page can show progress. Swapped for a stand-in by the tests. */
@@ -265,6 +324,7 @@ export default {
     if (pathname === '/api/ask') return handleAsk(request, env);
     if (pathname === '/api/review') return handleReview(request, env, ctx);
     if (pathname === '/api/draft') return handleDraft(request, env);
+    if (pathname === '/api/order') return handleOrder(request, env);
     if (pathname.startsWith('/api/')) return json({ error: 'bad' }, 404);
     return env.ASSETS.fetch(request);
   },

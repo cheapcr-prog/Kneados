@@ -62,6 +62,8 @@ export interface PizzaOrder {
   driverId?: string;
   rewardRedeemed?: boolean;
   note?: string;
+  /** Set when the AI took this order on a call or by text. The conversation is kept so the owner can read it back. */
+  ai?: { surface: 'call' | 'text'; transcript: { who: 'customer' | 'ai' | 'shop'; text: string }[] };
 }
 
 /* ================================================================ prices */

@@ -123,6 +123,7 @@ function Ticket({ o, now, timer, action, onAction, disabled }: { o: PizzaOrder; 
         <span className="font-display text-lg font-bold">#{o.number}</span>
         <span className="flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-bold">{o.fulfillment === 'delivery' ? <><Bike size={11} /> Zone {o.customer.zone}</> : <><Store size={11} /> Pickup</>}</span>
         {o.channel === 'doordash' || o.channel === 'ubereats' ? <span className="rounded-full bg-rose-100 px-2 py-0.5 text-[11px] font-bold text-rose-800">{o.channel === 'doordash' ? 'DoorDash' : 'Uber Eats'}</span> : null}
+        {o.ai && <span className="rounded-full bg-violet-100 px-2 py-0.5 text-[11px] font-bold text-violet-800">{o.ai.surface === 'call' ? 'AI call' : 'AI text'}</span>}
         {o.scheduled && <span className="rounded-full bg-sky-100 px-2 py-0.5 text-[11px] font-bold text-sky-800">Pre-order</span>}
         <span className={`ml-auto text-xs font-bold ${late > 0 ? 'text-rose-600' : 'text-slate-500'}`}>{late > 0 ? <span className="flex items-center gap-1"><AlertTriangle size={12} /> {late} min late</span> : `due ${clock(new Date(o.promisedAt).getTime())}`}</span>
       </div>

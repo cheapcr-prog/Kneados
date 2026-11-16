@@ -102,6 +102,8 @@ export function usePizzaBrain(demo: PizzaDemo, nowMs: number) {
       menuFoodCost: margins.filter((m) => m.size === 'L').map((m) => ({ pizza: `Large ${m.name}`, priceCents: m.priceCents, foodCostCents: m.costCents, costShare: Math.round(m.costShare * 1000) / 1000 })),
       rewards: { members: state.members.length, lapsed30Days: lapsed.length, rewardsWaiting: state.members.reduce((a, m) => a + m.rewards, 0) },
       companyInvoices: state.invoices.map((i) => ({ number: i.number, company: i.company, po: i.po ?? null, forWhat: i.memo, deliveredOn: i.serviceDate, due: i.due, totalCents: i.totalCents, status: invoiceState(i, state.today), paidOn: i.paidOn ?? null, remindersSent: i.reminders.length })),
+      // Orders the AI took tonight on calls and by text, so the owner can ask how it is doing.
+      aiOrderTaker: (() => { const ai = state.orders.filter((o) => o.ai); return { ordersTonight: ai.length, byCall: ai.filter((o) => o.ai?.surface === 'call').length, byText: ai.filter((o) => o.ai?.surface === 'text').length, salesCents: ai.reduce((a, o) => a + o.subtotal, 0), payLinksSent: ai.filter((o) => o.payment === 'online').length }; })(),
       deliveryZones: ZONES.map((z) => ({ zone: z.id, feeCents: z.feeCents, driveMinutes: z.driveMinutes })),
     };
 

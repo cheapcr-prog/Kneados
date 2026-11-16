@@ -2,7 +2,7 @@ import { Minus, Plus, RotateCcw } from 'lucide-react';
 import { useState, type DragEvent } from 'react';
 import { money } from '../lib/money';
 import { CHEESES, CRUSTS, SAUCES, SIZES, SPECIALTIES, SPECIALTY_BY_ID, TOPPINGS, type PizzaConfig, type Side } from './data';
-import { configFor, plainConfig, pizzaPrice, toppingCents, type PizzaLine } from './logic';
+import { NOTE_GROUPS, configFor, plainConfig, pizzaPrice, toggleNote, toppingCents, validNotes, type PizzaLine } from './logic';
 import { PizzaArt } from './PizzaArt';
 
 /** A small circle filled on the left, the right, or all the way. */
@@ -39,6 +39,7 @@ export function Builder({ start, out = [], onAdd, addLabel = 'Add to order', dar
     // Keep the crust valid for the size.
     const crust = CRUSTS.find((x) => x.id === next.crust)!;
     if (!crust.sizes.includes(next.size)) next.crust = 'hand';
+    if (next.notes?.length) next.notes = validNotes(next.notes, next.sauce);
     return next;
   });
   const place = (id: string, side: Side | null) => setConfig((c) => {
@@ -81,6 +82,7 @@ export function Builder({ start, out = [], onAdd, addLabel = 'Add to order', dar
           {price.parts.map((p, i) => (
             <div key={i} className="flex justify-between gap-2"><span className={i ? muted : 'font-semibold'}>{p.label}</span><span className="tabular">{money(p.cents)}</span></div>
           ))}
+          {config.notes?.length ? <div className="flex justify-between gap-2"><span className={muted}>{config.notes.join(', ')}</span><span className={`text-xs ${muted}`}>no charge</span></div> : null}
           <div className="mt-2 flex items-center justify-between border-t border-slate-200/60 pt-2">
             <div className="flex items-center gap-2">
               <button aria-label="One fewer" onClick={() => setQty(Math.max(1, qty - 1))} className={`rounded-full p-1.5 ${dark ? 'bg-white/10' : 'bg-slate-100'}`}><Minus size={14} /></button>
@@ -206,10 +208,20 @@ export function Builder({ start, out = [], onAdd, addLabel = 'Add to order', dar
 
         <section>
           <h3 className="font-display text-lg font-bold">Bake and cut</h3>
-          <div className="mt-2 flex flex-wrap gap-1.5">
-            {['Well done', 'Light bake', 'Square cut', 'Uncut', 'Light sauce', 'Extra sauce'].map((n) => {
-              const on = config.notes?.includes(n);
-              return <button key={n} onClick={() => set({ notes: on ? config.notes!.filter((x) => x !== n) : [...(config.notes ?? []), n] })} className={`${chip(!!on)} !py-1.5`}>{n}</button>;
+          <p className={`text-xs ${muted}`}>Pick one from each row, or leave it as the kitchen normally makes it.</p>
+          <div className="mt-2 space-y-1.5">
+            {NOTE_GROUPS.map((g) => {
+              const off = g.needsSauce && config.sauce === 'none';
+              return (
+                <div key={g.label} className="flex flex-wrap items-center gap-1.5">
+                  <span className={`w-24 text-xs font-semibold ${muted}`}>{g.label}</span>
+                  {g.options.map((n) => {
+                    const on = !!config.notes?.includes(n);
+                    return <button key={n} disabled={off} aria-pressed={on} onClick={() => set({ notes: toggleNote(config.notes, n, config.sauce) })} className={`${chip(on)} !py-1.5 disabled:opacity-40`}>{n}</button>;
+                  })}
+                  {off && <span className={`text-xs ${muted}`}>No sauce on this pizza</span>}
+                </div>
+              );
             })}
           </div>
         </section>

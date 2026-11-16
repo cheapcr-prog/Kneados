@@ -65,20 +65,32 @@ function CheeseLayer({ r, amount, tone = '#fbe7a1' }: { r: number; amount: numbe
   );
 }
 
+/** How far a piece reaches from its center, so spacing keeps pieces off the crust, the half line and each other. */
+const REACH: Record<Topping['shape'], number> = { disc: 8, cup: 6.5, crumble: 4.5, strip: 9, square: 6, cube: 5, slice: 6, ring: 5, leaf: 6.5, chunk: 5.5, dollop: 6.5, dot: 3 };
+const GOLDEN = Math.PI * (3 - Math.sqrt(5));
+
+/**
+ * Lays pieces out evenly on a sunflower spiral, the way a cook spreads them: no clumps, nothing over the crust.
+ * A half uses the same spacing as the whole pie and keeps only the pieces on its side, clear of the middle line.
+ * Each topping turns the spiral by its own angle so different toppings sit between each other.
+ */
 function ToppingLayer({ t, r, side, scale }: { t: Topping; r: number; side: string; scale: number }) {
   const rand = rng([...t.id].reduce((a, c) => a * 31 + c.charCodeAt(0), 3) >>> 0);
-  // Bigger pies get more pieces, and a half only needs the pieces that fall on it.
-  const count = Math.round(t.pieces * Math.max(0.8, Math.min(1.3, scale)) * (side === 'whole' ? 1 : 1));
+  const reach = REACH[t.shape] * (t.id === 'meatball' ? 1.1 : 1);
+  const count = Math.round(t.pieces * Math.max(0.85, Math.min(1.3, scale)));
+  const usable = r - reach - 1;
+  const turn = rand() * Math.PI * 2;
   const pts: { x: number; y: number; rot: number; k: number }[] = [];
   for (let i = 0; i < count; i++) {
-    const a = rand() * Math.PI * 2;
-    const d = Math.sqrt(0.04 + rand() * 0.96) * r;
-    let x = Math.cos(a) * d;
-    const y = Math.sin(a) * d;
-    // Keep half toppings on their own half, so nothing is clipped away.
-    if (side === 'left') x = -Math.abs(x) - 2;
-    if (side === 'right') x = Math.abs(x) + 2;
-    pts.push({ x, y, rot: rand() * 360, k: 0.85 + rand() * 0.3 });
+    const d = usable * Math.sqrt((i + 0.5) / count);
+    const a = turn + i * GOLDEN;
+    // A little wobble so it looks hand-placed, never enough to touch a neighbor.
+    const x = Math.cos(a) * d + (rand() - 0.5) * 2;
+    const y = Math.sin(a) * d + (rand() - 0.5) * 2;
+    if (side === 'left' && x > -(reach + 1.5)) continue;
+    if (side === 'right' && x < reach + 1.5) continue;
+    if (Math.hypot(x, y) > usable) continue;
+    pts.push({ x, y, rot: rand() * 360, k: 0.92 + rand() * 0.14 });
   }
   return <g filter="url(#pz-shadow)">{pts.map((p, i) => <Piece key={i} t={t} {...p} />)}</g>;
 }

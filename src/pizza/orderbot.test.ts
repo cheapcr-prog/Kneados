@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { DEFAULT_FRAUD } from '../lib/fraud';
 import { SIDE_BY_ID } from './data';
 import { configFor, pizzaPrice, type Line } from './logic';
-import { TURN_SCHEMA, buildLines, fill, greeting, item, linesToItems, matchAddress, menuText, missing, orderPolicy, parseTurn, ticketFor, turnContext, type BotOrder, type Caller, type ShopNow } from './orderbot';
+import { EMPTY_ORDER, TURN_SCHEMA, buildLines, fill, greeting, item, linesToItems, matchAddress, menuText, missing, offersWrongPayment, oneQuestion, orderPolicy, parseTurn, quickReplies, ticketFor, turnContext, type BotOrder, type Caller, type ShopNow } from './orderbot';
 import { SAMPLES } from './orderbotSamples';
 
 const shop: ShopNow = { quote: (pies, zone) => 20 + (pies - 1) * 3 + (zone ? 15 : 0), out: [], open: true, fraud: DEFAULT_FRAUD };
@@ -184,5 +184,51 @@ describe('the sample conversations', () => {
     const t = ticketFor(last, stranger, shop);
     expect(t.policy.payments).toEqual(['pay_link']);
     expect(t.policy.idCheck).toBe(true);
+  });
+});
+
+describe('one question at a time, and answers that fit the order', () => {
+  const shopNow: ShopNow = { quote: () => 25, out: [], open: true, fraud: DEFAULT_FRAUD };
+  const regular: Caller = { phone: '5625550101', known: true, name: 'Maya R.', address: '210 Termino Ave' };
+  const pie = [item({ kind: 'pizza', specialty: 'pepperoni', size: 'L' })];
+  const delivery: BotOrder = { ...EMPTY_ORDER, items: pie, fulfillment: 'delivery', address: '210 Termino Ave' };
+
+  it('holds a second stacked question for the next turn', () => {
+    expect(oneQuestion('Is 210 Termino Ave the right address? Since it is delivery, link or cash. Which works for you?')).toBe('Is 210 Termino Ave the right address?');
+    expect(oneQuestion('Got it, a large pepperoni. Pickup or delivery?')).toBe('Got it, a large pepperoni. Pickup or delivery?');
+    expect(oneQuestion('Order is in.')).toBe('Order is in.');
+  });
+
+  it('spots paying at the counter offered on a delivery', () => {
+    expect(offersWrongPayment('You can pay with a card link, or pick pay at pickup if you would rather come get it.', delivery)).toBe(true);
+    expect(offersWrongPayment('You can pay with a secure card link or cash at the door.', delivery)).toBe(false);
+    expect(offersWrongPayment('Pay at the counter or cash at the door?', { ...delivery, fulfillment: 'pickup' })).toBe(true);
+  });
+
+  it('never shows payment codes in what is still needed', () => {
+    const notes = missing(delivery, ticketFor(delivery, regular, shopNow), 'text').map((n) => n.note).join(' ');
+    expect(notes).toContain('cash at the door');
+    expect(notes).not.toMatch(/pay_link|cash_at_door|pay_at_pickup/);
+    const wrong = { ...delivery, payment: 'pay_at_pickup' as const };
+    const need = missing(wrong, ticketFor(wrong, regular, shopNow), 'text');
+    expect(need[0].code).toBe('payment_not_allowed');
+    expect(need[0].note).not.toMatch(/pay_at_pickup|pay_link/);
+  });
+
+  it('tells the AI the ways to pay for delivery before delivery is on the order', () => {
+    const unknown = { ...EMPTY_ORDER, items: pie };
+    const ctx = turnContext('text', regular, unknown, ticketFor(unknown, regular, shopNow), shopNow, []);
+    expect(ctx.rules.paymentsIfDelivery.map((p) => p.id)).toEqual(['pay_link', 'cash_at_door']);
+    expect(ctx.rules.paymentsIfPickup.map((p) => p.id)).toEqual(['pay_at_pickup', 'pay_link']);
+  });
+
+  it('offers tap-able answers that match the question', () => {
+    const t = ticketFor(delivery, regular, shopNow);
+    expect(quickReplies('Perfect. How would you like to pay: a card link or cash at the door?', delivery, t)).toEqual(['Text me a card link', 'Cash at the door']);
+    expect(quickReplies('Got it. Deliver to 210 Termino Ave?', delivery, t)).toEqual(['Yes', 'No']);
+    expect(quickReplies('Is 210 Termino Ave the right address?', delivery, t)).toEqual(['Yes', 'No']);
+    const none = { ...EMPTY_ORDER, items: pie };
+    expect(quickReplies('Got it. Is this for pickup or delivery?', none, ticketFor(none, regular, shopNow))).toEqual(['Pickup', 'Delivery']);
+    expect(quickReplies('What size?', none, ticketFor(none, regular, shopNow))).toEqual([]);
   });
 });

@@ -347,8 +347,12 @@ export function ticketFor(order: BotOrder, caller: Caller, shop: ShopNow): Ticke
   return { lines, problems, totals: t, zone, address, quoteMinutes, policy };
 }
 
+export type NeedCode = 'transfer' | 'items' | 'problem' | 'fulfillment' | 'address' | 'name' | 'payment' | 'payment_not_allowed';
+
 export interface Need {
-  /** For Claude: what is still open. */
+  /** Which thing is open, so code never has to read the wording. */
+  code: NeedCode;
+  /** What is still open, in plain words. Claude reads it and the ticket shows it. */
   note: string;
   /** For the customer, when KneadOS has to ask itself because the AI tried to send the order too early. */
   ask: string;
@@ -356,21 +360,60 @@ export interface Need {
 
 const PAY_WORDS: Record<Exclude<Payment, ''>, string> = { pay_at_pickup: 'pay at the counter', pay_link: 'a secure pay link by text', cash_at_door: 'cash at the door' };
 export const payWords = (p: Payment) => (p ? PAY_WORDS[p] : '');
+/** What the customer taps to answer "how would you like to pay?". */
+export const PAY_REPLY: Record<Exclude<Payment, ''>, string> = { pay_link: 'Text me a card link', cash_at_door: 'Cash at the door', pay_at_pickup: 'Pay at the counter' };
 
 /** What is still missing before this order can go to the make line. Empty means it can be placed. */
 export function missing(order: BotOrder, ticket: Ticket, surface: Surface): Need[] {
   const m: Need[] = [];
   const options = ticket.policy.payments.map(payWords).join(' or ');
-  if (ticket.policy.transfer) m.push({ note: ticket.policy.transfer, ask: 'An order this size goes to our manager so you get catering pricing. Let me get them for you.' });
-  if (!ticket.lines.length) m.push({ note: 'Nothing is on the order yet.', ask: 'What can I get started for you?' });
-  for (const p of ticket.problems) m.push({ note: p, ask: `One thing: ${p[0].toLowerCase()}${p.slice(1)}. What would you like instead?` });
-  if (!order.fulfillment) m.push({ note: 'Pickup or delivery is not known yet.', ask: 'Is this for pickup or delivery?' });
-  if (order.fulfillment === 'delivery' && ticket.policy.noDelivery) m.push({ note: ticket.policy.noDelivery, ask: caller_hidden(ticket) ? 'With the number hidden I can only set this up for pickup. Does pickup work?' : "I couldn't find that address in our delivery area. Can you give it to me again, or would pickup work?" });
-  else if (order.fulfillment === 'delivery' && !ticket.zone) m.push({ note: 'A delivery address inside the delivery area is needed.', ask: "What's the delivery address?" });
-  if (!order.name.trim() && surface === 'call') m.push({ note: 'A name for the order is needed.', ask: 'What name should I put on the order?' });
-  if (order.fulfillment && !order.payment) m.push({ note: `How they will pay is needed. Allowed: ${ticket.policy.payments.join(', ')}.`, ask: `How would you like to pay: ${options}?` });
-  else if (order.payment && !ticket.policy.payments.includes(order.payment)) m.push({ note: `"${order.payment}" is not allowed for this order. Allowed: ${ticket.policy.payments.join(', ')}.`, ask: ticket.policy.payments.length === 1 && ticket.policy.payments[0] === 'pay_link' ? "That's on the order. Since it's a first order this size, delivery is paid ahead on a secure link I text you, instead of cash at the door. Is that OK?" : `That's on the order. For this one we can do ${options}. Which works for you?` });
+  if (ticket.policy.transfer) m.push({ code: 'transfer', note: ticket.policy.transfer, ask: 'An order this size goes to our manager so you get catering pricing. Let me get them for you.' });
+  if (!ticket.lines.length) m.push({ code: 'items', note: 'Nothing is on the order yet.', ask: 'What can I get started for you?' });
+  for (const p of ticket.problems) m.push({ code: 'problem', note: p, ask: `One thing: ${p[0].toLowerCase()}${p.slice(1)}. What would you like instead?` });
+  if (!order.fulfillment) m.push({ code: 'fulfillment', note: 'Pickup or delivery is not known yet.', ask: 'Is this for pickup or delivery?' });
+  if (order.fulfillment === 'delivery' && ticket.policy.noDelivery) m.push({ code: 'address', note: ticket.policy.noDelivery, ask: caller_hidden(ticket) ? 'With the number hidden I can only set this up for pickup. Does pickup work?' : "I couldn't find that address in our delivery area. Can you give it to me again, or would pickup work?" });
+  else if (order.fulfillment === 'delivery' && !ticket.zone) m.push({ code: 'address', note: 'A delivery address inside the delivery area is needed.', ask: "What's the delivery address?" });
+  if (!order.name.trim() && surface === 'call') m.push({ code: 'name', note: 'A name for the order is needed.', ask: 'What name should I put on the order?' });
+  if (order.fulfillment && !order.payment) m.push({ code: 'payment', note: `How they will pay: ${options}.`, ask: `How would you like to pay: ${options}?` });
+  else if (order.payment && !ticket.policy.payments.includes(order.payment)) m.push({ code: 'payment_not_allowed', note: `This order cannot be paid with ${payWords(order.payment)}. It can be ${options}.`, ask: ticket.policy.payments.length === 1 && ticket.policy.payments[0] === 'pay_link' ? "That's on the order. Since it's a first order this size, delivery is paid ahead on a secure link I text you, instead of cash at the door. Is that OK?" : `That's on the order. For this one we can do ${options}. Which works for you?` });
   return m;
+}
+
+/**
+ * One question per turn. If the AI stacks two ("Is that the right address? And how would you like to pay?"),
+ * a plain "yes" cannot be understood, so everything after the first question is held for the next turn.
+ */
+export function oneQuestion(say: string): string {
+  const first = say.indexOf('?');
+  if (first < 0 || say.indexOf('?', first + 1) < 0) return say;
+  return say.slice(0, first + 1).trim();
+}
+
+const WRONG_FOR: Record<'pickup' | 'delivery', RegExp> = {
+  delivery: /\b(at|when you|if you) (the )?(pick ?up|counter|come)|pay at pickup|pick pay/i,
+  pickup: /at (the|your) door/i,
+};
+/** True when what the AI said offers a way to pay that does not fit this order (paying at the counter on a delivery, cash at the door on a pickup). */
+export function offersWrongPayment(say: string, order: BotOrder): boolean {
+  return !!order.fulfillment && /\b(pay|cash|card)\b/i.test(say) && WRONG_FOR[order.fulfillment].test(say);
+}
+
+/**
+ * The tap-able answers shown under the AI's last message, so the customer does not have to type the obvious ones.
+ * Worked out from the question that was asked and the order's own rules, never from a list the AI wrote.
+ */
+export function quickReplies(lastAi: string, order: BotOrder, ticket: Ticket): string[] {
+  const q = lastAi.lastIndexOf('?');
+  if (q < 0) return [];
+  const text = lastAi.slice(0, q + 1);
+  const sentence = text.slice(Math.max(text.lastIndexOf('.', q), text.lastIndexOf('!', q), text.lastIndexOf('\n', q)) + 1).trim();
+  if (!order.payment && order.fulfillment && /\b(pay|cash|card|link)\b/i.test(sentence)) {
+    if (ticket.policy.payments.length > 1) return ticket.policy.payments.map((p) => PAY_REPLY[p as Exclude<Payment, ''>]);
+    if (ticket.policy.payments[0] === 'pay_link') return ['Yes, text me the link', 'No'];
+  }
+  if (!order.fulfillment && /pick ?up/i.test(sentence) && /deliver/i.test(sentence)) return ticket.policy.noDelivery ? ['Pickup'] : ['Pickup', 'Delivery'];
+  if (/^(and |so |ok(ay)?,? )?(is|does|do|did|want|would|should|can|could|ok|okay|are|shall|sound|will|deliver(y|ed)? to|still)\b/i.test(sentence) || /\b(right|correct|ok|okay|sound good|work for you)\?$/i.test(sentence)) return ['Yes', 'No'];
+  return [];
 }
 
 const caller_hidden = (t: Ticket) => t.policy.payments.length === 1 && t.policy.payments[0] === 'pay_at_pickup' && !!t.policy.noDelivery;
@@ -412,11 +455,21 @@ export interface TurnContext {
   /** The order as the AI left it last turn, worked out with real prices. */
   order: BotOrder;
   ticket: { lines: string[]; subtotal: string; deliveryFee: string; total: string; readyInMinutes: number; deliveryZone?: string; addressFound?: string; problems: string[]; stillNeeded: string[] };
-  rules: { allowedPayments: Payment[]; idCheck: boolean; bankConfirms: boolean; notes: string[] };
+  rules: {
+    allowedPayments: Payment[];
+    /** The ways to pay for each kind of order, so the right ones are offered even when pickup or delivery is settled in this same turn. */
+    paymentsIfPickup: { id: Payment; say: string }[];
+    paymentsIfDelivery: { id: Payment; say: string }[];
+    idCheck: boolean; bankConfirms: boolean; notes: string[];
+  };
   suggestions: string[];
 }
 
 export function turnContext(surface: Surface, caller: Caller, order: BotOrder, ticket: Ticket, shop: ShopNow, suggestions: string[], now = new Date()): TurnContext {
+  const waysFor = (fulfillment: 'pickup' | 'delivery') => {
+    const t = order.fulfillment === fulfillment ? ticket : ticketFor({ ...order, fulfillment, address: order.address || caller.address || '' }, caller, shop);
+    return fulfillment === 'delivery' && t.policy.noDelivery && !caller.phone ? [] : t.policy.payments.map((id) => ({ id, say: payWords(id) }));
+  };
   return {
     surface,
     localTime: now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: PIZZA_SHOP.timezone }),
@@ -443,7 +496,7 @@ export function turnContext(surface: Surface, caller: Caller, order: BotOrder, t
       problems: ticket.problems,
       stillNeeded: missing(order, ticket, surface).map((n) => n.note),
     },
-    rules: { allowedPayments: ticket.policy.payments, idCheck: ticket.policy.idCheck, bankConfirms: ticket.policy.bankConfirm, notes: ticket.policy.reasons },
+    rules: { allowedPayments: ticket.policy.payments, paymentsIfPickup: waysFor('pickup'), paymentsIfDelivery: waysFor('delivery'), idCheck: ticket.policy.idCheck, bankConfirms: ticket.policy.bankConfirm, notes: ticket.policy.reasons },
     suggestions,
   };
 }

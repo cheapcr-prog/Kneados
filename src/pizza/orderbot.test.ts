@@ -13,7 +13,7 @@ const usualLines: Line[] = [
 const regular: Caller = { phone: '5625552000', known: true, name: 'Maya R.', address: '210 Termino Ave', lastLines: usualLines, lastFulfillment: 'delivery', orders: 12, punches: 2 };
 const stranger: Caller = { phone: '5625550188', known: false };
 const hidden: Caller = { phone: '', known: false };
-const order = (o: Partial<BotOrder>): BotOrder => ({ items: [], fulfillment: '', name: '', address: '', payment: '', ...o });
+const order = (o: Partial<BotOrder>): BotOrder => ({ items: [], fulfillment: '', name: '', address: '', payment: '', note: '', ...o });
 
 describe('turning what the AI heard into ticket lines', () => {
   it('prices a specialty with the register\'s own price code', () => {
@@ -113,7 +113,7 @@ describe('what must be settled before the kitchen gets it', () => {
   });
   it('will not let the AI send an order with a payment the rules do not allow', () => {
     const big = order({ items: [item({ kind: 'pizza', specialty: 'supreme', size: 'L', qty: 3 })], fulfillment: 'delivery', address: '210 Termino Ave', name: 'Jo', payment: 'cash_at_door' });
-    expect(missing(big, ticketFor(big, stranger, shop), 'call')[0].ask).toMatch(/secure pay link/);
+    expect(missing(big, ticketFor(big, stranger, shop), 'call')[0].ask).toMatch(/secure link/);
     expect(missing(big, ticketFor(big, regular, shop), 'call')).toEqual([]);
   });
   it('does not need a name by text', () => {
@@ -148,7 +148,8 @@ describe('what the AI says', () => {
 
 describe('reading Claude\'s reply', () => {
   it('keeps what is on the menu and drops what is not', () => {
-    const t = parseTurn(JSON.stringify({ say: ' Hi ', action: 'place_order', order: { items: [{ kind: 'pizza', specialty: 'pepperoni', size: 'XL', crust: 'stuffed', sauce: '', cheese: '', add: [{ topping: 'anchovy', side: 'whole', extra: false }, { topping: 'bacon', side: 'top', extra: 'yes' }], remove: ['x'], notes: ['Burn it'], side: '', qty: 500 }], fulfillment: 'drone', name: 'Al', address: '', payment: 'card_number' } }))!;
+    const t = parseTurn(JSON.stringify({ say: ' Hi ', action: 'place_order', order: { items: [{ kind: 'pizza', specialty: 'pepperoni', size: 'XL', crust: 'stuffed', sauce: '', cheese: '', add: [{ topping: 'anchovy', side: 'whole', extra: false }, { topping: 'bacon', side: 'top', extra: 'yes' }], remove: ['x'], notes: ['Burn it'], side: '', qty: 500 }], fulfillment: 'drone', name: 'Al', address: '', payment: 'card_number', note: '  2 cola,\n 1 orange ' } }))!;
+    expect(t.order.note).toBe('2 cola, 1 orange');
     expect(t.say).toBe('Hi');
     expect(t.order.items[0]).toMatchObject({ size: '', crust: '', add: [{ topping: 'bacon', side: 'whole', extra: false }], remove: [], notes: [], qty: 20 });
     expect(t.order.fulfillment).toBe('');

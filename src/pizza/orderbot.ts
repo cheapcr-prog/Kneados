@@ -49,6 +49,8 @@ export interface BotOrder {
   /** The delivery address as the caller said it. */
   address: string;
   payment: Payment;
+  /** What the kitchen or driver needs that the menu cannot carry: soda flavors, wing dip, "side door". */
+  note: string;
 }
 
 export type BotAction = 'continue' | 'place_order' | 'transfer' | 'end';
@@ -60,7 +62,7 @@ export interface BotTurn {
   action: BotAction;
 }
 
-export const EMPTY_ORDER: BotOrder = { items: [], fulfillment: '', name: '', address: '', payment: '' };
+export const EMPTY_ORDER: BotOrder = { items: [], fulfillment: '', name: '', address: '', payment: '', note: '' };
 
 const NOTES = NOTE_GROUPS.flatMap((g) => g.options);
 
@@ -109,8 +111,9 @@ export const TURN_SCHEMA = {
         name: { type: 'string' },
         address: { type: 'string' },
         payment: { type: 'string', enum: ['pay_at_pickup', 'pay_link', 'cash_at_door', ''] },
+        note: { type: 'string', description: 'Short note for the kitchen or driver: soda flavors, wing dip, gate code. Empty when there is none.' },
       },
-      required: ['items', 'fulfillment', 'name', 'address', 'payment'],
+      required: ['items', 'fulfillment', 'name', 'address', 'payment', 'note'],
       additionalProperties: false,
     },
     action: { type: 'string', enum: ['continue', 'place_order', 'transfer', 'end'] },
@@ -366,7 +369,7 @@ export function missing(order: BotOrder, ticket: Ticket, surface: Surface): Need
   else if (order.fulfillment === 'delivery' && !ticket.zone) m.push({ note: 'A delivery address inside the delivery area is needed.', ask: "What's the delivery address?" });
   if (!order.name.trim() && surface === 'call') m.push({ note: 'A name for the order is needed.', ask: 'What name should I put on the order?' });
   if (order.fulfillment && !order.payment) m.push({ note: `How they will pay is needed. Allowed: ${ticket.policy.payments.join(', ')}.`, ask: `How would you like to pay: ${options}?` });
-  else if (order.payment && !ticket.policy.payments.includes(order.payment)) m.push({ note: `"${order.payment}" is not allowed for this order. Allowed: ${ticket.policy.payments.join(', ')}.`, ask: `For this order we can do ${options}. Which works for you?` });
+  else if (order.payment && !ticket.policy.payments.includes(order.payment)) m.push({ note: `"${order.payment}" is not allowed for this order. Allowed: ${ticket.policy.payments.join(', ')}.`, ask: ticket.policy.payments.length === 1 && ticket.policy.payments[0] === 'pay_link' ? "That's on the order. Since it's a first order this size, delivery is paid ahead on a secure link I text you, instead of cash at the door. Is that OK?" : `That's on the order. For this one we can do ${options}. Which works for you?` });
   return m;
 }
 
@@ -501,6 +504,7 @@ export function parseTurn(text: string): BotTurn | null {
       name: typeof o.name === 'string' ? o.name.trim().slice(0, 60) : '',
       address: typeof o.address === 'string' ? o.address.trim().slice(0, 120) : '',
       payment: pick(o.payment, ['pay_at_pickup', 'pay_link', 'cash_at_door', ''] as const, ''),
+      note: typeof o.note === 'string' ? o.note.replace(/\s+/g, ' ').trim().slice(0, 160) : '',
     },
     action: pick(d.action, ['continue', 'place_order', 'transfer', 'end'] as const, 'continue'),
   };

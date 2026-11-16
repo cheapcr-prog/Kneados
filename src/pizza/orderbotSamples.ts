@@ -18,7 +18,7 @@ export interface Sample {
 
 const usual = (over: Partial<BotOrder> = {}): BotOrder => ({
   items: [item({ kind: 'pizza', specialty: 'pepperoni', size: 'L' }), item({ kind: 'side', side: 'wings-buffalo' })],
-  fulfillment: 'delivery', name: 'Maya R.', address: '210 Termino Ave', payment: '', ...over,
+  fulfillment: 'delivery', name: 'Maya R.', address: '210 Termino Ave', payment: '', note: '', ...over,
 });
 const usualWithMushroom = [
   item({ kind: 'pizza', specialty: 'pepperoni', size: 'L', add: [{ topping: 'mushroom', side: 'left', extra: false }], notes: ['Well done'] }),
@@ -55,7 +55,7 @@ const bigItems = [
   item({ kind: 'pizza', specialty: 'byo', size: 'L', crust: 'pan', add: [{ topping: 'pepperoni', side: 'left', extra: false }, { topping: 'pineapple', side: 'right', extra: false }, { topping: 'jalapeno', side: 'right', extra: false }] }),
 ];
 const bigAll = [...bigItems, item({ kind: 'side', side: 'wings-buffalo', qty: 3 }), item({ kind: 'side', side: 'garlic-knots', qty: 2 })];
-const big = (over: Partial<BotOrder>): BotOrder => ({ items: bigAll, fulfillment: 'delivery', name: 'Sam', address: '1925 Redondo Ave', payment: '', ...over });
+const big = (over: Partial<BotOrder>): BotOrder => ({ items: bigAll, fulfillment: 'delivery', name: 'Sam', address: '1925 Redondo Ave', payment: '', note: '', ...over });
 
 const newText: Sample = {
   id: 'new-text', surface: 'text', caller: 'new',
@@ -64,7 +64,7 @@ const newText: Sample = {
   steps: [
     {
       customer: '2 large pizzas for delivery. one supreme no olives, one half pepperoni half pineapple and jalapeno, make that one detroit style',
-      turn: { say: "Got it!\n1. Large Supreme, no olives\n2. Large Detroit pan: pepperoni on one half, pineapple and jalapeños on the other\nWhat's the delivery address, and a name for the order?", order: { items: bigItems, fulfillment: 'delivery', name: '', address: '', payment: '' }, action: 'continue' },
+      turn: { say: "Got it!\n1. Large Supreme, no olives\n2. Large Detroit pan: pepperoni on one half, pineapple and jalapeños on the other\nWhat's the delivery address, and a name for the order?", order: { items: bigItems, fulfillment: 'delivery', name: '', address: '', payment: '', note: '' }, action: 'continue' },
     },
     {
       customer: 'Sam, 1925 Redondo Ave. also 3 buffalo wings and 2 garlic breads',
@@ -90,15 +90,15 @@ const hiddenCall: Sample = {
   steps: [
     {
       customer: 'I need eight large pepperoni pizzas delivered, cash.',
-      turn: { say: "I can get eight large pepperonis going for you. Your number is coming through hidden, so I can set this up for pickup and you'd pay at the counter. Would pickup work?", order: { items: eight, fulfillment: '', name: '', address: '', payment: '' }, action: 'continue' },
+      turn: { say: "I can get eight large pepperonis going for you. Your number is coming through hidden, so I can set this up for pickup and you'd pay at the counter. Would pickup work?", order: { items: eight, fulfillment: '', name: '', address: '', payment: '', note: '' }, action: 'continue' },
     },
     {
       customer: "No, I need it delivered. It's 700 Pine Ave.",
-      turn: { say: "I understand. For delivery, call us back from a number that shows and I'll have it out to you in about {minutes} minutes. Otherwise I can have it hot for pickup. Want me to start it for pickup?", order: { items: eight, fulfillment: 'pickup', name: '', address: '', payment: 'pay_at_pickup' }, action: 'continue' },
+      turn: { say: "I understand. For delivery, call us back from a number that shows and I'll have it out to you in about {minutes} minutes. Otherwise I can have it hot for pickup. Want me to start it for pickup?", order: { items: eight, fulfillment: 'pickup', name: '', address: '', payment: 'pay_at_pickup', note: '' }, action: 'continue' },
     },
     {
       customer: 'Forget it.',
-      turn: { say: 'No problem at all. Call us back anytime. Have a good night!', order: { items: [], fulfillment: '', name: '', address: '', payment: '' }, action: 'end' },
+      turn: { say: 'No problem at all. Call us back anytime. Have a good night!', order: { items: [], fulfillment: '', name: '', address: '', payment: '', note: '' }, action: 'end' },
     },
   ],
 };

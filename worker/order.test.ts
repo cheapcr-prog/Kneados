@@ -10,7 +10,7 @@ function kv(start: Record<string, string> = {}) {
 }
 const env = (over: Partial<Env> = {}): Env => ({ ASSETS: { fetch: async () => new Response('page') }, USAGE: kv(), ANTHROPIC_API_KEY: 'test-key', ...over });
 const post = (b = body(), origin = 'https://kneados.app') => new Request('https://kneados.app/api/order', { method: 'POST', body: b, headers: { origin, 'cf-connecting-ip': '1.2.3.4' } });
-const turn = { say: 'Large pepperoni for pickup. Your total is {total}.', action: 'continue', order: { items: [{ kind: 'pizza', specialty: 'pepperoni', size: 'L', crust: '', sauce: '', cheese: '', add: [], remove: [], notes: [], side: '', qty: 1 }], fulfillment: 'pickup', name: '', address: '', payment: '' } };
+const turn = { say: 'Large pepperoni for pickup. Your total is {total}.', action: 'continue', order: { items: [{ kind: 'pizza', specialty: 'pepperoni', size: 'L', crust: '', sauce: '', cheese: '', add: [], remove: [], notes: [], side: '', qty: 1 }], fulfillment: 'pickup', name: '', address: '', payment: '', note: '' } };
 const says = (t: unknown): CallModel => async () => ({ stop_reason: 'end_turn', content: [{ type: 'text', text: JSON.stringify(t) }], usage: { input_tokens: 1000, output_tokens: 200 } });
 const now = new Date('2026-11-16T18:00:00Z');
 

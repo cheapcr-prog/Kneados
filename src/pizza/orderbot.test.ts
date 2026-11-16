@@ -2,8 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { DEFAULT_FRAUD } from '../lib/fraud';
 import { SIDE_BY_ID } from './data';
 import { configFor, pizzaPrice, type Line } from './logic';
-import { EMPTY_ORDER, TURN_SCHEMA, buildLines, fill, greeting, item, linesToItems, matchAddress, menuText, missing, offersWrongPayment, oneQuestion, orderPolicy, parseTurn, quickReplies, ticketFor, turnContext, type BotOrder, type Caller, type ShopNow } from './orderbot';
+import { EMPTY_ORDER, TURN_SCHEMA, buildLines, fill, greeting, item, linesToItems, matchAddress, menuText, missing, offersWrongPayment, oneQuestion, orderPolicy, hideMachinery, needsLookup, parseTurn, quickReplies, rememberAddress, ticketFor, turnContext, type BotOrder, type Caller, type ShopNow } from './orderbot';
 import { SAMPLES } from './orderbotSamples';
+import { geocodeQuery, parseCensus } from './geocode';
 
 const shop: ShopNow = { quote: (pies, zone) => 20 + (pies - 1) * 3 + (zone ? 15 : 0), out: [], open: true, fraud: DEFAULT_FRAUD };
 const usualLines: Line[] = [
@@ -106,7 +107,7 @@ describe('what must be settled before the kitchen gets it', () => {
     expect(asks(order({}))[0]).toMatch(/get started/);
     expect(asks(order({ items: [pie] }))[0]).toMatch(/pickup or delivery/);
     expect(asks(order({ items: [pie], fulfillment: 'delivery' }))[0]).toMatch(/delivery address/);
-    expect(asks(order({ items: [pie], fulfillment: 'delivery', address: '12 Nowhere Lane' }))[0]).toMatch(/couldn't find that address/);
+    expect(asks(order({ items: [pie], fulfillment: 'delivery', address: '12 Nowhere Lane' }))[0]).toMatch(/couldn't find 12 Nowhere Lane/);
     expect(asks(order({ items: [pie], fulfillment: 'delivery', address: '210 Termino Ave' }))[0]).toMatch(/name/);
     expect(asks(order({ items: [pie], fulfillment: 'delivery', address: '210 Termino Ave', name: 'Jo' }))[0]).toMatch(/How would you like to pay/);
     expect(asks(order({ items: [pie], fulfillment: 'delivery', address: '210 Termino Ave', name: 'Jo', payment: 'cash_at_door' }))).toEqual([]);
@@ -230,5 +231,60 @@ describe('one question at a time, and answers that fit the order', () => {
     const none = { ...EMPTY_ORDER, items: pie };
     expect(quickReplies('Got it. Is this for pickup or delivery?', none, ticketFor(none, regular, shopNow))).toEqual(['Pickup', 'Delivery']);
     expect(quickReplies('What size?', none, ticketFor(none, regular, shopNow))).toEqual([]);
+  });
+});
+
+describe('a real address is checked the moment it is given', () => {
+  const shopNow: ShopNow = { quote: () => 25, out: [], open: true, fraud: DEFAULT_FRAUD };
+  const stranger: Caller = { phone: '5625550188', known: false };
+  const pie = [item({ kind: 'pizza', specialty: 'pepperoni', size: 'L' })];
+  const to = (address: string): BotOrder => ({ ...EMPTY_ORDER, items: pie, fulfillment: 'delivery', address, name: 'John' });
+
+  it('prices a looked-up Long Beach address in the right zone', () => {
+    const census = { result: { addressMatches: [{ matchedAddress: '1746 XIMENO AVE, LONG BEACH, CA, 90815', coordinates: { x: -118.1388, y: 33.7887 }, addressComponents: { city: 'LONG BEACH' } }] } };
+    const found = parseCensus(census)!;
+    expect(found.line).toBe('1746 Ximeno Ave');
+    expect(needsLookup('1746 Ximeno Ave')).toBe(true);
+    rememberAddress('1746 Ximeno Ave', found);
+    expect(needsLookup('1746 Ximeno Avenue')).toBe(false);
+    const t = ticketFor(to('1746 Ximeno Ave'), stranger, shopNow);
+    expect(t.zone).toBe('B');
+    expect(t.totals.deliveryFee).toBe(399);
+    expect(missing(to('1746 Ximeno Ave'), t, 'text').some((n) => n.code === 'address')).toBe(false);
+  });
+
+  it('does not look up the example addresses, and never swaps a house number for another on the same street', () => {
+    expect(needsLookup('210 Termino Ave')).toBe(false);
+    expect(matchAddress('555 Termino Ave')).toBeUndefined();
+    expect(matchAddress('on Termino')?.line).toBe('210 Termino Ave');
+  });
+
+  it('offers pickup or a different address when the address is not found or too far', () => {
+    rememberAddress('99999 Nowhere St', null);
+    const lost = to('99999 Nowhere St');
+    const t = ticketFor(lost, stranger, shopNow);
+    const need = missing(lost, t, 'text').find((n) => n.code === 'address')!;
+    expect(need.ask).toContain('switch to pickup');
+    expect(quickReplies(need.ask, lost, t)).toEqual(['Switch to pickup', 'Different address']);
+    rememberAddress('100 Main St, Seal Beach', parseCensus({ result: { addressMatches: [{ matchedAddress: '100 MAIN ST, SEAL BEACH, CA, 90740', coordinates: { x: -118.1054, y: 33.7404 }, addressComponents: { city: 'SEAL BEACH' } }] } }));
+    const far = to('100 Main St, Seal Beach');
+    const tf = ticketFor(far, stranger, shopNow);
+    expect(tf.zone).toBe('C');
+    rememberAddress('1 World Way, Los Angeles', { line: '1 World Way, Los Angeles', x: -14, y: 12 });
+    const out = to('1 World Way, Los Angeles');
+    const need2 = missing(out, ticketFor(out, stranger, shopNow), 'text').filter((n) => n.code === 'address');
+    expect(need2).toHaveLength(1);
+    expect(need2[0].ask).toContain('past our delivery area');
+  });
+
+  it('builds the lookup query in the shop city unless another is named', () => {
+    expect(geocodeQuery('1746 Ximeno Ave')).toBe('1746 Ximeno Ave, Long Beach, CA');
+    expect(geocodeQuery('1746 Ximeno in Long Beach')).toBe('1746 Ximeno, Long Beach, CA');
+    expect(geocodeQuery('Termino')).toBe('');
+  });
+
+  it('drops any sentence about the system', () => {
+    expect(hideMachinery('Thanks, John! 1746 Ximeno in Long Beach. Let me confirm that one with the system. How would you like to pay?')).toBe('Thanks, John! 1746 Ximeno in Long Beach. How would you like to pay?');
+    expect(hideMachinery('Got it, a large pepperoni.')).toBe('Got it, a large pepperoni.');
   });
 });

@@ -220,15 +220,30 @@ const norm = (s: string) => s.toLowerCase().replace(/\b(street|st|avenue|ave|bou
  * Finds the delivery address the caller said. The demo knows a list of example Long Beach streets;
  * a live shop looks the address up with a maps service instead.
  */
+/** Addresses checked against the real address file this visit: what was said, and where it is (null when no such address exists). */
+const LOOKED_UP = new Map<string, Address | null>();
+/** Saves the answer of a real address lookup, so the ticket can price the delivery. */
+export function rememberAddress(said: string, found: Address | null) { LOOKED_UP.set(norm(said), found); }
+/** True when this address still has to be looked up: it is not one the shop knows and has not been checked yet. */
+export function needsLookup(said: string): boolean {
+  const s = norm(said);
+  return !!s && /\d/.test(s) && !LOOKED_UP.has(s) && !matchAddress(said);
+}
+
 export function matchAddress(said: string): Address | undefined {
   const s = norm(said);
   if (!s) return undefined;
   const exact = ADDRESSES.find((a) => s.includes(norm(a.line)));
   if (exact) return exact;
-  // The street alone, without the house number ("Termino", "4th street").
+  if (LOOKED_UP.has(s)) return LOOKED_UP.get(s) ?? undefined;
+  // The street alone ("Termino", "4th street"), or the same house said another way ("1180 east 4th street").
+  // A different house number on a known street is never swapped for the one we know.
+  const words = s.split(' ');
+  const numbers = words.filter((w) => /^\d+$/.test(w));
   return ADDRESSES.find((a) => {
-    const street = norm(a.line).split(' ').slice(1).filter((w) => !['e', 'w', 'n', 's', 'st', 'ave', 'blvd', 'dr', 'rd', 'hwy'].includes(w));
-    return street.length > 0 && street.every((w) => s.split(' ').includes(w));
+    const [house, ...rest] = norm(a.line).split(' ');
+    const street = rest.filter((w) => !['e', 'w', 'n', 's', 'st', 'ave', 'blvd', 'dr', 'rd', 'hwy'].includes(w));
+    return street.length > 0 && street.every((w) => words.includes(w)) && (numbers.length === 0 || numbers.includes(house));
   });
 }
 
@@ -299,7 +314,7 @@ export function orderPolicy(o: { totalCents: number; pies: number; fulfillment: 
   const hidden = !o.caller.phone;
   let noDelivery: string | undefined;
   if (hidden) { noDelivery = 'The number is hidden, so this order is pickup only and paid at the counter.'; reasons.push(noDelivery); }
-  else if (o.fulfillment === 'delivery' && o.addressSaid && !o.addressFound) { noDelivery = 'That address is not in the delivery area. Offer pickup or ask for the address again.'; reasons.push(noDelivery); }
+  else if (o.fulfillment === 'delivery' && o.addressSaid && !o.addressFound) { noDelivery = 'That address could not be found in the delivery area. Offer pickup or a different address.'; reasons.push(noDelivery); }
   let payments: Payment[];
   if (hidden) payments = ['pay_at_pickup'];
   else if (o.fulfillment === 'delivery') {
@@ -343,7 +358,6 @@ export function ticketFor(order: BotOrder, caller: Caller, shop: ShopNow): Ticke
   const pies = lines.reduce((a, l) => a + (l.kind === 'pizza' ? l.qty : 0), 0);
   const quoteMinutes = shop.quote(Math.max(1, pies), order.fulfillment === 'delivery' ? zone ?? 'B' : undefined);
   const policy = orderPolicy({ totalCents: t.total, pies, fulfillment: order.fulfillment, caller, addressFound: !!zone, addressSaid: !!order.address.trim() }, shop.fraud);
-  if (order.fulfillment === 'delivery' && address && !zone) problems.push(`${address.line} is too far to deliver`);
   return { lines, problems, totals: t, zone, address, quoteMinutes, policy };
 }
 
@@ -371,7 +385,16 @@ export function missing(order: BotOrder, ticket: Ticket, surface: Surface): Need
   if (!ticket.lines.length) m.push({ code: 'items', note: 'Nothing is on the order yet.', ask: 'What can I get started for you?' });
   for (const p of ticket.problems) m.push({ code: 'problem', note: p, ask: `One thing: ${p[0].toLowerCase()}${p.slice(1)}. What would you like instead?` });
   if (!order.fulfillment) m.push({ code: 'fulfillment', note: 'Pickup or delivery is not known yet.', ask: 'Is this for pickup or delivery?' });
-  if (order.fulfillment === 'delivery' && ticket.policy.noDelivery) m.push({ code: 'address', note: ticket.policy.noDelivery, ask: caller_hidden(ticket) ? 'With the number hidden I can only set this up for pickup. Does pickup work?' : "I couldn't find that address in our delivery area. Can you give it to me again, or would pickup work?" });
+  if (order.fulfillment === 'delivery' && ticket.policy.noDelivery) {
+    const far = ticket.address && !ticket.zone;
+    m.push({
+      code: 'address',
+      note: far ? `${ticket.address!.line} is past the delivery area (over ${ZONES[ZONES.length - 1].maxMiles} miles). Offer pickup or a different address.` : ticket.policy.noDelivery,
+      ask: caller_hidden(ticket) ? 'With the number hidden I can only set this up for pickup. Does pickup work?'
+        : far ? `Sorry, ${ticket.address!.line} is past our delivery area. Would you like to switch to pickup or use a different address?`
+          : `Sorry, I couldn't find ${order.address.trim().slice(0, 60)} in our delivery area. Would you like to switch to pickup or give me a different address?`,
+    });
+  }
   else if (order.fulfillment === 'delivery' && !ticket.zone) m.push({ code: 'address', note: 'A delivery address inside the delivery area is needed.', ask: "What's the delivery address?" });
   if (!order.name.trim() && surface === 'call') m.push({ code: 'name', note: 'A name for the order is needed.', ask: 'What name should I put on the order?' });
   if (order.fulfillment && !order.payment) m.push({ code: 'payment', note: `How they will pay: ${options}.`, ask: `How would you like to pay: ${options}?` });
@@ -387,6 +410,17 @@ export function oneQuestion(say: string): string {
   const first = say.indexOf('?');
   if (first < 0 || say.indexOf('?', first + 1) < 0) return say;
   return say.slice(0, first + 1).trim();
+}
+
+/** What the customer taps when an address cannot be delivered to. */
+export const ADDRESS_REPLY = ['Switch to pickup', 'Different address'] as const;
+
+const MACHINERY = /\b(the|our|my) (system|computer|software|database)\b|\bkneados\b|\bsnapshot\b/i;
+/** Customers hear a person taking their order, never the machinery: any sentence about "the system" is dropped. */
+export function hideMachinery(say: string): string {
+  if (!MACHINERY.test(say)) return say;
+  const kept = (say.match(/[^.!?\n]+[.!?]*\s*|\n+/g) ?? [say]).filter((part) => !MACHINERY.test(part)).join('').trim();
+  return kept || 'Got it.';
 }
 
 const WRONG_FOR: Record<'pickup' | 'delivery', RegExp> = {
@@ -407,6 +441,7 @@ export function quickReplies(lastAi: string, order: BotOrder, ticket: Ticket): s
   if (q < 0) return [];
   const text = lastAi.slice(0, q + 1);
   const sentence = text.slice(Math.max(text.lastIndexOf('.', q), text.lastIndexOf('!', q), text.lastIndexOf('\n', q)) + 1).trim();
+  if (order.fulfillment === 'delivery' && ticket.policy.noDelivery && /pick ?up/i.test(sentence)) return ticket.address || order.address.trim() ? (ticket.policy.payments[0] === 'pay_at_pickup' && ticket.policy.payments.length === 1 ? [ADDRESS_REPLY[0]] : [...ADDRESS_REPLY]) : [];
   if (!order.payment && order.fulfillment && /\b(pay|cash|card|link)\b/i.test(sentence)) {
     if (ticket.policy.payments.length > 1) return ticket.policy.payments.map((p) => PAY_REPLY[p as Exclude<Payment, ''>]);
     if (ticket.policy.payments[0] === 'pay_link') return ['Yes, text me the link', 'No'];

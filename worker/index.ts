@@ -3,6 +3,8 @@ import { DRAFTS_PER_VISITOR, DRAFT_MAX_TOKENS, DRAFT_MODEL, DRAFT_SCHEMA, DRAFT_
 import { DEFAULT_REVIEW_MONTHLY_CAP_CENTS, REVIEW_LOCK_SECONDS, REVIEW_MAX_BODY_BYTES, REVIEW_MAX_TOKENS, REVIEW_MODEL, REVIEW_RESERVE_MICROS, REVIEW_SCHEMA, REVIEW_SYSTEM, budgetMonth, parseReview, parseReviewBody, reviewBlock, reviewMessage, type ReviewError, type ReviewEvent, type ReviewStatus, type SavedReview } from './review';
 import { ORDER_MAX_BODY_BYTES, ORDER_MAX_TOKENS, ORDER_MODEL, ORDER_SYSTEM, ORDER_TURNS_PER_VISITOR, TURN_SCHEMA, orderMessage, parseOrderBody } from './order';
 import { parseTurn, type BotTurn } from '../src/pizza/orderbot';
+import { GEOCODE_PER_VISITOR } from '../src/pizza/geocode';
+import { censusLookUp, findAddress, parseGeocodeBody, type GeocodeReply, type LookUp } from './geocode';
 import { DEFAULT_DAILY_CAP_CENTS, MAX_BODY_BYTES, MAX_OUTPUT_TOKENS, MODEL, OUTPUT_SCHEMA, QUESTIONS_PER_VISITOR, PIZZA_SYSTEM, SYSTEM, budgetDay, costMicros, parseBody, parseReply, userMessage, type AskError, type AskReply, type Usage } from './ask';
 
 interface KV {
@@ -51,7 +53,7 @@ const callClaude: CallModel = async (apiKey, user, system = SYSTEM) => {
 /** Headers on every /api answer: never cached, never sniffed as something else, never framed. */
 const API_HEADERS = { 'cache-control': 'no-store', 'x-content-type-options': 'nosniff', 'x-frame-options': 'DENY', 'referrer-policy': 'no-referrer' };
 
-const json = (body: AskReply | BotTurn | ReviewStatus | { text: string } | { error: AskError | ReviewError } | { ready: boolean }, status = 200) =>
+const json = (body: AskReply | BotTurn | GeocodeReply | ReviewStatus | { text: string } | { error: AskError | ReviewError } | { ready: boolean }, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json', ...API_HEADERS } });
 
 /**
@@ -219,6 +221,37 @@ export async function handleOrder(request: Request, env: Env, call: CallModel = 
   return json(turn);
 }
 
+/**
+ * Real address lookup for the AI order taker: is this a real street address, and how far is it from the shop?
+ * Only the address itself is sent to the US Census Bureau's public geocoder. Answers are kept for a month so a repeat is instant.
+ */
+export async function handleGeocode(request: Request, env: Env, lookUp: LookUp = censusLookUp, now = new Date()): Promise<Response> {
+  if (request.method !== 'POST') return json({ error: 'bad' }, 405);
+  if (!sameOrigin(request)) return json({ error: 'bad' }, 403);
+  const query = parseGeocodeBody(await request.text());
+  if (!query) return json({ found: false });
+  const usage = env.USAGE;
+  const cacheKey = `geo:${query.toLowerCase()}`;
+  if (usage) {
+    const cached = await usage.get(cacheKey);
+    if (cached) return json(JSON.parse(cached) as GeocodeReply);
+    const visitorKey = `geocodes:${budgetDay(now)}:${request.headers.get('cf-connecting-ip') ?? 'unknown'}`;
+    const asked = Number((await usage.get(visitorKey)) ?? 0) || 0;
+    if (asked >= GEOCODE_PER_VISITOR) return json({ error: 'limit' }, 429);
+    await usage.put(visitorKey, String(asked + 1), { expirationTtl: 2 * DAY });
+  }
+  let reply: GeocodeReply;
+  try {
+    const address = await findAddress(query, lookUp);
+    reply = address ? { found: true, address } : { found: false };
+  } catch (error) {
+    console.error('Address lookup failed', error);
+    return json({ error: 'busy' }, 502);
+  }
+  if (usage) await usage.put(cacheKey, JSON.stringify(reply), { expirationTtl: 30 * DAY });
+  return json(reply);
+}
+
 /** Writes the deep review. Reports how much has been written so far, so the page can show progress. Swapped for a stand-in by the tests. */
 export type CallReview = (apiKey: string, user: string, onProgress: (chars: number) => void) => Promise<ModelResult>;
 
@@ -327,6 +360,7 @@ export default {
     if (pathname === '/api/review') return handleReview(request, env, ctx);
     if (pathname === '/api/draft') return handleDraft(request, env);
     if (pathname === '/api/order') return handleOrder(request, env);
+    if (pathname === '/api/geocode') return handleGeocode(request, env);
     if (pathname.startsWith('/api/')) return json({ error: 'bad' }, 404);
     return env.ASSETS.fetch(request);
   },

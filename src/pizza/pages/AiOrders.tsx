@@ -3,9 +3,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useFraud } from '../../components/Fraud';
 import { formatPhone, money } from '../../lib/money';
-import { PIZZA_SHOP, PIZZA_STAFF, SIDE_BY_ID, SPECIALTY_BY_ID, ZONES } from '../data';
+import { PIZZA_SHOP, PIZZA_STAFF, SIDE_BY_ID, SPECIALTY_BY_ID, ZONES, type Address } from '../data';
 import { MINUTE, lineCents, pizzaDetails, pizzaTitle, quoteTime, upsells, type PizzaLine } from '../logic';
-import { EMPTY_ORDER, fill, greeting, missing, offersWrongPayment, oneQuestion, quickReplies, ticketFor, turnContext, type BotOrder, type BotTurn, type Caller, type ShopNow, type Surface, type Ticket, type TranscriptLine } from '../orderbot';
+import { EMPTY_ORDER, fill, greeting, hideMachinery, missing, needsLookup, offersWrongPayment, oneQuestion, quickReplies, rememberAddress, ticketFor, turnContext, type BotOrder, type BotTurn, type Caller, type ShopNow, type Surface, type Ticket, type TranscriptLine } from '../orderbot';
 import { SAMPLES, type Sample } from '../orderbotSamples';
 import { PizzaArt } from '../PizzaArt';
 import { usePizzaBrain } from '../brain';
@@ -13,6 +13,16 @@ import { usePizza, type PizzaState } from '../store';
 
 /** A number nobody has ordered from, and a caller who hides theirs. */
 const NEW_NUMBER = '5625550188';
+/** Asks the server whether this is a real address and where it is. Null: no such address. Undefined: the lookup itself failed. */
+async function lookUpAddress(said: string): Promise<Address | null | undefined> {
+  try {
+    const res = await fetch('/api/geocode', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ address: said }) });
+    const data = (await res.json()) as { found?: boolean; address?: Address };
+    if (data.found && data.address) return data.address;
+    return data.found === false ? null : undefined;
+  } catch { return undefined; }
+}
+
 type Phase = 'idle' | 'live' | 'placed' | 'transferred' | 'ended';
 type Row = TranscriptLine & { pay?: 'due' | 'paid'; note?: boolean };
 type ApiError = 'off' | 'capped' | 'limit' | 'bad' | 'refused' | 'busy';
@@ -184,7 +194,7 @@ export function AiOrders() {
     const s = live.current.surface;
     const t = ticketFor(turn.order, c, shop);
     const open = missing(turn.order, t, s);
-    let say = fill(turn.say, t);
+    let say = hideMachinery(fill(turn.say, t));
     let next: Phase = 'live';
     const extra: Row[] = [];
     if (t.policy.transfer || turn.action === 'transfer') {
@@ -199,7 +209,7 @@ export function AiOrders() {
       else {
         const done = place(turn.order, t, [...transcript, { who: 'ai', text: say }]);
         if (done) {
-          say = fill(turn.say, t, { number: done.number });
+          say = hideMachinery(fill(turn.say, t, { number: done.number }));
           next = 'placed';
           setPlaced({ number: done.number, total: t.totals.total, minutes: t.quoteMinutes, bankConfirm: t.policy.bankConfirm, idCheck: t.policy.idCheck });
           extra.push({ who: 'shop', note: true, text: `Order #${done.number} is on the make line. Quoted ${t.quoteMinutes} min.` });
@@ -210,8 +220,14 @@ export function AiOrders() {
     else {
       // The customer picked a way to pay that this order cannot use (the total may have just crossed a limit): KneadOS says so right away.
       const pay = open.find((n) => n.code === 'payment_not_allowed');
+      const address = open.find((n) => n.code === 'address');
+      const before = live.current.order;
       const ask = open.find((n) => n.code === 'payment');
       if (pay) { say = pay.ask; turn = { ...turn, order: { ...turn.order, payment: '' } }; }
+      // The address was checked the moment it was given. If we cannot deliver there, KneadOS says so now, before any read-back or total.
+      else if (address && t.policy.noDelivery && turn.order.address.trim() && (turn.order.address.trim() !== before.address.trim() || before.fulfillment !== 'delivery')) say = address.ask;
+      // No total or delivery fee is quoted until the delivery address is settled.
+      else if (address && /\{(total|fee)\}/.test(turn.say)) say = address.ask;
       // The AI offered a way to pay that does not fit this order (the counter on a delivery): KneadOS asks with the right ones.
       else if (ask && !t.policy.noDelivery && offersWrongPayment(say, turn.order)) say = ask.ask;
       // One question at a time, so a plain "yes" always has one meaning.
@@ -270,6 +286,13 @@ export function AiOrders() {
     } catch { problem = 'busy'; }
     if (live.current.run !== run) return;
     if (!turn) { setBusy(false); setError(problem ?? 'busy'); if (problem === 'off' || problem === 'capped' || problem === 'limit') setReady(false); return; }
+    // A delivery address the shop has not seen is looked up for real the moment it is given, so the fee and the delivery area are right from the first reply.
+    const where = turn.order.fulfillment === 'delivery' ? turn.order.address : '';
+    if (where && needsLookup(where)) {
+      const found = await lookUpAddress(where);
+      if (found !== undefined) rememberAddress(where, found);
+      if (live.current.run !== run) return;
+    }
     await apply(turn, transcript, run);
     // Hands-free on a call: once the AI has finished talking, the mic opens for the customer.
     if (live.current.run === run && live.current.phase === 'live' && s === 'call' && handsFree.current) listen();
@@ -511,6 +534,7 @@ export function AiOrders() {
             <li>The whole menu: sizes, crusts, sauces, halves, extras, bake and cut notes.</li>
             <li>Tonight: wait is <b>{shop.quote(1)} min</b> pickup and <b>{shop.quote(1, 'B')} min</b> delivery{state.out.length ? `, and what is sold out (${state.out.length} item${state.out.length === 1 ? '' : 's'})` : ', and anything the kitchen marks sold out'}.</li>
             <li>The caller: name, usual order, saved address and rewards, from caller ID.</li>
+            <li>Any real street address: looked up in the US Census address file the moment it is given, then measured from the shop for the delivery zone and fee.</li>
             <li>One add-on worth offering, picked from what actually sells here.</li>
             <li>Every price, tax, fee and wait time comes from KneadOS, not from the AI.</li>
           </Card>

@@ -1,4 +1,4 @@
-import { Banknote, Check, ChevronDown, ChevronUp, ClipboardCheck, CreditCard, Gift, Keyboard, LogOut, MessageCircle, Minus, PackageCheck, Plus, ScanLine, Timer, Trash2, X } from 'lucide-react';
+import { Banknote, Check, ChevronDown, ChevronUp, ClipboardCheck, CreditCard, Gift, Keyboard, LogOut, Package, MessageCircle, Minus, PackageCheck, Plus, ScanLine, Timer, Trash2, X } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { BreakButton, BreakScreen } from '../components/Breaks';
 import { useGiftCards } from '../components/Channels';
@@ -12,7 +12,7 @@ import { SHOP } from '../data/shop';
 import { useDemo } from '../data/store';
 import type { Category, StaffMember } from '../data/types';
 import { formatPhone, money } from '../lib/money';
-import { linePrice, rewardDiscount, totals } from '../lib/pricing';
+import { BOX_SIZE, boxCounts, boxPrice, boxUpcharge, cartLines, isBoxable, linePrice, rewardDiscount, totals } from '../lib/pricing';
 import { PUNCHES_PER_REWARD } from '../lib/rewards';
 import { hourLabel } from '../lib/smartpricing';
 import { suggestOffers, type Offer } from '../lib/upsell';
@@ -56,6 +56,10 @@ function Till({ staff, onLogout }: { staff: StaffMember; onLogout: () => void })
   const [pickupsOpen, setPickupsOpen] = useState(false);
   /** Phone only: whether the ticket sheet is open. */
   const [sheet, setSheet] = useState(false);
+  /** Mixed dozen boxes that are full and on the ticket. */
+  const [boxes, setBoxes] = useState<string[][]>([]);
+  /** The dozen box being filled right now, or null when taps ring up single items. */
+  const [filling, setFilling] = useState<string[] | null>(null);
   const [tasksOpen, setTasksOpen] = useState(false);
   const upkeep = useUpkeep();
   const myTasks = upkeep.statuses.filter((t) => (t.state === 'due' || t.state === 'overdue') && upkeep.assigned[t.task.id] === staff.id).length;
@@ -64,10 +68,13 @@ function Till({ staff, onLogout }: { staff: StaffMember; onLogout: () => void })
   /** Orders this person should be packing right now. The button turns amber for these. */
   const mineNow = work.queue.filter((a) => a.staffId === staff.id && a.packNow).length;
 
-  const lines = useMemo(
+  /** Items rung up one at a time. Dozen boxes are shown on their own above these. */
+  const looseLines = useMemo(
     () => Object.entries(ticket).filter(([, q]) => q > 0).map(([itemId, qty]) => ({ itemId, qty, lineCents: linePrice(MENU_BY_ID[itemId], qty) })),
     [ticket, MENU_BY_ID],
   );
+  /** Everything on the ticket, one line per item, boxes included. This is what gets charged and saved. */
+  const lines = useMemo(() => cartLines(ticket, boxes, MENU_BY_ID), [ticket, boxes, MENU_BY_ID]);
   const offers = upsells.stats.on ? suggestOffers(lines, MENU_BY_ID, (id) => !!demo.state.bake[id]?.soldOut).filter((o) => !taken.some((t) => t.kind === o.kind)) : [];
   if (offers.length > 0 && !sawOffer) setSawOffer(true);
   const takeOffer = (o: Offer) => { setTicket((c) => ({ ...c, [o.itemId]: (c[o.itemId] ?? 0) + o.qty })); setTaken((t) => [...t, o]); };
@@ -81,8 +88,17 @@ function Till({ staff, onLogout }: { staff: StaffMember; onLogout: () => void })
   const tipping = demo.state.tippingEnabled;
 
   const add = (id: string, n: number) => setTicket((c) => ({ ...c, [id]: Math.max(0, (c[id] ?? 0) + n) }));
+  /** Puts donuts in the open box. The twelfth one closes it and puts it on the ticket. */
+  const intoBox = (id: string, n = 1) => {
+    if (!filling) return;
+    const next = [...filling, ...Array<string>(Math.min(n, BOX_SIZE - filling.length)).fill(id)];
+    if (next.length >= BOX_SIZE) { setBoxes((b) => [...b, next]); setFilling(null); }
+    else setFilling(next);
+  };
+  const tap = (id: string) => (filling && isBoxable(MENU_BY_ID[id]) ? intoBox(id) : add(id, 1));
+  const inBox = (id: string) => (filling ? filling.filter((x) => x === id).length : 0);
   const count = lines.reduce((a, l) => a + l.qty, 0);
-  const clear = () => { setTicket({}); setTaken([]); setSawOffer(false); setPhone(''); setRedeem(false); setTip(0); setGiftCode(''); setStage('ticket'); setSheet(false); };
+  const clear = () => { setTicket({}); setTaken([]); setSawOffer(false); setPhone(''); setRedeem(false); setTip(0); setGiftCode(''); setStage('ticket'); setSheet(false); setBoxes([]); setFilling(null); };
 
   const giftCard = giftCode.replace(/[^a-z0-9]/gi, '').length >= 8 ? gift.find(giftCode) : undefined;
   /** What the gift card on screen would cover of this bill. */
@@ -91,7 +107,7 @@ function Till({ staff, onLogout }: { staff: StaffMember; onLogout: () => void })
   const finish = (payment: Pay, tipCents: number, useGift = false) => {
     const giftCents = useGift && giftCard ? gift.spend(giftCard.code, t.total) : 0;
     const order = demo.placeOrder({
-      source: 'register', lines, subtotal: t.subtotal, tax: t.tax, tip: tipCents, total: t.total + tipCents,
+      source: 'register', lines, boxes: boxes.length > 0 ? boxes : undefined, subtotal: t.subtotal, tax: t.tax, tip: tipCents, total: t.total + tipCents,
       payment, status: 'done', phone: digits.length === 10 ? digits : undefined, rewardRedeemed: discount > 0, giftCents: giftCents || undefined,
     });
     // Only count a suggestion the customer kept: the added items are still on the ticket.
@@ -199,12 +215,12 @@ function Till({ staff, onLogout }: { staff: StaffMember; onLogout: () => void })
     <div className="flex h-[calc(100dvh-48px)] flex-col bg-slate-100 md:flex-row">
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 border-b border-slate-200 bg-white px-3 py-2">
-          <div className="flex min-w-0 flex-1 basis-full gap-1 overflow-x-auto lg:basis-0">
+          <div className="flex min-w-0 flex-1 basis-full gap-1 overflow-x-auto xl:basis-0">
             {TABS.map((c) => (
               <button key={c} onClick={() => setTab(c)} className={`shrink-0 rounded-lg px-3.5 py-2 text-sm font-semibold ${tab === c ? 'bg-ink-900 text-white' : 'text-slate-600 hover:bg-slate-100'}`}>{c}</button>
             ))}
           </div>
-          <div className="-mx-3 flex min-w-0 basis-full items-center gap-2 overflow-x-auto px-3 lg:mx-0 lg:basis-auto lg:overflow-visible lg:px-0">
+          <div className="-mx-3 flex min-w-0 basis-full items-center gap-2 overflow-x-auto px-3 xl:mx-0 xl:basis-auto xl:overflow-visible xl:px-0">
           <button
             onClick={() => setPickupsOpen(true)}
             className={`flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold ${mineNow > 0 ? 'bg-amber-400 text-ink-900' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}
@@ -227,22 +243,46 @@ function Till({ staff, onLogout }: { staff: StaffMember; onLogout: () => void })
         </div>
         {prices.preview && <p className="bg-amber-100 px-3 py-1.5 text-xs font-semibold text-amber-900">Previewing prices as if it were {DOW_NAMES[prices.preview.dow]} at {hourLabel(prices.preview.hour)}. Turn this off under Owner, Pricing.</p>}
         <div className="grid flex-1 auto-rows-min grid-cols-3 gap-2 overflow-y-auto p-3 pb-24 sm:grid-cols-4 md:grid-cols-3 md:pb-3 lg:grid-cols-4 xl:grid-cols-5">
+          {filling ? (
+            <div className="sticky top-0 z-10 col-span-full rounded-2xl bg-box-500 p-3 text-white shadow-lg">
+              <div className="flex items-center gap-3">
+                <Package size={22} className="shrink-0" />
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-bold">Dozen box: {filling.length} of {BOX_SIZE}</p>
+                  <p className="text-xs text-box-50">{filling.length === 0 ? 'Tap the donuts the customer wants. Mix any kinds.' : `${BOX_SIZE - filling.length} more to fill it. ${money(boxPrice(filling, MENU_BY_ID).cents)} so far.`}</p>
+                </div>
+                {filling.length > 0 && <button onClick={() => setFilling(filling.slice(0, -1))} className="shrink-0 rounded-lg bg-white/15 px-3 py-2 text-xs font-bold">Undo</button>}
+                <button onClick={() => setFilling(null)} className="shrink-0 rounded-lg bg-white/15 px-3 py-2 text-xs font-bold">Cancel box</button>
+              </div>
+              <div className="mt-2 flex gap-1">
+                {Array.from({ length: BOX_SIZE }, (_, i) => <span key={i} className={`h-2 flex-1 rounded-full ${i < filling.length ? 'bg-white' : 'bg-white/25'}`} />)}
+              </div>
+            </div>
+          ) : tab !== 'Drinks' && tab !== 'Smoothies & boba' && (
+            <button onClick={() => setFilling([])} className="col-span-2 flex items-center gap-3 rounded-2xl border border-box-200 bg-box-50 p-3 text-left shadow-sm transition active:scale-[0.98]">
+              <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-box-500 text-white"><Package size={24} /></span>
+              <span className="min-w-0">
+                <span className="block text-[15px] font-bold leading-tight text-box-700">Dozen box</span>
+                <span className="block text-xs leading-snug text-box-700/80">Mix any 12 for {money(SHOP.dozenBase)}. Specialty +{money(SHOP.specialtyExtra)} each.</span>
+              </span>
+            </button>
+          )}
           {MENU.filter((m) => tab === 'All' || m.category === tab).map((item) => {
             const soldOut = demo.state.bake[item.id]?.soldOut;
-            const qty = ticket[item.id] ?? 0;
+            const qty = filling ? inBox(item.id) : ticket[item.id] ?? 0;
             return (
               <button
                 key={item.id}
                 disabled={soldOut}
-                onClick={() => add(item.id, 1)}
-                className={`relative flex flex-col items-center rounded-2xl border bg-white p-2.5 text-center shadow-sm transition active:scale-[0.97] disabled:opacity-40 ${qty > 0 ? 'border-glaze-500 ring-2 ring-glaze-400/30' : 'border-slate-200'}`}
+                onClick={() => tap(item.id)}
+                className={`relative flex flex-col items-center rounded-2xl border bg-white p-2.5 text-center shadow-sm transition active:scale-[0.97] disabled:opacity-40 ${qty > 0 ? (filling ? 'border-box-500 ring-2 ring-box-400/30' : 'border-glaze-500 ring-2 ring-glaze-400/30') : 'border-slate-200'} ${filling && !isBoxable(item) ? 'opacity-50' : ''}`}
               >
                 <ItemArt item={item} size={48} />
                 <span className="mt-1 text-[13px] font-semibold leading-tight text-slate-900">{item.name}</span>
                 <span className="tabular text-xs text-slate-500">
-                  {soldOut ? 'Sold out' : prices.live[item.id]?.tag ? <><span className="mr-1 line-through">{money(prices.live[item.id].baseCents)}</span><span className={`font-bold ${prices.live[item.id].tag === 'weekend' ? 'text-slate-900' : 'text-rose-600'}`}>{money(item.price)}</span></> : money(item.price)}
+                  {soldOut ? 'Sold out' : filling && isBoxable(item) ? (boxUpcharge(item) > 0 ? `+${money(boxUpcharge(item))} in a box` : 'In the box price') : prices.live[item.id]?.tag ? <><span className="mr-1 line-through">{money(prices.live[item.id].baseCents)}</span><span className={`font-bold ${prices.live[item.id].tag === 'weekend' ? 'text-slate-900' : 'text-rose-600'}`}>{money(item.price)}</span></> : money(item.price)}
                 </span>
-                {qty > 0 && <span className="tabular absolute right-1.5 top-1.5 flex h-6 min-w-6 items-center justify-center rounded-full bg-glaze-600 px-1.5 text-xs font-bold text-white">{qty}</span>}
+                {qty > 0 && <span className={`tabular absolute right-1.5 top-1.5 flex h-6 min-w-6 items-center justify-center rounded-full px-1.5 text-xs font-bold text-white ${filling ? 'bg-box-500' : 'bg-glaze-600'}`}>{qty}</span>}
               </button>
             );
           })}
@@ -276,7 +316,22 @@ function Till({ staff, onLogout }: { staff: StaffMember; onLogout: () => void })
             <p className="py-4 text-center text-sm text-slate-400 md:py-10">Tap items to start a ticket</p>
           ) : (
             <ul className="divide-y divide-slate-100">
-              {lines.map((l) => {
+              {boxes.map((box, i) => {
+                const bp = boxPrice(box, MENU_BY_ID);
+                return (
+                  <li key={`box${i}`} className="flex items-start gap-2 py-2">
+                    <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-box-50 text-box-600"><Package size={16} /></span>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-semibold">Dozen box{boxes.length > 1 ? ` ${i + 1}` : ''}</p>
+                      <p className="text-[11px] leading-snug text-slate-500">{boxCounts(box).map(([id, n]) => `${n} ${MENU_BY_ID[id].name}`).join(', ')}</p>
+                      {bp.singles > bp.cents && <p className="text-[11px] font-medium text-glaze-700">Saves {money(bp.singles - bp.cents)} over singles</p>}
+                    </div>
+                    <button aria-label="Remove this dozen box" onClick={() => setBoxes((b) => b.filter((_, j) => j !== i))} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-600"><X size={14} /></button>
+                    <span className="tabular w-16 shrink-0 text-right text-sm font-semibold">{money(bp.cents)}</span>
+                  </li>
+                );
+              })}
+              {looseLines.map((l) => {
                 const item = MENU_BY_ID[l.itemId];
                 return (
                   <li key={l.itemId} className="flex items-center gap-2 py-2">

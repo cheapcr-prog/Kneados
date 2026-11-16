@@ -1,11 +1,34 @@
+import { useEffect, useId, useRef, type CSSProperties } from 'react';
 import { CHEESES, SAUCES, SIZE_BY_ID, TOPPING_BY_ID, type PizzaConfig, type Topping } from './data';
 import { rng } from './logic';
+
+/** How big each size looks in the builder, so a large really looks bigger than a small. */
+const DOUGH_SCALE: Record<string, number> = { S: 0.8, M: 0.9, L: 1 };
+const reduced = () => typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 
 /**
  * The live pizza in the builder. Toppings land where they go: the whole pie, or only the left or right half.
  * Positions come from a fixed seed per topping, so a pie looks the same every time it is drawn.
+ * With `animate`, each step plays onto the pie as it changes: the dough stretches to its size, the sauce
+ * spreads, the cheese melts on and each topping drops into place. `baked` browns the crust and cheese.
  */
-export function PizzaArt({ config, size = 320, className = '' }: { config: PizzaConfig; size?: number; className?: string }) {
+export function PizzaArt({ config, size = 320, className = '', animate = false, baked = false }: { config: PizzaConfig; size?: number; className?: string; animate?: boolean; baked?: boolean }) {
+  const uid = useId().replace(/:/g, '');
+  const id = (n: string) => `pz-${n}-${uid}`;
+  const dough = useRef<SVGGElement>(null);
+  const first = useRef(true);
+  useEffect(() => { first.current = false; }, []);
+  // The dough stretches out whenever the size or crust changes.
+  useEffect(() => {
+    if (!animate || reduced() || !dough.current?.animate) return;
+    dough.current.animate(
+      [{ transform: 'scale(0.55, 0.5) rotate(-25deg)' }, { transform: 'scale(1.06, 1.03) rotate(4deg)', offset: 0.7 }, { transform: 'none' }],
+      { duration: first.current ? 650 : 520, easing: 'cubic-bezier(.2,.8,.3,1)' },
+    );
+  }, [animate, config.size, config.crust]);
+  // On the first draw everything is built in order; after that only what changed plays.
+  const intro = animate && first.current;
+  const delay = (ms: number): CSSProperties | undefined => (intro ? { animationDelay: `${ms}ms` } : undefined);
   const sauce = SAUCES.find((s) => s.id === config.sauce)!;
   const cheese = CHEESES.find((c) => c.id === config.cheese)!;
   const pan = config.crust === 'pan';
@@ -14,43 +37,73 @@ export function PizzaArt({ config, size = 320, className = '' }: { config: Pizza
   const crustW = pan ? 7 : thin ? 5 : 10;
   const inner = R - crustW;
   const scale = SIZE_BY_ID[config.size].toppingScale;
-  const entries = Object.entries(config.toppings).filter(([id]) => TOPPING_BY_ID[id]);
+  const entries = Object.entries(config.toppings).filter(([tid]) => TOPPING_BY_ID[tid]);
+  const grow = animate ? DOUGH_SCALE[config.size] ?? 1 : 1;
   return (
     <svg viewBox="-104 -104 208 208" width={size} height={size} className={className} role="img" aria-label="Your pizza">
       <defs>
-        <radialGradient id="pz-crust" cx="50%" cy="45%" r="55%">
+        <radialGradient id={id('crust')} cx="50%" cy="45%" r="55%">
           <stop offset="80%" stopColor={pan ? '#b8742f' : '#e2a95c'} />
           <stop offset="100%" stopColor={pan ? '#7c4a1c' : '#b9782f'} />
         </radialGradient>
-        <filter id="pz-shadow" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="1.2" stdDeviation="1.1" floodOpacity="0.35" /></filter>
-        <clipPath id="pz-left"><rect x="-104" y="-104" width="104" height="208" /></clipPath>
-        <clipPath id="pz-right"><rect x="0" y="-104" width="104" height="208" /></clipPath>
-        <clipPath id="pz-inner"><circle r={inner - 1} /></clipPath>
+        <filter id={id('shadow')} x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="1.2" stdDeviation="1.1" floodOpacity="0.35" /></filter>
+        <clipPath id={id('left')}><rect x="-104" y="-104" width="104" height="208" /></clipPath>
+        <clipPath id={id('right')}><rect x="0" y="-104" width="104" height="208" /></clipPath>
+        <clipPath id={id('inner')}><circle r={inner - 1} /></clipPath>
       </defs>
+      <g style={{ transform: `scale(${grow})`, transition: 'transform 500ms cubic-bezier(.2,.8,.3,1.1)' }}>
+      <g ref={dough}>
       {pan
-        ? <rect x={-R} y={-R} width={2 * R} height={2 * R} rx="14" fill="url(#pz-crust)" />
-        : <circle r={R} fill="url(#pz-crust)" />}
+        ? <rect x={-R} y={-R} width={2 * R} height={2 * R} rx="14" fill={`url(#${id('crust')})`} />
+        : <circle r={R} fill={`url(#${id('crust')})`} />}
+      {/* The oven browns the crust. */}
+      {pan
+        ? <rect x={-R} y={-R} width={2 * R} height={2 * R} rx="14" fill="#8a4a16" style={{ opacity: baked ? 0.32 : 0, transition: 'opacity 1.2s' }} />
+        : <circle r={R} fill="#8a4a16" style={{ opacity: baked ? 0.32 : 0, transition: 'opacity 1.2s' }} />}
       {/* Char spots on the crust. */}
       {Array.from({ length: 14 }, (_, i) => {
         const a = (i / 14) * Math.PI * 2 + 0.3;
         return <ellipse key={i} cx={Math.cos(a) * (R - crustW / 2)} cy={Math.sin(a) * (R - crustW / 2)} rx="2.4" ry="1.4" fill="#6b3b14" opacity="0.35" transform={`rotate(${(a * 180) / Math.PI} ${Math.cos(a) * (R - crustW / 2)} ${Math.sin(a) * (R - crustW / 2)})`} />;
       })}
-      <g clipPath="url(#pz-inner)">
-        {pan ? <rect x={-inner} y={-inner} width={2 * inner} height={2 * inner} rx="8" fill={sauce.color} /> : <circle r={inner} fill={sauce.color} />}
-        {cheese.amount > 0 && <CheeseLayer r={inner} amount={cheese.amount} />}
-        {cheese.id === 'vegan' && <CheeseLayer r={inner} amount={0.9} tone="#f6efcf" />}
-        {entries.map(([id, side]) => (
-          <g key={id + side} clipPath={side === 'whole' ? undefined : `url(#pz-${side})`} className="pz-drop">
-            <ToppingLayer t={TOPPING_BY_ID[id]} r={inner - 4} side={side} scale={scale} />
+      <g clipPath={`url(#${id('inner')})`}>
+        {/* Bare dough shows until the sauce goes on. */}
+        <circle r={inner} fill="#f1d7a6" />
+        <g key={config.sauce} className={animate ? 'pz-spread' : undefined} style={delay(250)}>
+          {pan ? <rect x={-inner} y={-inner} width={2 * inner} height={2 * inner} rx="8" fill={sauce.color} /> : <circle r={inner} fill={sauce.color} />}
+        </g>
+        <g key={config.cheese} className={animate ? 'pz-melt' : undefined} style={delay(550)}>
+          {cheese.amount > 0 && <CheeseLayer r={inner} amount={cheese.amount} animate={animate} />}
+          {cheese.id === 'vegan' && <CheeseLayer r={inner} amount={0.9} tone="#f6efcf" animate={animate} />}
+        </g>
+        {baked && cheese.amount > 0 && <BakedSpots r={inner} />}
+        {entries.map(([tid, side], n) => (
+          <g key={tid + side} clipPath={side === 'whole' ? undefined : `url(#${id(side)})`}>
+            <ToppingLayer t={TOPPING_BY_ID[tid]} r={inner - 4} side={side} scale={scale} shadow={`url(#${id('shadow')})`} animate={animate} startMs={intro ? 850 + n * 180 : 0} />
           </g>
         ))}
       </g>
+      </g>
       {entries.some(([, s]) => s !== 'whole') && <line x1="0" y1={-inner} x2="0" y2={inner} stroke="#fff" strokeWidth="0.8" strokeDasharray="3 3" opacity="0.7" />}
+      </g>
     </svg>
   );
 }
 
-function CheeseLayer({ r, amount, tone = '#fbe7a1' }: { r: number; amount: number; tone?: string }) {
+/** Golden-brown spots the oven leaves on the cheese. */
+function BakedSpots({ r }: { r: number }) {
+  const rand = rng(41);
+  return (
+    <g className="pz-melt">
+      {Array.from({ length: 22 }, (_, i) => {
+        const a = rand() * Math.PI * 2;
+        const d = Math.sqrt(rand()) * (r - 8);
+        return <ellipse key={i} cx={Math.cos(a) * d} cy={Math.sin(a) * d} rx={2 + rand() * 3.5} ry={1.5 + rand() * 2.5} fill="#c98a3a" opacity={0.35 + rand() * 0.25} />;
+      })}
+    </g>
+  );
+}
+
+function CheeseLayer({ r, amount, tone = '#fbe7a1', animate = false }: { r: number; amount: number; tone?: string; animate?: boolean }) {
   const rand = rng(17);
   const blobs = Math.round(34 * amount);
   return (
@@ -59,7 +112,7 @@ function CheeseLayer({ r, amount, tone = '#fbe7a1' }: { r: number; amount: numbe
       {Array.from({ length: blobs }, (_, i) => {
         const a = rand() * Math.PI * 2;
         const d = Math.sqrt(rand()) * (r - 6);
-        return <circle key={i} cx={Math.cos(a) * d} cy={Math.sin(a) * d} r={3 + rand() * 6} fill={i % 3 ? '#fff2c2' : '#f2c66b'} opacity={0.65} />;
+        return <circle key={i} cx={Math.cos(a) * d} cy={Math.sin(a) * d} r={3 + rand() * 6} fill={i % 3 ? '#fff2c2' : '#f2c66b'} opacity={0.65} className={animate ? 'pz-blob' : undefined} style={animate ? { animationDelay: `${i * 12}ms` } : undefined} />;
       })}
     </g>
   );
@@ -74,7 +127,7 @@ const GOLDEN = Math.PI * (3 - Math.sqrt(5));
  * A half uses the same spacing as the whole pie and keeps only the pieces on its side, clear of the middle line.
  * Each topping turns the spiral by its own angle so different toppings sit between each other.
  */
-function ToppingLayer({ t, r, side, scale }: { t: Topping; r: number; side: string; scale: number }) {
+function ToppingLayer({ t, r, side, scale, shadow, animate, startMs }: { t: Topping; r: number; side: string; scale: number; shadow: string; animate: boolean; startMs: number }) {
   const rand = rng([...t.id].reduce((a, c) => a * 31 + c.charCodeAt(0), 3) >>> 0);
   const reach = REACH[t.shape] * (t.id === 'meatball' ? 1.1 : 1);
   const count = Math.round(t.pieces * Math.max(0.85, Math.min(1.3, scale)));
@@ -92,7 +145,27 @@ function ToppingLayer({ t, r, side, scale }: { t: Topping; r: number; side: stri
     if (Math.hypot(x, y) > usable) continue;
     pts.push({ x, y, rot: rand() * 360, k: 0.92 + rand() * 0.14 });
   }
-  return <g filter="url(#pz-shadow)">{pts.map((p, i) => <Piece key={i} t={t} {...p} />)}</g>;
+  return (
+    <g filter={shadow}>
+      {pts.map((p, i) => (
+        // Each piece falls in on its own, a beat after the one before, like it is being scattered by hand.
+        <g key={i} transform={`translate(${p.x} ${p.y})`}>
+          <g className={animate ? 'pz-piece' : undefined} style={animate ? { animationDelay: `${startMs + i * 28}ms` } : undefined}>
+            <Piece t={t} x={0} y={0} rot={p.rot} k={p.k} />
+          </g>
+        </g>
+      ))}
+    </g>
+  );
+}
+
+/** One piece of a topping on its own, for the topping list and the piece under your finger while dragging. */
+export function ToppingSwatch({ t, size = 28 }: { t: Topping; size?: number }) {
+  return (
+    <svg viewBox="-10 -10 20 20" width={size} height={size} aria-hidden className="shrink-0">
+      <Piece t={t} x={0} y={0} rot={-20} k={1} />
+    </svg>
+  );
 }
 
 function Piece({ t, x, y, rot, k }: { t: Topping; x: number; y: number; rot: number; k: number }) {

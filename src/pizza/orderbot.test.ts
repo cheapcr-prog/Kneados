@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { DEFAULT_FRAUD } from '../lib/fraud';
 import { SIDE_BY_ID } from './data';
 import { configFor, pizzaPrice, type Line } from './logic';
-import { EMPTY_ORDER, TURN_SCHEMA, buildLines, fill, greeting, item, linesToItems, matchAddress, menuText, missing, offersWrongPayment, oneQuestion, orderPolicy, hideMachinery, needsLookup, parseTurn, quickReplies, rememberAddress, ticketFor, turnContext, type BotOrder, type Caller, type ShopNow } from './orderbot';
+import { EMPTY_ORDER, TURN_SCHEMA, buildLines, fill, greeting, item, linesToItems, matchAddress, menuText, missing, offersWrongPayment, oneQuestion, orderPolicy, hideMachinery, needsLookup, parseTurn, quickReplies, rememberAddress, skipNameQuestion, ticketFor, turnContext, type BotOrder, type Caller, type ShopNow } from './orderbot';
 import { SAMPLES } from './orderbotSamples';
 import { geocodeQuery, parseCensus } from './geocode';
 
@@ -286,5 +286,16 @@ describe('a real address is checked the moment it is given', () => {
   it('drops any sentence about the system', () => {
     expect(hideMachinery('Thanks, John! 1746 Ximeno in Long Beach. Let me confirm that one with the system. How would you like to pay?')).toBe('Thanks, John! 1746 Ximeno in Long Beach. How would you like to pay?');
     expect(hideMachinery('Got it, a large pepperoni.')).toBe('Got it, a large pepperoni.');
+  });
+});
+
+describe('small talk fixes', () => {
+  it('does not double the period after the shop name in a text greeting', () => {
+    expect(greeting({ phone: '5625550188', known: false }, 'text')).not.toContain('..');
+  });
+  it('swaps a name question nobody needs for the next open thing', () => {
+    const open = [{ code: 'payment' as const, note: '', ask: 'How would you like to pay: a secure pay link by text or cash at the door?' }];
+    expect(skipNameQuestion("Thanks, I've got 1746 Ximeno Ave down. What's your name for the order?", open)).toBe("Thanks, I've got 1746 Ximeno Ave down. How would you like to pay: a secure pay link by text or cash at the door?");
+    expect(skipNameQuestion('What name should I put on the order?', [{ code: 'name', note: '', ask: 'x' }])).toBe('What name should I put on the order?');
   });
 });

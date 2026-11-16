@@ -5,7 +5,7 @@ import { useFraud } from '../../components/Fraud';
 import { formatPhone, money } from '../../lib/money';
 import { PIZZA_SHOP, PIZZA_STAFF, SIDE_BY_ID, SPECIALTY_BY_ID, ZONES, type Address } from '../data';
 import { MINUTE, lineCents, pizzaDetails, pizzaTitle, quoteTime, upsells, type PizzaLine } from '../logic';
-import { EMPTY_ORDER, fill, greeting, hideMachinery, missing, needsLookup, offersWrongPayment, oneQuestion, quickReplies, rememberAddress, ticketFor, turnContext, type BotOrder, type BotTurn, type Caller, type ShopNow, type Surface, type Ticket, type TranscriptLine } from '../orderbot';
+import { EMPTY_ORDER, fill, greeting, hideMachinery, missing, needsLookup, offersWrongPayment, oneQuestion, quickReplies, rememberAddress, skipNameQuestion, ticketFor, turnContext, type BotOrder, type BotTurn, type Caller, type ShopNow, type Surface, type Ticket, type TranscriptLine } from '../orderbot';
 import { SAMPLES, type Sample } from '../orderbotSamples';
 import { PizzaArt } from '../PizzaArt';
 import { usePizzaBrain } from '../brain';
@@ -231,7 +231,7 @@ export function AiOrders() {
       // The AI offered a way to pay that does not fit this order (the counter on a delivery): KneadOS asks with the right ones.
       else if (ask && !t.policy.noDelivery && offersWrongPayment(say, turn.order)) say = ask.ask;
       // One question at a time, so a plain "yes" always has one meaning.
-      else say = oneQuestion(say);
+      else say = skipNameQuestion(oneQuestion(say), open);
     }
     const after: Row[] = [...transcript, { who: 'ai', text: say }, ...extra];
     if (live.current.run !== run) return after;

@@ -412,6 +412,18 @@ export function oneQuestion(say: string): string {
   return say.slice(0, first + 1).trim();
 }
 
+/**
+ * The AI asked for a name the order does not need (a text order, or a caller the shop already knows):
+ * the question is swapped for the next thing that really is open.
+ */
+export function skipNameQuestion(say: string, open: Need[]): string {
+  const q = say.lastIndexOf('?');
+  if (q < 0 || open.some((n) => n.code === 'name') || !open.length) return say;
+  const start = Math.max(say.lastIndexOf('.', q), say.lastIndexOf('!', q), say.lastIndexOf('\n', q)) + 1;
+  if (!/\bname\b/i.test(say.slice(start, q + 1))) return say;
+  return `${say.slice(0, start).trim()} ${open[0].ask}`.trim();
+}
+
 /** What the customer taps when an address cannot be delivered to. */
 export const ADDRESS_REPLY = ['Switch to pickup', 'Different address'] as const;
 
@@ -540,11 +552,12 @@ export function turnContext(surface: Surface, caller: Caller, order: BotOrder, t
 export function greeting(caller: Caller, surface: Surface): string {
   // The shop's name ends in a period ("Co."), so a sentence that ends with it needs no second one.
   const thanks = `Thanks for calling ${PIZZA_SHOP.name}${PIZZA_SHOP.name.endsWith('.') ? '' : '.'}`;
+  const shopIs = `It's ${PIZZA_SHOP.name}${PIZZA_SHOP.name.endsWith('.') ? '' : '.'}`;
   const first = caller.name?.split(' ')[0];
   const usual = caller.lastLines?.length ? caller.lastLines.map(lineText).join(' and ').replace(/ \([^)]*\)/g, '') : '';
   if (surface === 'text') {
-    if (caller.known && first && usual) return `Hi ${first}! It's ${PIZZA_SHOP.name}. Want your usual, ${usual}? Reply YES, or tell me what you'd like.`;
-    return `Hi! It's ${PIZZA_SHOP.name}. What can I get started for you? You can text your order like you'd say it, e.g. "large pepperoni, half mushroom, pickup".`;
+    if (caller.known && first && usual) return `Hi ${first}! ${shopIs} Want your usual, ${usual}? Reply YES, or tell me what you'd like.`;
+    return `Hi! ${shopIs} What can I get started for you? You can text your order like you'd say it, e.g. "large pepperoni, half mushroom, pickup".`;
   }
   if (!caller.phone) return `Thanks for calling ${PIZZA_SHOP.name}, this is the ordering assistant. What can I get for you?`;
   if (caller.known && first && usual) return `${thanks} Hi ${first}! Want your usual ${usual}${caller.lastFulfillment === 'delivery' && caller.address ? `, delivered to ${caller.address}` : ''}?`;

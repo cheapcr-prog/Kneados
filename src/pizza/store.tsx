@@ -10,7 +10,7 @@ import {
 
 const KEY = 'kneados-pizza-v1';
 
-export interface Text { to: string; body: string; at: string; kind: 'received' | 'ready' | 'out' | 'reward' | 'campaign' }
+export interface Text { to: string; body: string; at: string; kind: 'received' | 'ready' | 'out' | 'reward' | 'campaign' | 'paylink' }
 
 export interface SentPO { id: string; number: number; supplier: string; cents: number; lines: { id: string; name: string; packs: number; packLabel: string; qty: number }[]; status: 'sent' | 'received'; at: string }
 

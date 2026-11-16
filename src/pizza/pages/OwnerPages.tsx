@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom';
 import { Bar, BarChart, CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { useState } from 'react';
 import { Card, Pill, Stat, btn, download } from '../../pages/owner/ui';
@@ -10,6 +11,8 @@ import { DOUGH_RECIPE, MILEAGE_CENTS, PIZZA_SHIFTS, PIZZA_SHOP, PIZZA_STAFF_BY_I
 import { APP_FEE_SHARE, CHANNEL_MIX, FIXED_MONTHLY, PACKS, packValue, piesIn, toppingPerPizza, type Channel } from '../logic';
 import type { PizzaBrain } from '../brain';
 import { usePizza } from '../store';
+import { invoiceState } from '../../lib/channels';
+import { INVOICE_TERMS_DAYS, payPath, reminderEmail } from '../logic';
 
 const pct = (x: number) => `${Math.round(x * 100)}%`;
 const CHANNEL_LABEL: Record<Channel, string> = { online: 'Own website', phone: 'Phone', counter: 'Counter', doordash: 'DoorDash', ubereats: 'Uber Eats', catering: 'Catering' };
@@ -240,6 +243,68 @@ export function MenuPage({ brain }: { brain: PizzaBrain }) {
 
 /* ------------------------------------------------------------------ money */
 
+/** Office lunches and catering billed to companies: what is out, what is late, and a reminder in one tap. */
+function CompanyInvoices() {
+  const { state, payInvoice, remindInvoice } = usePizza();
+  const [preview, setPreview] = useState<string | null>(null);
+  const today = state.today;
+  const list = [...state.invoices].sort((a, b) => Number(a.paid) - Number(b.paid) || a.due.localeCompare(b.due));
+  const unpaid = list.filter((i) => !i.paid);
+  const overdue = unpaid.filter((i) => invoiceState(i, today) === 'overdue');
+  const paid30 = list.filter((i) => i.paid && i.paidOn && i.paidOn >= addDays(today, -30));
+  const csv = ['Invoice,Company,PO,Order,For,Delivered,Due,Total,Status,Paid on', ...list.map((i) => [i.number, `"${i.company}"`, i.po ?? '', i.orderNumber, `"${i.memo}"`, i.serviceDate, i.due, (i.totalCents / 100).toFixed(2), invoiceState(i, today), i.paidOn ?? ''].join(','))].join('\n');
+  const shown = list.find((i) => i.id === preview);
+  const mail = shown && reminderEmail(shown, today, PIZZA_SHOP.name);
+  return (
+    <Card title="Company invoices" note={`Office lunches and catering billed to a company, net ${INVOICE_TERMS_DAYS}. Each one is emailed with a pay link when the order is booked.`} action={<button onClick={() => download('pizza-company-invoices.csv', csv)} className={btn.light}>Download CSV</button>}>
+      <div className="grid gap-3 sm:grid-cols-3">
+        <Stat label="Waiting to be paid" value={moneyShort(unpaid.reduce((a, i) => a + i.totalCents, 0))} sub={`${unpaid.length} invoice${unpaid.length === 1 ? '' : 's'}`} />
+        <Stat label="Past due" value={moneyShort(overdue.reduce((a, i) => a + i.totalCents, 0))} sub={`${overdue.length} invoice${overdue.length === 1 ? '' : 's'}`} tone={overdue.length ? 'bad' : undefined} />
+        <Stat label="Paid, last 30 days" value={moneyShort(paid30.reduce((a, i) => a + i.totalCents, 0))} sub={`${paid30.length} invoice${paid30.length === 1 ? '' : 's'}`} />
+      </div>
+      <div className="mt-4 overflow-x-auto">
+        <table className="tabular w-full min-w-[640px] text-sm">
+          <thead><tr className="text-left text-xs uppercase text-slate-400"><th className="py-1.5">Invoice</th><th>Company</th><th>For</th><th>Due</th><th className="text-right">Total</th><th className="pl-3">Status</th><th /></tr></thead>
+          <tbody>
+            {list.map((i) => {
+              const st = invoiceState(i, today);
+              const remindedToday = i.reminders.includes(today);
+              return (
+                <tr key={i.id} className="border-t border-slate-100 align-top">
+                  <td className="py-2 font-semibold"><Link to={payPath(i)} className="text-emerald-700 hover:underline">#{i.number}</Link></td>
+                  <td className="py-2">{i.company}<span className="block text-xs text-slate-500">{i.email}{i.po ? ` · PO ${i.po}` : ''}</span></td>
+                  <td className="py-2">{i.memo}<span className="block text-xs text-slate-500">Order #{i.orderNumber} · {shortDate(i.serviceDate)}</span></td>
+                  <td className="py-2">{shortDate(i.due)}</td>
+                  <td className="py-2 text-right">{money(i.totalCents)}</td>
+                  <td className="py-2 pl-3">
+                    <Pill tone={st === 'paid' ? 'green' : st === 'overdue' ? 'red' : 'amber'}>{st === 'paid' ? 'Paid' : st === 'overdue' ? 'Past due' : 'Sent'}</Pill>
+                    {i.reminders.length > 0 && !i.paid && <span className="block text-[11px] text-slate-500">Reminded {shortDate(i.reminders[i.reminders.length - 1])}</span>}
+                  </td>
+                  <td className="py-2 text-right">
+                    {!i.paid && (
+                      <div className="flex justify-end gap-1.5">
+                        <button disabled={remindedToday} onClick={() => { remindInvoice(i.id); setPreview(i.id); }} className={`${btn.light} disabled:opacity-50`}>{remindedToday ? 'Reminded' : 'Send reminder'}</button>
+                        <button onClick={() => payInvoice(i.id)} className={btn.light}>Mark paid</button>
+                      </div>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      {mail && (
+        <div className="mt-3 rounded-2xl bg-slate-50 p-3 text-sm">
+          <p className="text-xs font-bold uppercase text-slate-400">Emailed to {shown!.email}</p>
+          <p className="mt-1 font-semibold">{mail.subject}</p>
+          <p className="mt-0.5 text-slate-600">{mail.body}</p>
+        </div>
+      )}
+    </Card>
+  );
+}
+
 export function MoneyPage({ brain }: { brain: PizzaBrain }) {
   const { history } = usePizza();
   const m = brain.money30;
@@ -253,6 +318,7 @@ export function MoneyPage({ brain }: { brain: PizzaBrain }) {
         <Stat label="Labor" value={pct(m.laborShare)} />
         <Stat label="Profit after rent" value={moneyShort(m.profit)} tone={m.profit > 0 ? 'good' : 'bad'} />
       </div>
+      <CompanyInvoices />
       <Card title="Profit and loss, last 30 days" action={<button onClick={() => download('pizza-sales-30-days.csv', csv)} className={btn.light}>Export for your accountant</button>}>
         <table className="tabular w-full text-sm">
           <tbody>

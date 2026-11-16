@@ -780,6 +780,65 @@ export function packLines(p: Pack): Line[] {
 
 export const DEPOSIT_SHARE = 0.25;
 
+/* ================================================================ company invoices */
+
+/** Days a company has to pay after the lunch is delivered. */
+export const INVOICE_TERMS_DAYS = 15;
+
+/** A catering order billed to a company instead of a card: emailed with a pay link, paid on net terms. */
+export interface PizzaInvoice {
+  id: string;
+  number: number;
+  orderId?: string;
+  orderNumber: number;
+  company: string;
+  /** Who ordered. */
+  contact: string;
+  /** Where the invoice and reminders are emailed. */
+  email: string;
+  /** The company's purchase order number, printed on the invoice. */
+  po?: string;
+  /** What it was for, like "Office Lunch, Thanksgiving". */
+  memo: string;
+  /** The day the food is delivered (YYYY-MM-DD). */
+  serviceDate: string;
+  issued: string;
+  due: string;
+  totalCents: number;
+  paid: boolean;
+  paidOn?: string;
+  /** Dates a reminder email went out. */
+  reminders: string[];
+}
+
+/** Builds the invoice for a catering order: due a set number of days after the food is delivered. */
+export function invoiceFor(o: { id?: string; number: number; total: number; customer: { name: string } }, bill: { company: string; email: string; po?: string }, memo: string, serviceDate: string, issued: string, number: number): PizzaInvoice {
+  return {
+    id: `inv-${number}`, number, orderId: o.id, orderNumber: o.number, company: bill.company.trim(), contact: o.customer.name, email: bill.email.trim(),
+    po: bill.po?.trim() || undefined, memo, serviceDate, issued, due: addDays(serviceDate, INVOICE_TERMS_DAYS), totalCents: o.total, paid: false, reminders: [],
+  };
+}
+
+/** The link in the invoice email. */
+export const payPath = (inv: Pick<PizzaInvoice, 'id'>) => `/pizza/demo/pay/${inv.id}`;
+
+export const validEmail = (e: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e.trim());
+
+/** The reminder email for an unpaid invoice, firmer once it is late. */
+export function reminderEmail(inv: PizzaInvoice, today: string, shop: string): { subject: string; body: string } {
+  const late = inv.due < today;
+  const days = Math.round((new Date(today).getTime() - new Date(inv.due).getTime()) / 86_400_000);
+  const amount = `$${(inv.totalCents / 100).toFixed(2)}`;
+  const first = inv.contact.split(' ')[0];
+  return {
+    subject: `${late ? 'Past due: ' : ''}Invoice ${inv.number} from ${shop}${inv.po ? ` (PO ${inv.po})` : ''}`,
+    body: late
+      ? `Hi ${first}, invoice ${inv.number} for ${amount} was due ${days} day${days === 1 ? '' : 's'} ago. You can pay it by card or bank transfer here: kneados.app${payPath(inv)}. Thanks again for ordering from ${shop}.`
+      : `Hi ${first}, a friendly reminder that invoice ${inv.number} for ${amount} is due ${inv.due}. Pay by card or bank transfer here: kneados.app${payPath(inv)}.`,
+  };
+}
+
+
 /** Pies by size in pre-orders for one day. */
 export function preorderPies(orders: PizzaOrder[], date: string): Record<SizeId, number> {
   const out: Record<SizeId, number> = { S: 0, M: 0, L: 0 };

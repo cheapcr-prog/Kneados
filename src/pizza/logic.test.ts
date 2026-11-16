@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { SIZE_BY_ID } from './data';
 import { buildPizzaHistory, configFor, doughPlan, forecastDay, packLines, packValue, PACKS, pizzaPrice, pizzaUsage, planRuns, quoteTime, route, stockPlan, toppingCents, totals, upsells, zoneFor, type DriverState, type PizzaOrder } from './logic';
+import { invoiceFor, reminderEmail, validEmail } from './logic';
+import { invoiceState } from '../lib/channels';
 
 const today = '2026-11-15';
 
@@ -148,5 +150,28 @@ describe('bake and cut notes', () => {
   it('puts the notes on the kitchen ticket', async () => {
     const { pizzaDetails } = await import('./logic');
     expect(pizzaDetails({ ...configFor('pepperoni', 'L'), notes: ['Well done', 'Square cut'] }, 'pepperoni')).toEqual(expect.arrayContaining(['Well done', 'Square cut']));
+  });
+});
+
+describe('company invoices', () => {
+  const order = { id: 'pz-9', number: 2209, total: 18275, customer: { name: 'Dana Lee' } };
+  it('bills the company on net 15 from the lunch date', () => {
+    const inv = invoiceFor(order, { company: ' Harbor Dental ', email: 'ap@harbordental.com', po: ' 4471 ' }, 'Office Lunch', '2026-11-26', '2026-11-16', 1043);
+    expect(inv).toMatchObject({ id: 'inv-1043', company: 'Harbor Dental', po: '4471', due: '2026-12-11', totalCents: 18275, paid: false, contact: 'Dana Lee' });
+    expect(invoiceFor(order, { company: 'X', email: 'a@b.co', po: '  ' }, 'm', '2026-11-26', '2026-11-16', 1).po).toBeUndefined();
+  });
+  it('turns overdue after the due date and the reminder says so', () => {
+    const inv = invoiceFor(order, { company: 'Harbor Dental', email: 'ap@harbordental.com' }, 'Office Lunch', '2026-11-01', '2026-10-28', 1040);
+    expect(invoiceState(inv, '2026-11-16')).toBe('open');
+    expect(invoiceState(inv, '2026-11-20')).toBe('overdue');
+    expect(invoiceState({ ...inv, paid: true }, '2026-11-20')).toBe('paid');
+    const r = reminderEmail(inv, '2026-11-20', 'Shoreline Slice Co.');
+    expect(r.subject).toMatch(/^Past due/);
+    expect(r.body).toContain('due 4 days ago');
+    expect(r.body).toContain('/pizza/demo/pay/inv-1040');
+  });
+  it('checks billing emails', () => {
+    expect(validEmail('ap@harbordental.com')).toBe(true);
+    expect(validEmail('ap@harbor')).toBe(false);
   });
 });

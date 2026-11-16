@@ -8,8 +8,9 @@ import { money, moneyShort } from '../lib/money';
 import { DRIVERS, PIZZA_SHIFTS, PIZZA_SHOP, PIZZA_STAFF_BY_ID, SIZES, SPECIALTY_BY_ID, ZONES, nextBigDay, pizzaDayFactor, type SizeId } from './data';
 import { APP_FEE_SHARE, MINUTE, doughPlan, draftOrders, lateBy, menuMargins, planRuns, piesIn, pnl, quoteTime, stockPlan, unitCost, type DraftPO, type PizzaOrder, type RunPlan, type StockLine } from './logic';
 import type { PizzaDemo } from './store';
+import { invoiceState } from '../lib/channels';
 
-export type PizzaArea = 'Make line' | 'Delivery' | 'Dough' | 'Stock' | 'Team' | 'Menu' | 'Customers' | 'Game day' | 'Waste' | 'Sales channels';
+export type PizzaArea = 'Money' | 'Make line' | 'Delivery' | 'Dough' | 'Stock' | 'Team' | 'Menu' | 'Customers' | 'Game day' | 'Waste' | 'Sales channels';
 
 export interface PizzaDecision {
   id: string;
@@ -22,8 +23,8 @@ export interface PizzaDecision {
   impactCents?: number;
   per?: 'today' | 'a month';
   /** What approving does in the demo. */
-  kind: 'call' | 'dispatch' | 'dough' | 'po' | 'driver' | 'campaign' | 'price' | 'note';
-  payload?: { runIndex?: number; supplier?: string; phones?: string[] };
+  kind: 'call' | 'dispatch' | 'dough' | 'po' | 'driver' | 'campaign' | 'price' | 'note' | 'invoice';
+  payload?: { runIndex?: number; supplier?: string; phones?: string[]; invoiceId?: string };
 }
 
 const pct = (x: number) => `${Math.round(x * 100)}%`;
@@ -100,6 +101,7 @@ export function usePizzaBrain(demo: PizzaDemo, nowMs: number) {
       },
       menuFoodCost: margins.filter((m) => m.size === 'L').map((m) => ({ pizza: `Large ${m.name}`, priceCents: m.priceCents, foodCostCents: m.costCents, costShare: Math.round(m.costShare * 1000) / 1000 })),
       rewards: { members: state.members.length, lapsed30Days: lapsed.length, rewardsWaiting: state.members.reduce((a, m) => a + m.rewards, 0) },
+      companyInvoices: state.invoices.map((i) => ({ number: i.number, company: i.company, po: i.po ?? null, forWhat: i.memo, deliveredOn: i.serviceDate, due: i.due, totalCents: i.totalCents, status: invoiceState(i, state.today), paidOn: i.paidOn ?? null, remindersSent: i.reminders.length })),
       deliveryZones: ZONES.map((z) => ({ zone: z.id, feeCents: z.feeCents, driveMinutes: z.driveMinutes })),
     };
 
@@ -188,6 +190,16 @@ function decide(d: DecideIn): PizzaDecision[] {
     const target = Math.ceil((worst.costCents / 0.27) / 100) * 100 - 1;
     out.push({ id: `price-${worst.id}`, area: 'Menu', urgency: 'week', kind: 'price', title: `Raise the large ${worst.name} to ${money(target)}`, why: `Its toppings and cheese cost ${money(worst.costCents)}, which is ${pct(worst.costShare)} of the ${money(worst.priceCents)} price. Most of the menu sits under 27%.`, action: 'Change the price', then: 'The new price goes to the website, the register and the delivery apps together.' });
   }
+  // A company invoice past due: one email usually gets it paid.
+  for (const inv of d.state.invoices.filter((i) => invoiceState(i, d.state.today) === 'overdue' && !i.reminders.includes(d.state.today))) {
+    const late = dayDiff(inv.due, d.state.today);
+    out.push({
+      id: `invoice-${inv.id}`, area: 'Money', urgency: 'today', kind: 'invoice', payload: { invoiceId: inv.id }, impactCents: inv.totalCents, per: 'today',
+      title: `Remind ${inv.company} about invoice ${inv.number}`,
+      why: `${money(inv.totalCents)} for ${inv.memo.toLowerCase()} on ${inv.serviceDate} was due ${late} day${late === 1 ? '' : 's'} ago${inv.reminders.length ? `. The last reminder went out ${inv.reminders[inv.reminders.length - 1]}` : ''}.`,
+      action: 'Send the reminder', then: `${inv.email} gets a past-due email with the pay link. If it is still open in a week, call ${inv.contact}.`,
+    });
+  }
   if (d.lapsed.length) {
     out.push({ id: 'winback', area: 'Customers', urgency: 'week', kind: 'campaign', payload: { phones: d.lapsed }, title: `Text ${d.lapsed.length} Dough Rewards members who stopped ordering`, why: `They have not ordered in 30 days or more. A free garlic bread with their next pizza costs about $1.40 in food.`, action: 'Send the texts', then: 'Each gets a text with a one-time code, good for two weeks.' });
   }
@@ -214,6 +226,13 @@ export function ruleAnswer(q: string, f: ReturnType<typeof usePizzaBrain>['facts
   const s = q.toLowerCase();
   const pick = (area: PizzaArea[]) => decisions.filter((d) => area.includes(d.area));
   const say = (text: string, ds: PizzaDecision[] = []) => ({ text, ids: ds.map((d) => d.id) });
+  if (/invoice|owe|unpaid|past due|overdue|catering|office lunch|receivable/.test(s)) {
+    const open = f.companyInvoices.filter((i) => i.status !== 'paid');
+    const late = open.filter((i) => i.status === 'overdue');
+    const total = open.reduce((a, i) => a + i.totalCents, 0);
+    if (!open.length) return say('Every company invoice is paid.');
+    return say(`${open.length} company invoice${open.length === 1 ? ' is' : 's are'} unpaid, ${money(total)} in all. ${late.length ? `${late.map((i) => `${i.company} owes ${money(i.totalCents)} on invoice ${i.number}, due ${i.due}`).join('; ')}. That one is past due, so send a reminder today.` : 'None are past due yet.'}`, pick(['Money']));
+  }
   if (/dough|ball|flour|mix/.test(s)) {
     const b = f.doughTonight.ballsToMake;
     return say(`Make ${b.S} small, ${b.M} medium and ${b.L} large dough balls tonight for ${f.doughTonight.forDay}. That is ${f.doughTonight.flourLb} lb of flour in ${f.doughTonight.mixerBatches} mixer batches. ${f.doughTonight.reasons[0]}.`, pick(['Dough']));
@@ -237,7 +256,7 @@ export function ruleAnswer(q: string, f: ReturnType<typeof usePizzaBrain>['facts
   return say(top.length ? `First: ${top[0].title.toLowerCase()}. ${top[0].why}` : 'Everything is on track right now.', top);
 }
 
-export const PIZZA_SUGGESTED = ['What should I do first?', 'How much dough tonight?', 'Are deliveries running late?', 'What needs ordering?', 'Where am I losing money?', 'Are we ready for game day?'];
+export const PIZZA_SUGGESTED = ['What should I do first?', 'How much dough tonight?', 'Are deliveries running late?', 'What needs ordering?', 'Where am I losing money?', 'Are we ready for game day?', 'Which companies owe us money?'];
 export type PizzaBrain = ReturnType<typeof usePizzaBrain>;
 export { SPECIALTY_BY_ID };
 export type { SizeId };

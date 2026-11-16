@@ -1,5 +1,5 @@
-import { Bike, Phone, Sparkles, Store, Trash2, UserRound } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { Bike, Delete, MapPin, Phone, PhoneIncoming, Sparkles, Store, Trash2, UserRound, X } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
 import { useTick } from '../../components/Breaks';
 import { formatPhone, money } from '../../lib/money';
 import { ADDRESSES, SIDES, SIDE_BY_ID, SIZES, SPECIALTIES, SPECIALTY_BY_ID, ZONES } from '../data';
@@ -9,7 +9,15 @@ import { usePizzaBrain } from '../brain';
 import { usePizza } from '../store';
 import { Modal } from './Shop';
 
-/** The counter and phone register. Type the caller's number and KneadOS fills in who they are, where they live and what they usually get. */
+type Person = { phone: string; name: string; address?: string; at: string };
+/** A number nobody has ordered from before, so the demo also shows what a new caller looks like. */
+const NEW_CALLER = '5625550188';
+
+/**
+ * The counter and phone register. The customer is the slow part of a phone order, so the register does the typing:
+ * caller ID answers with one tap, recent callers are one tap, a few digits find a regular, and a known number
+ * fills in the name, the address and what they usually get.
+ */
 export function PizzaRegister() {
   useTick(15_000);
   const demo = usePizza();
@@ -24,6 +32,32 @@ export function PizzaRegister() {
   const [build, setBuild] = useState(false);
   const [pick, setPick] = useState<string | null>(null);
   const [done, setDone] = useState<string>('');
+  const [entry, setEntry] = useState(false);
+  const [addrOpen, setAddrOpen] = useState(false);
+  const [addrQ, setAddrQ] = useState('');
+  const [call, setCall] = useState<string | null>(null);
+  const [rings, setRings] = useState(0);
+
+  // Everyone the shop already knows, newest order first.
+  const people = useMemo(() => {
+    const m = new Map<string, Person>();
+    for (const o of state.orders) if (o.customer.phone?.length === 10) m.set(o.customer.phone, { phone: o.customer.phone, name: o.customer.name, address: o.customer.address ?? m.get(o.customer.phone)?.address, at: o.createdAt });
+    for (const x of state.members) m.set(x.phone, { phone: x.phone, name: x.name, address: m.get(x.phone)?.address, at: m.get(x.phone)?.at ?? '' });
+    return [...m.values()].sort((x, y) => y.at.localeCompare(x.at));
+  }, [state.orders, state.members]);
+  const known = (digits: string) => people.find((x) => x.phone === digits);
+  const matches = phone.length >= 3 && phone.length < 10 ? people.filter((x) => x.phone.includes(phone)).slice(0, 4) : [];
+  const recent = people.filter((x) => x.at).slice(0, 4);
+
+  // Demo caller ID: with an empty ticket, the phone line rings a few seconds in. Real shops get this from their phone system.
+  useEffect(() => {
+    if (channel !== 'phone' || phone || cart.length || call) return;
+    const id = window.setTimeout(() => {
+      const ringers = [...people.filter((x) => x.address).slice(0, 2).map((x) => x.phone), NEW_CALLER, ...people.slice(2, 4).map((x) => x.phone)];
+      setCall(ringers[rings % ringers.length] ?? NEW_CALLER);
+    }, rings ? 40_000 : 4_000);
+    return () => window.clearTimeout(id);
+  }, [channel, phone, cart.length, call, rings, people]);
 
   const member = phone.length === 10 ? state.members.find((m) => m.phone === phone) : undefined;
   const past = phone.length === 10 ? [...state.orders].reverse().find((o) => o.customer.phone === phone) : undefined;
@@ -38,12 +72,15 @@ export function PizzaRegister() {
   const lookup = (digits: string) => {
     setPhone(digits);
     if (digits.length !== 10) return;
+    setEntry(false);
     const m = state.members.find((x) => x.phone === digits);
     const o = [...state.orders].reverse().find((x) => x.customer.phone === digits);
     if (m) setName(m.name);
     else if (o) setName(o.customer.name);
-    if (o?.customer.address) { const i = ADDRESSES.findIndex((x) => x.line === o.customer.address); if (i >= 0) { setAddr(i); setMode('delivery'); } }
+    if (o?.customer.address) { const i = ADDRESSES.findIndex((x) => x.line === o.customer.address); if (i >= 0) { setAddr(i); setMode('delivery'); setAddrOpen(false); } }
   };
+  const clearCustomer = () => { setPhone(''); setName(''); setEntry(false); setMode('pickup'); setAddrOpen(false); };
+  const answer = () => { if (call) lookup(call); setCall(null); setRings((n) => n + 1); };
 
   const ring = (payment: 'card' | 'cash') => {
     const now = Date.now();
@@ -53,7 +90,7 @@ export function PizzaRegister() {
       lines: cart, ...t, payment, status: 'new',
     }, { rewardPhone: phone });
     setDone(o ? `Order #${o.number} sent to the make line. Quoted ${q.minutes} min.` : '');
-    setCart([]); setPhone(''); setName('');
+    setCart([]); setPhone(''); setName(''); setEntry(false); setMode('pickup'); setAddrOpen(false);
     window.setTimeout(() => setDone(''), 4000);
   };
 
@@ -97,27 +134,109 @@ export function PizzaRegister() {
 
       <aside className="flex flex-col border-l border-slate-200 bg-white p-4">
         <div className="grid grid-cols-2 gap-1.5">
-          {(['phone', 'counter'] as const).map((c) => <button key={c} onClick={() => setChannel(c)} className={`flex items-center justify-center gap-1.5 rounded-xl py-2 text-sm font-bold ${channel === c ? 'bg-slate-900 text-white' : 'bg-slate-100'}`}>{c === 'phone' ? <Phone size={14} /> : <Store size={14} />} {c === 'phone' ? 'Phone order' : 'Counter'}</button>)}
+          {(['phone', 'counter'] as const).map((c) => <button key={c} onClick={() => { setChannel(c); setEntry(false); if (c === 'counter') { setMode('pickup'); setPhone(''); setCall(null); } }} className={`flex items-center justify-center gap-1.5 rounded-xl py-3 text-sm font-bold ${channel === c ? 'bg-slate-900 text-white' : 'bg-slate-100'}`}>{c === 'phone' ? <Phone size={14} /> : <Store size={14} />} {c === 'phone' ? 'Phone order' : 'Counter'}</button>)}
         </div>
-        <label className="mt-3 block text-xs font-semibold text-slate-500">Caller's number
-          <input value={formatPhone(phone)} onChange={(e) => lookup(e.target.value.replace(/\D/g, '').slice(0, 10))} placeholder="(562) 555-2037" inputMode="tel" className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-base text-slate-900" />
-        </label>
-        <p className="mt-1 text-[11px] text-slate-400">Try (562) 555-2037: a regular with a saved address.</p>
-        {(member || past) && (
-          <div className="mt-2 rounded-xl bg-emerald-50 p-2.5 text-sm">
-            <p className="flex items-center gap-1.5 font-bold text-emerald-900"><UserRound size={14} /> {name}</p>
-            {member && <p className="text-xs text-emerald-800">Dough Rewards: {member.visits} orders, {member.punches}/10 punches{member.rewards ? `, ${member.rewards} free pizza waiting` : ''}{member.favorite ? `. Usually gets ${SPECIALTY_BY_ID[member.favorite]?.name ?? member.favorite}.` : ''}</p>}
-            {past && <button onClick={() => setCart(past.lines)} className="mt-1.5 rounded-full bg-emerald-600 px-3 py-1 text-xs font-bold text-white">Reorder last ({past.lines.map((l) => (l.kind === 'pizza' ? pizzaTitle(l) : SIDE_BY_ID[l.sideId].name)).join(', ')})</button>}
+        {call && channel === 'phone' && !phone && (
+          <div className="mt-3 flex items-center gap-2 rounded-2xl bg-amber-400 p-2.5 text-slate-900 shadow">
+            <PhoneIncoming size={22} className="shrink-0 animate-pulse" />
+            <div className="min-w-0 flex-1">
+              <p className="text-[11px] font-bold uppercase tracking-wider">Line 1 is ringing</p>
+              <p className="truncate text-sm font-bold">{formatPhone(call)} · {known(call)?.name ?? 'New caller'}</p>
+            </div>
+            <button onClick={answer} className="rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-bold text-white">Answer</button>
+            <button aria-label="Ignore call" onClick={() => { setCall(null); setRings((n) => n + 1); }} className="rounded-full p-1.5 hover:bg-black/10"><X size={16} /></button>
           </div>
         )}
-        <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Name" className="mt-2 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
-        <div className="mt-2 grid grid-cols-2 gap-1.5">
-          {(['pickup', 'delivery'] as const).map((m) => <button key={m} onClick={() => setMode(m)} className={`flex items-center justify-center gap-1.5 rounded-xl border py-2 text-sm font-bold ${mode === m ? 'border-emerald-600 bg-emerald-50 text-emerald-800' : 'border-slate-200'}`}>{m === 'delivery' ? <Bike size={14} /> : <Store size={14} />} {m === 'pickup' ? 'Pickup' : 'Delivery'}</button>)}
-        </div>
-        {mode === 'delivery' && (
-          <select value={addr} onChange={(e) => setAddr(Number(e.target.value))} className="mt-2 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm">
-            {ADDRESSES.map((x, i) => <option key={x.line} value={i}>{x.line} {zoneFor(x) ? `(zone ${zoneFor(x)})` : '(too far)'}</option>)}
-          </select>
+
+        {phone.length === 10 ? (
+          /* Customer found or entered: one card instead of a form. */
+          <div className={`mt-3 rounded-2xl p-3 ${member || past ? 'bg-emerald-50' : 'bg-slate-100'}`}>
+            <div className="flex items-start gap-2">
+              <UserRound size={18} className="mt-0.5 shrink-0 text-emerald-800" />
+              <div className="min-w-0 flex-1">
+                {member || past
+                  ? <p className="truncate text-base font-bold text-emerald-950">{name}</p>
+                  : <input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="New caller. Their name?" autoCapitalize="words" className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-base" />}
+                <p className="tabular text-sm text-slate-600">{formatPhone(phone)}</p>
+              </div>
+              <button onClick={clearCustomer} className="rounded-full bg-white px-3 py-1.5 text-xs font-bold text-slate-700 shadow-sm">Change</button>
+            </div>
+            {member && <p className="mt-1.5 text-xs text-emerald-800">Dough Rewards: {member.visits} orders, {member.punches}/10 punches{member.rewards ? `, ${member.rewards} free pizza waiting` : ''}{member.favorite ? `. Usually gets ${SPECIALTY_BY_ID[member.favorite]?.name ?? member.favorite}.` : ''}</p>}
+            {past && <button onClick={() => setCart(past.lines)} className="mt-2 w-full rounded-xl bg-emerald-600 px-3 py-2.5 text-left text-sm font-bold text-white">Reorder last: <span className="font-normal">{past.lines.map((l) => (l.kind === 'pizza' ? pizzaTitle(l) : SIDE_BY_ID[l.sideId].name)).join(', ')}</span></button>}
+          </div>
+        ) : channel === 'counter' && !entry ? (
+          /* Counter: no number needed. A name for the ticket is optional. */
+          <div className="mt-3 flex gap-1.5">
+            <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Name (optional)" autoCapitalize="words" className="min-w-0 flex-1 rounded-xl border border-slate-200 px-3 py-3 text-base" />
+            <button onClick={() => setEntry(true)} className="shrink-0 rounded-xl bg-slate-100 px-3 text-xs font-bold text-slate-700">+ Rewards number</button>
+          </div>
+        ) : (
+          <div className="mt-3">
+            <label onClick={() => setEntry(true)} className={`tabular flex w-full cursor-pointer items-center justify-between rounded-xl border-2 px-3 py-3 text-left text-xl font-bold ${entry ? 'border-emerald-600 bg-white' : 'border-slate-200 bg-slate-50'}`}>
+              <span className={phone ? 'text-slate-900' : 'text-slate-400'}>{phone ? formatPhone(phone) : channel === 'counter' ? 'Rewards number' : "Caller's number"}</span>
+              {/* A hardware keyboard still works; a tablet uses the pad below instead of its own keyboard. */}
+              <input aria-label="Phone number" value={phone} onChange={(e) => lookup(e.target.value.replace(/\D/g, '').slice(0, 10))} onFocus={() => setEntry(true)} inputMode="none" className="sr-only" />
+              <span className="text-xs font-semibold text-slate-400">{phone.length}/10</span>
+            </label>
+            {matches.length > 0 && (
+              <ul className="mt-1.5 space-y-1">
+                {matches.map((x) => (
+                  <li key={x.phone}><button onClick={() => lookup(x.phone)} className="flex w-full items-center justify-between gap-2 rounded-xl bg-emerald-50 px-3 py-2.5 text-left text-sm"><b className="truncate">{x.name}</b><span className="tabular shrink-0 text-slate-600">{formatPhone(x.phone)}</span></button></li>
+                ))}
+              </ul>
+            )}
+            {entry ? (
+              <div className="mt-2 grid grid-cols-3 gap-1.5">
+                {['1', '2', '3', '4', '5', '6', '7', '8', '9', 'clear', '0', 'back'].map((k) => (
+                  <button
+                    key={k}
+                    aria-label={k === 'back' ? 'Delete last digit' : k === 'clear' ? 'Clear number' : k}
+                    onClick={() => lookup(k === 'back' ? phone.slice(0, -1) : k === 'clear' ? '' : (phone + k).slice(0, 10))}
+                    className={`flex h-12 items-center justify-center rounded-xl text-xl font-bold active:scale-95 ${k.length > 1 ? 'bg-slate-200 text-sm text-slate-700' : 'bg-slate-100 hover:bg-slate-200'}`}
+                  >
+                    {k === 'back' ? <Delete size={20} /> : k === 'clear' ? 'Clear' : k}
+                  </button>
+                ))}
+              </div>
+            ) : recent.length > 0 && (
+              <div className="mt-2">
+                <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Recent callers</p>
+                <div className="mt-1 grid grid-cols-2 gap-1.5">
+                  {recent.map((x) => (
+                    <button key={x.phone} onClick={() => lookup(x.phone)} className="rounded-xl bg-slate-100 px-2.5 py-2 text-left hover:bg-slate-200">
+                      <p className="truncate text-sm font-bold">{x.name}</p>
+                      <p className="tabular text-[11px] text-slate-500">{formatPhone(x.phone)}</p>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+            {channel === 'counter' && <button onClick={() => { setEntry(false); setPhone(''); }} className="mt-1.5 text-xs font-semibold text-slate-500 underline">Skip the number</button>}
+          </div>
+        )}
+
+        {channel === 'phone' && (
+          <div className="mt-2 grid grid-cols-2 gap-1.5">
+            {(['pickup', 'delivery'] as const).map((m) => <button key={m} onClick={() => { setMode(m); if (m === 'delivery' && !past?.customer.address) setAddrOpen(true); }} className={`flex items-center justify-center gap-1.5 rounded-xl border py-3 text-sm font-bold ${mode === m ? 'border-emerald-600 bg-emerald-50 text-emerald-800' : 'border-slate-200'}`}>{m === 'delivery' ? <Bike size={14} /> : <Store size={14} />} {m === 'pickup' ? 'Pickup' : 'Delivery'}</button>)}
+          </div>
+        )}
+        {mode === 'delivery' && !addrOpen && (
+          <button onClick={() => { setAddrOpen(true); setAddrQ(''); }} className="mt-2 flex w-full items-center gap-2 rounded-xl bg-slate-100 px-3 py-2.5 text-left text-sm">
+            <MapPin size={16} className="shrink-0 text-emerald-700" />
+            <span className="min-w-0 flex-1"><b className="block truncate">{a.line}</b><span className="text-xs text-slate-500">{zone ? `Zone ${zone}, ${money(ZONES.find((z) => z.id === zone)?.feeCents ?? 0)} delivery` : 'Too far to deliver'}{past?.customer.address === a.line ? ' · saved from their last order' : ''}</span></span>
+            <span className="text-xs font-bold text-slate-600">Change</span>
+          </button>
+        )}
+        {mode === 'delivery' && addrOpen && (
+          <div className="mt-2">
+            <input autoFocus value={addrQ} onChange={(e) => setAddrQ(e.target.value)} placeholder="Start typing the street or number" className="w-full rounded-xl border-2 border-emerald-600 px-3 py-2.5 text-base" />
+            <ul className="mt-1 max-h-44 space-y-1 overflow-y-auto">
+              {ADDRESSES.map((x, i) => ({ x, i })).filter(({ x }) => x.line.toLowerCase().includes(addrQ.trim().toLowerCase())).slice(0, 6).map(({ x, i }) => (
+                <li key={x.line}><button onClick={() => { setAddr(i); setAddrOpen(false); }} className="flex w-full items-center justify-between gap-2 rounded-xl bg-slate-100 px-3 py-2.5 text-left text-sm hover:bg-slate-200"><b className="truncate">{x.line}</b><span className={`shrink-0 text-xs ${zoneFor(x) ? 'text-slate-500' : 'text-rose-600'}`}>{zoneFor(x) ? `zone ${zoneFor(x)}` : 'too far'}</span></button></li>
+              ))}
+            </ul>
+            <p className="mt-1 text-[11px] text-slate-400">Demo: example addresses. A live shop searches real street addresses here.</p>
+          </div>
         )}
 
         <ul className="mt-3 flex-1 divide-y divide-slate-100 overflow-y-auto">

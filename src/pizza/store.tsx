@@ -124,7 +124,8 @@ function seedOrders(today: string, now: number): PizzaOrder[] {
   // Game-day pre-orders for the next big day, placed over the last week.
   const big = nextBigDay(today);
   const [y, m, d] = big.date.split('-').map(Number);
-  const kick = new Date(y, m - 1, d, 13, 0).getTime();
+  // Kickoff is 1 PM on game day, or a little later tonight when the demo is opened after that, so pre-orders are not hours in the past (it stays on game day).
+  const kick = Math.min(Math.max(new Date(y, m - 1, d, 13, 0).getTime(), now + 100 * MINUTE), new Date(y, m - 1, d, 23, 45).getTime());
   const pre: [number, number, string, string, boolean, number?][] = [[0, -40, 'Ivy S.', '5625552481', true, 5], [1, -30, 'Ben K.', '5625552518', true, 8], [0, -30, 'Zoe L.', '5625552555', false], [2, 60 * 22, 'Harbor Dental office', '5625552592', true, 7], [1, -20, 'Andre P.', '5625552629', false], [0, -10, 'Lucy H.', '5625552666', true, 11]];
   for (const [packIdx, offsetMin, who, phone, delivery, addr] of pre) {
     const pack = PACKS[packIdx];
@@ -154,12 +155,41 @@ function fresh(now = Date.now()): PizzaState {
   };
 }
 
+const SEEN = `${KEY}-seen`;
+const TIME_FIELDS = ['createdAt', 'promisedAt', 'ovenAt', 'readyAt', 'outAt', 'doneAt'] as const;
+
+/**
+ * The demo shop only runs while someone is looking at it. Coming back after a break moves every open
+ * order (and the drivers) forward by the time away, so the rush picks up where it stopped instead of
+ * every ticket showing hours late.
+ */
+function resume(s: PizzaState, awayMs: number): PizzaState {
+  if (awayMs < 3 * MINUTE) return s;
+  const fwd = (t?: string) => (t ? iso(new Date(t).getTime() + awayMs) : t);
+  return {
+    ...s,
+    orders: s.orders.map((o) => {
+      // Finished orders keep their times; game-day pre-orders keep their set time.
+      if (o.status === 'done' || o.scheduled) return o;
+      const moved = { ...o } as PizzaOrder;
+      for (const f of TIME_FIELDS) if (moved[f]) (moved as unknown as Record<string, string | undefined>)[f] = fwd(moved[f]);
+      return moved;
+    }),
+    drivers: Object.fromEntries(Object.entries(s.drivers).map(([id, d]) => [id, d.backAt ? { ...d, backAt: fwd(d.backAt) } : d])) as PizzaState['drivers'],
+  };
+}
+
 function load(): PizzaState {
   try {
     const raw = localStorage.getItem(KEY);
     if (raw) {
       const s = JSON.parse(raw) as PizzaState;
-      if (s.today === isoDate(new Date()) && Array.isArray(s.orders)) return Array.isArray(s.invoices) ? s : { ...s, invoices: seedInvoices(s.today, s.orders), nextInvoice: 1050 };
+      if (s.today === isoDate(new Date()) && Array.isArray(s.orders)) {
+        const seen = Number(localStorage.getItem(SEEN)) || 0;
+        const kept = Array.isArray(s.invoices) ? s : { ...s, invoices: seedInvoices(s.today, s.orders), nextInvoice: 1050 };
+        // No last-seen time means an older save with stale clocks: start a fresh shift.
+        return seen ? resume(kept, Date.now() - seen) : fresh();
+      }
     }
   } catch {
     // Fall through to a fresh shift.
@@ -170,8 +200,14 @@ function load(): PizzaState {
 function usePizzaStore() {
   const [state, setState] = useState<PizzaState>(load);
   useEffect(() => {
-    try { localStorage.setItem(KEY, JSON.stringify(state)); } catch { /* storage blocked: the demo still runs */ }
+    try { localStorage.setItem(KEY, JSON.stringify(state)); localStorage.setItem(SEEN, String(Date.now())); } catch { /* storage blocked: the demo still runs */ }
   }, [state]);
+  // Remember when the demo was last open, so a later visit can pick the rush up from there.
+  useEffect(() => {
+    const mark = () => { try { localStorage.setItem(SEEN, String(Date.now())); } catch { /* storage blocked */ } };
+    const id = setInterval(mark, 20_000);
+    return () => clearInterval(id);
+  }, []);
   const history = useMemo<PizzaDay[]>(() => buildPizzaHistory(state.today), [state.today]);
   const now = () => new Date().toISOString();
   const text = (to: string, body: string, kind: Text['kind']): Text[] => (to ? [{ to, body, at: now(), kind }] : []);

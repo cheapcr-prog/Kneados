@@ -12,7 +12,7 @@ const reduced = () => typeof window !== 'undefined' && window.matchMedia?.('(pre
  * With `animate`, each step plays onto the pie as it changes: the dough stretches to its size, the sauce
  * spreads, the cheese melts on and each topping drops into place. `baked` browns the crust and cheese.
  */
-export function PizzaArt({ config, size = 320, className = '', animate = false, baked = false }: { config: PizzaConfig; size?: number; className?: string; animate?: boolean; baked?: boolean }) {
+export function PizzaArt({ config, size = 320, className = '', animate = false, baked = false, raw = false, stage = 9 }: { config: PizzaConfig; size?: number; className?: string; animate?: boolean; baked?: boolean; raw?: boolean; stage?: number }) {
   const uid = useId().replace(/:/g, '');
   const id = (n: string) => `pz-${n}-${uid}`;
   const dough = useRef<SVGGElement>(null);
@@ -39,7 +39,7 @@ export function PizzaArt({ config, size = 320, className = '', animate = false, 
   const crustW = pan ? 8 : thin ? 10 : 16;
   // The photo's pizza fills 95% of its frame; thin crust zooms in so less rim shows.
   const half = (R / 0.951) * (thin ? 1.07 : 1);
-  const base = (sauceId: string, cheeseId: string) => <image href={`/pizza/real/base/${sauceId}-${cheeseId}.webp`} x={-half} y={-half} width={2 * half} height={2 * half} preserveAspectRatio="none" />;
+  const pic = (name: string) => <image href={`/pizza/real/${name}.webp`} x={-half} y={-half} width={2 * half} height={2 * half} preserveAspectRatio="none" />;
   const inner = R - crustW;
   const scale = SIZE_BY_ID[config.size].toppingScale;
   const entries = Object.entries(config.toppings).filter(([tid]) => TOPPING_BY_ID[tid]);
@@ -95,11 +95,29 @@ export function PizzaArt({ config, size = 320, className = '', animate = false, 
       <g style={{ transform: `scale(${grow})`, transition: 'transform 500ms cubic-bezier(.2,.8,.3,1.1)' }}>
       <g ref={dough}>
       {photo ? (
-        <g clipPath={url('outer')} style={{ filter: baked ? 'brightness(0.86) saturate(1.15)' : 'none', transition: 'filter 1.2s' }}>
-          {/* Three real photos stacked: bare dough, then the sauce, then the cheese melting in. */}
-          {base('none', 'none')}
-          <g key={config.sauce} className={animate ? 'pz-melt' : undefined} style={delay(250)}>{config.sauce !== 'none' && base(config.sauce, 'none')}</g>
-          <g key={config.sauce + config.cheese} className={animate ? 'pz-melt' : undefined} style={delay(550)}>{config.cheese !== 'none' && base(config.sauce, config.cheese)}</g>
+        <g clipPath={url('outer')}>
+          {raw ? (
+            <>
+              {/* Being built: raw dough, then sauce spread on it, then shredded cheese. Nothing is cooked yet. */}
+              {pic('raw/dough')}
+              {stage >= 1 && config.sauce !== 'none' && <g key={config.sauce} className={animate ? 'pz-spread' : undefined}>{pic(`raw/sauce-${config.sauce}`)}</g>}
+              {stage >= 2 && config.cheese !== 'none' && (
+                <g key={config.cheese} className={animate ? 'pz-melt' : undefined} style={{ opacity: config.cheese === 'light' ? 0.7 : 1, filter: config.cheese === 'vegan' ? 'saturate(0.4) brightness(1.05)' : undefined }}>
+                  {pic('raw/cheese')}
+                  {config.cheese === 'extra' && <g transform="rotate(137)">{pic('raw/cheese')}</g>}
+                </g>
+              )}
+              {/* The oven: the baked photo fades in over the raw pie. */}
+              <g style={{ opacity: baked ? 1 : 0, transition: 'opacity 1.6s ease-in' }}>{baked && pic(`base/${config.sauce}-${config.cheese}`)}</g>
+            </>
+          ) : (
+            <>
+              {/* Three real photos stacked: bare dough, then the sauce, then the cheese melting in. */}
+              {pic('base/none-none')}
+              <g key={config.sauce} className={animate ? 'pz-melt' : undefined} style={delay(250)}>{config.sauce !== 'none' && pic(`base/${config.sauce}-none`)}</g>
+              <g key={config.sauce + config.cheese} className={animate ? 'pz-melt' : undefined} style={delay(550)}>{config.cheese !== 'none' && pic(`base/${config.sauce}-${config.cheese}`)}</g>
+            </>
+          )}
         </g>
       ) : (
         <>
@@ -127,7 +145,7 @@ export function PizzaArt({ config, size = 320, className = '', animate = false, 
       <g clipPath={url('inner')}>
         {/* Pepperoni sweats orange oil into the cheese around it. */}
         {hasPep && cheese.amount > 0 && !photo && <OilPools r={inner} soft={url('soft')} />}
-        {entries.map(([tid, side], n) => (
+        {stage >= 3 && entries.map(([tid, side], n) => (
           <g key={tid + side} clipPath={side === 'whole' ? undefined : url(side)}>
             <ToppingLayer t={TOPPING_BY_ID[tid]} r={inner - 4} side={side} scale={scale} shadow={url('shadow')} animate={animate} startMs={intro ? 850 + n * 180 : 0} />
           </g>

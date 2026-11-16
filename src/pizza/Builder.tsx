@@ -82,6 +82,8 @@ export function Builder({ start, out = [], onAdd, addLabel = 'Add to order', dar
     setSpecialtyId(id);
     setConfig({ ...configFor(id, config.size), crust: config.crust });
     say(`Starting from the ${SPECIALTY_BY_ID[id].name}`);
+    // A specialty arrives already built, so jump to the step where the whole pie shows.
+    if (guided) setStep(3);
   };
 
   // Dragging a topping: works the same with a mouse, a pen or a finger.
@@ -173,7 +175,7 @@ export function Builder({ start, out = [], onAdd, addLabel = 'Add to order', dar
             return (
               <button key={c.id} disabled={!ok} onClick={() => { set({ crust: c.id }); say(c.id === 'pan' ? 'Pressed the dough into a Detroit pan' : `${c.label} dough`); }} className={`${chip(config.crust === c.id)} disabled:opacity-40`}>
                 {c.label}{c.extraCents ? ` +${money(c.extraCents)}` : ''}
-                <span className="block text-xs font-normal opacity-80">{ok ? c.note : `Not on a ${config.size === 'S' ? 'small' : 'this size'}`}</span>
+                <span className="block text-xs font-normal opacity-80">{ok ? c.note : config.size === 'S' ? 'Not on a small' : 'Not on this size'}</span>
               </button>
             );
           })}
@@ -294,7 +296,7 @@ export function Builder({ start, out = [], onAdd, addLabel = 'Add to order', dar
           ref={pie}
           className={`relative mx-auto flex aspect-square w-full max-w-[220px] items-center justify-center rounded-full sm:max-w-[300px] lg:max-w-[380px] ${dark ? 'bg-white/5' : 'bg-[radial-gradient(circle,#f8fafc_55%,#e2e8f0_100%)]'}`}
         >
-          {!baking && <PizzaArt config={config} size={360} className="h-auto w-[94%]" animate />}
+          {!baking && <PizzaArt config={config} size={360} className="h-auto w-[94%]" animate raw={guided} stage={guided ? step : 9} />}
           {target && (
             <svg viewBox="-50 -50 100 100" className="pointer-events-none absolute inset-0 h-full w-full" aria-hidden>
               <path
@@ -412,7 +414,7 @@ function Oven({ config, onDone }: { config: PizzaConfig; onDone: () => void }) {
         </div>
       </div>
       <div className="absolute inset-0 flex items-center justify-center transition-all duration-700 ease-out" style={pieStyle}>
-        <PizzaArt config={config} size={360} className="h-auto w-[94%]" baked={phase === 'bake' || phase === 'out'} />
+        <PizzaArt config={config} size={360} className="h-auto w-[94%]" raw baked={phase === 'bake' || phase === 'out'} />
         {inside && <div className="pz-glow pointer-events-none absolute inset-[3%] rounded-full bg-orange-500/25 mix-blend-multiply" />}
       </div>
       {phase === 'out' && (

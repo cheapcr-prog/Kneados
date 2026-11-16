@@ -12,7 +12,7 @@ const reduced = () => typeof window !== 'undefined' && window.matchMedia?.('(pre
  * With `animate`, each step plays onto the pie as it changes: the dough stretches to its size, the sauce
  * spreads, the cheese melts on and each topping drops into place. `baked` browns the crust and cheese.
  */
-export function PizzaArt({ config, size = 320, className = '', animate = false, baked = false, raw = false, stage = 9 }: { config: PizzaConfig; size?: number; className?: string; animate?: boolean; baked?: boolean; raw?: boolean; stage?: number }) {
+export function PizzaArt({ config, size = 320, className = '', animate = false, baked = false, raw = false, stage = 9, cut = false }: { config: PizzaConfig; size?: number; className?: string; animate?: boolean; baked?: boolean; raw?: boolean; stage?: number; cut?: boolean }) {
   const uid = useId().replace(/:/g, '');
   const id = (n: string) => `pz-${n}-${uid}`;
   const dough = useRef<SVGGElement>(null);
@@ -41,7 +41,22 @@ export function PizzaArt({ config, size = 320, className = '', animate = false, 
   const half = (R / 0.951) * (thin ? 1.07 : 1);
   const pic = (name: string) => <image href={`/pizza/real/${name}.webp`} x={-half} y={-half} width={2 * half} height={2 * half} preserveAspectRatio="none" />;
   const inner = R - crustW;
-  const scale = SIZE_BY_ID[config.size].toppingScale;
+  // How the customer asked for it baked and cut shows on the pie once it is out of the oven.
+  const notes = config.notes ?? [];
+  const bakeTone = notes.includes('Well done') ? 'brightness(0.84) saturate(1.1)' : notes.includes('Light bake') ? 'brightness(1.07) saturate(0.95)' : undefined;
+  const cuts: [number, number, number, number][] = [];
+  if (cut && !notes.includes('Uncut')) {
+    if (pan || notes.includes('Square cut')) {
+      for (const p of [-50, 0, 50]) cuts.push([p, -R, p, R], [-R, p, R, p]);
+    } else {
+      const n = SIZE_BY_ID[config.size].slices / 2;
+      for (let i = 0; i < n; i++) {
+        const a = 0.3 + (i * Math.PI) / n;
+        cuts.push([-R * Math.cos(a), -R * Math.sin(a), R * Math.cos(a), R * Math.sin(a)]);
+      }
+    }
+  }
+  const scale =SIZE_BY_ID[config.size].toppingScale;
   const entries = Object.entries(config.toppings).filter(([tid]) => TOPPING_BY_ID[tid]);
   const grow = animate ? DOUGH_SCALE[config.size] ?? 1 : 1;
   const hasPep = entries.some(([tid]) => tid === 'pepperoni' || tid === 'cupchar');
@@ -108,7 +123,7 @@ export function PizzaArt({ config, size = 320, className = '', animate = false, 
                 </g>
               )}
               {/* The oven: the baked photo fades in over the raw pie. */}
-              <g style={{ opacity: baked ? 1 : 0, transition: 'opacity 1.6s ease-in' }}>{baked && pic(`base/${config.sauce}-${config.cheese}`)}</g>
+              <g style={{ opacity: baked ? 1 : 0, transition: 'opacity 1.6s ease-in', filter: bakeTone }}>{baked && pic(`base/${config.sauce}-${config.cheese}`)}</g>
             </>
           ) : (
             <>
@@ -151,8 +166,18 @@ export function PizzaArt({ config, size = 320, className = '', animate = false, 
           </g>
         ))}
       </g>
+      {cuts.length > 0 && (
+        <g clipPath={url(pan ? 'inner' : 'outer')} className="pz-melt" strokeLinecap="round">
+          {cuts.map(([x1, y1, x2, y2], i) => (
+            <g key={i}>
+              <line x1={x1} y1={y1} x2={x2} y2={y2} stroke="#3a1c08" strokeWidth="1.3" opacity="0.6" />
+              <line x1={x1 + 0.7} y1={y1 + 0.7} x2={x2 + 0.7} y2={y2 + 0.7} stroke="#fff" strokeWidth="0.5" opacity="0.3" />
+            </g>
+          ))}
+        </g>
+      )}
       </g>
-      {entries.some(([, s]) => s !== 'whole') && <line x1="0" y1={-inner} x2="0" y2={inner} stroke="#fff" strokeWidth="0.8" strokeDasharray="3 3" opacity="0.7" />}
+      {!cut && entries.some(([, s]) => s !== 'whole') && <line x1="0" y1={-inner} x2="0" y2={inner} stroke="#fff" strokeWidth="0.8" strokeDasharray="3 3" opacity="0.7" />}
       </g>
     </svg>
   );

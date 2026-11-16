@@ -56,6 +56,22 @@ export function Builder({ start, out = [], onAdd, addLabel = 'Add to order', dar
   const sp = specialtyId ? SPECIALTY_BY_ID[specialtyId] : undefined;
 
   const say = (text: string) => setCaption((c) => ({ text, n: c.n + 1 }));
+  // The line under the pie says what just happened on the step you are on.
+  const stepped = useRef(false);
+  useEffect(() => {
+    if (!stepped.current) { stepped.current = true; return; }
+    const sauce = SAUCES.find((x) => x.id === config.sauce);
+    const cheese = CHEESES.find((x) => x.id === config.cheese);
+    say([
+      'Fresh dough, ready to stretch',
+      config.sauce === 'none' ? 'No sauce, just the dough' : `${sauce?.label} sauce, spread to the edge`,
+      config.cheese === 'none' ? 'No cheese on this one' : `${cheese?.label}, scattered on top`,
+      Object.keys(config.toppings).length ? 'Add, move or pile on more toppings' : 'Now the toppings: tap or drag them on',
+      'Built. Ready for the oven',
+    ][step]);
+    // Only the step changing should speak here; picks on a step have their own lines.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step]);
   const set = (patch: Partial<PizzaConfig>) => setConfig((c) => {
     const next = { ...c, ...patch };
     // Keep the crust valid for the size.
@@ -201,6 +217,15 @@ export function Builder({ start, out = [], onAdd, addLabel = 'Add to order', dar
           </button>
         ))}
       </div>
+      {guided && config.sauce !== 'none' && NOTE_GROUPS.filter((g) => g.needsSauce).map((g) => (
+        <div key={g.label} className="mt-3 flex flex-wrap items-center gap-1.5">
+          <span className={`w-24 text-xs font-semibold ${muted}`}>How much</span>
+          {g.options.map((n) => {
+            const on = !!config.notes?.includes(n);
+            return <button key={n} aria-pressed={on} onClick={() => { set({ notes: toggleNote(config.notes, n, config.sauce) }); say(on ? 'Regular sauce' : n); }} className={`${chip(on)} !py-1.5`}>{n}</button>;
+          })}
+        </div>
+      ))}
     </section>
   );
 
@@ -284,10 +309,14 @@ export function Builder({ start, out = [], onAdd, addLabel = 'Add to order', dar
 
   const bakeStep = (
     <section>
-      <h3 className="font-display text-lg font-bold">Bake and cut</h3>
-      <p className={`text-xs ${muted}`}>Pick one from each row, or leave it as the kitchen normally makes it.</p>
+      {heading('Bake and cut')}
+      <p className={`text-xs ${muted}`}>
+        {guided
+          ? `We bake it on the 550° deck for about ${PIZZA_SHOP.bakeMinutes} minutes and cut it into ${config.crust === 'pan' ? 'squares' : `${SIZES.find((s) => s.id === config.size)?.slices} slices`}. Change that here, or leave it and send it to the oven.`
+          : 'Pick one from each row, or leave it as the kitchen normally makes it.'}
+      </p>
       <div className="mt-2 space-y-1.5">
-        {NOTE_GROUPS.map((g) => {
+        {NOTE_GROUPS.filter((g) => !guided || !g.needsSauce).map((g) => {
           const off = g.needsSauce && config.sauce === 'none';
           return (
             <div key={g.label} className="flex flex-wrap items-center gap-1.5">
@@ -362,7 +391,7 @@ export function Builder({ start, out = [], onAdd, addLabel = 'Add to order', dar
                 : <span />}
               {step < STEPS.length - 1
                 ? <button onClick={() => setStep(step + 1)} className="flex items-center gap-1 rounded-full bg-ink-900 px-5 py-2.5 text-sm font-bold text-white hover:bg-ink-800">Next: {STEPS[step + 1].label} <ChevronRight size={16} /></button>
-                : <span className={`text-right text-xs ${muted}`}>Happy with it? Put it in the oven and it goes in your order.</span>}
+                : <span className={`text-right text-xs ${muted}`}>All set? Put it in the oven and it goes in your order.</span>}
             </div>
             <div className="lg:hidden">{summary}</div>
           </>
@@ -393,7 +422,7 @@ export function Builder({ start, out = [], onAdd, addLabel = 'Add to order', dar
 
 /**
  * The deck oven: the pie slides in, bakes while the shop's real bake time counts down fast,
- * and comes out browned and steaming before it goes in the order. About three seconds in all.
+ * and comes out browned, steaming and cut before it goes in the order. About five seconds in all.
  */
 function Oven({ config, onDone }: { config: PizzaConfig; onDone: () => void }) {
   const [phase, setPhase] = useState<'ready' | 'in' | 'bake' | 'out'>('ready');
@@ -404,8 +433,8 @@ function Oven({ config, onDone }: { config: PizzaConfig; onDone: () => void }) {
     const raf = requestAnimationFrame(() => setPhase('in'));
     const t = [
       setTimeout(() => setPhase('bake'), 700),
-      setTimeout(() => setPhase('out'), 2300),
-      setTimeout(() => done.current(), 3300),
+      setTimeout(() => setPhase('out'), 2500),
+      setTimeout(() => done.current(), 5000),
     ];
     return () => { cancelAnimationFrame(raf); t.forEach(clearTimeout); };
   }, []);
@@ -413,14 +442,16 @@ function Oven({ config, onDone }: { config: PizzaConfig; onDone: () => void }) {
     if (phase !== 'bake') return;
     const total = PIZZA_SHOP.bakeMinutes * 60;
     const began = performance.now();
-    const id = setInterval(() => setLeft(Math.max(0, Math.round(total * (1 - (performance.now() - began) / 1500)))), 50);
+    const id = setInterval(() => setLeft(Math.max(0, Math.round(total * (1 - (performance.now() - began) / 1700)))), 50);
     return () => clearInterval(id);
   }, [phase]);
   const inside = phase === 'in' || phase === 'bake';
   const pieStyle = phase === 'ready'
     ? { transform: 'translateY(75%) scale(0.9)', opacity: 0 }
     : inside ? { transform: 'translateY(14%) scale(0.56)', opacity: 1 } : { transform: 'translateY(0) scale(0.92)', opacity: 1 };
-  const label = phase === 'out' ? 'Fresh out of the oven' : phase === 'bake' ? `Baking · ${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')} left` : `Into the ${550}° deck oven`;
+  const notes = config.notes ?? [];
+  const cutWord = notes.includes('Uncut') ? 'left uncut' : config.crust === 'pan' || notes.includes('Square cut') ? 'cut in squares' : `cut in ${SIZES.find((s) => s.id === config.size)?.slices} slices`;
+  const label = phase === 'out' ? `Fresh out of the oven, ${cutWord}. Added to your order` : phase === 'bake' ? `Baking · ${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')} left` : `Into the ${550}° deck oven`;
   return (
     <div className="absolute inset-0 overflow-hidden rounded-[2rem]" role="status" aria-label={label}>
       {/* Brick oven front with a glowing mouth. */}
@@ -432,7 +463,7 @@ function Oven({ config, onDone }: { config: PizzaConfig; onDone: () => void }) {
         </div>
       </div>
       <div className="absolute inset-0 flex items-center justify-center transition-all duration-700 ease-out" style={pieStyle}>
-        <PizzaArt config={config} size={360} className="h-auto w-[94%]" raw baked={phase === 'bake' || phase === 'out'} />
+        <PizzaArt config={config} size={360} className="h-auto w-[94%]" raw baked={phase === 'bake' || phase === 'out'} cut={phase === 'out'} />
         {inside && <div className="pz-glow pointer-events-none absolute inset-[3%] rounded-full bg-orange-500/25 mix-blend-multiply" />}
       </div>
       {phase === 'out' && (
@@ -440,12 +471,12 @@ function Oven({ config, onDone }: { config: PizzaConfig; onDone: () => void }) {
           {[0, 1, 2].map((i) => <span key={i} className="pz-steam block h-14 w-4 rounded-full bg-white/70 blur-[3px]" style={{ animationDelay: `${i * 250}ms` }} />)}
         </div>
       )}
-      <div className="absolute inset-x-0 top-[7%] flex justify-center">
+      <div className="absolute inset-x-0 top-[2.5%] flex justify-center">
         <span className="rounded-full bg-black/60 px-3 py-1 text-xs font-bold text-white tabular">{label}</span>
       </div>
       {phase === 'bake' && (
         <div className="absolute inset-x-[22%] bottom-[4%] h-1.5 overflow-hidden rounded-full bg-black/40">
-          <div className="h-full rounded-full bg-orange-400" style={{ width: '100%', animation: 'pz-oven-bar 1.5s linear both' }} />
+          <div className="h-full rounded-full bg-orange-400" style={{ width: '100%', animation: 'pz-oven-bar 1.7s linear both' }} />
         </div>
       )}
     </div>

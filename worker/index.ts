@@ -1,7 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { DRAFTS_PER_VISITOR, DRAFT_MAX_TOKENS, DRAFT_MODEL, DRAFT_SCHEMA, DRAFT_SYSTEM, draftMessage, parseDraft, parseDraftBody } from './draft';
 import { DEFAULT_REVIEW_MONTHLY_CAP_CENTS, REVIEW_LOCK_SECONDS, REVIEW_MAX_BODY_BYTES, REVIEW_MAX_TOKENS, REVIEW_MODEL, REVIEW_RESERVE_MICROS, REVIEW_SCHEMA, REVIEW_SYSTEM, budgetMonth, parseReview, parseReviewBody, reviewBlock, reviewMessage, type ReviewError, type ReviewEvent, type ReviewStatus, type SavedReview } from './review';
-import { DEFAULT_DAILY_CAP_CENTS, MAX_BODY_BYTES, MAX_OUTPUT_TOKENS, MODEL, OUTPUT_SCHEMA, QUESTIONS_PER_VISITOR, SYSTEM, budgetDay, costMicros, parseBody, parseReply, userMessage, type AskError, type AskReply, type Usage } from './ask';
+import { DEFAULT_DAILY_CAP_CENTS, MAX_BODY_BYTES, MAX_OUTPUT_TOKENS, MODEL, OUTPUT_SCHEMA, QUESTIONS_PER_VISITOR, PIZZA_SYSTEM, SYSTEM, budgetDay, costMicros, parseBody, parseReply, userMessage, type AskError, type AskReply, type Usage } from './ask';
 
 interface KV {
   get(key: string): Promise<string | null>;
@@ -30,9 +30,9 @@ export interface ModelResult {
 }
 
 /** Sends one question to Claude. Swapped for a stand-in by the tests. */
-export type CallModel = (apiKey: string, user: string) => Promise<ModelResult>;
+export type CallModel = (apiKey: string, user: string, system?: string) => Promise<ModelResult>;
 
-const callClaude: CallModel = async (apiKey, user) => {
+const callClaude: CallModel = async (apiKey, user, system = SYSTEM) => {
   const client = new Anthropic({ apiKey, maxRetries: 1, timeout: 40_000 });
   return client.beta.messages.create({
     model: MODEL,
@@ -40,7 +40,7 @@ const callClaude: CallModel = async (apiKey, user) => {
     // If the model declines a question, Anthropic's recommended stand-in model answers it in the same call.
     betas: ['server-side-fallback-2026-07-01'],
     fallbacks: 'default',
-    system: [{ type: 'text', text: SYSTEM, cache_control: { type: 'ephemeral' } }],
+    system: [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }],
     output_config: { effort: 'medium', format: { type: 'json_schema', schema: OUTPUT_SCHEMA } },
     messages: [{ role: 'user', content: user }],
   });
@@ -75,7 +75,7 @@ export async function handleAsk(request: Request, env: Env, call: CallModel = ca
 
   let result: ModelResult;
   try {
-    result = await call(env.ANTHROPIC_API_KEY!, userMessage(body));
+    result = await call(env.ANTHROPIC_API_KEY!, userMessage(body), body.mode === 'pizza' ? PIZZA_SYSTEM : SYSTEM);
   } catch (error) {
     if (error instanceof Anthropic.APIError) console.error('Claude request failed', error.status, error.message);
     else console.error('Claude request failed', error);

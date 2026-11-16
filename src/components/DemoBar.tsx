@@ -37,6 +37,7 @@ export function DemoBar() {
             </NavLink>
           ))}
         </nav>
+        <Link to="/pizza/demo/shop" className="hidden shrink-0 rounded-lg px-2.5 py-1.5 text-xs font-medium text-slate-400 hover:bg-white/10 hover:text-white lg:block" title="Switch to the pizza shop demo">Pizza shop demo</Link>
         <SessionChip />
         <button
           onClick={() => { if (confirm('Reset the demo shop to a fresh shift?')) reset(); }}

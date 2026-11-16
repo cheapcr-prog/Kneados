@@ -106,3 +106,25 @@ describe('/api/ask', () => {
     expect(await e.USAGE!.get('spend:2026-11-15')).toBeNull();
   });
 });
+
+describe('pizza mode', () => {
+  it('gives pizza shops their own instructions', async () => {
+    const { PIZZA_SYSTEM, SYSTEM } = await import('./ask');
+    expect(PIZZA_SYSTEM).not.toBe(SYSTEM);
+    expect(PIZZA_SYSTEM).toContain('pizza shop');
+    expect(PIZZA_SYSTEM).toContain('48 hours ahead');
+  });
+  it('sends the pizza instructions when a pizza shop asks', async () => {
+    let used = '';
+    const call: CallModel = async (_k, _u, system) => { used = system ?? ''; return reply('Make 60 large')(_k, _u); };
+    const res = await handleAsk(post(JSON.stringify({ mode: 'pizza', question: 'How much dough?', facts, decisions })), env(), call, now);
+    expect(res.status).toBe(200);
+    expect(used).toContain('pizza shop');
+  });
+  it('keeps the donut instructions by default', async () => {
+    let used = '';
+    const call: CallModel = async (_k, _u, system) => { used = system ?? ''; return reply('ok')(_k, _u); };
+    await handleAsk(post(good), env(), call, now);
+    expect(used).toContain('donut shop');
+  });
+});

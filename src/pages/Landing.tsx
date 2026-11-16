@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { Logo } from '../components/DemoBar';
 import { ItemArt } from '../components/ItemArt';
 import { MENU } from '../data/shop';
+import { ModeSwitch } from '../components/ModeSwitch';
 
 const SCREENS = [
   { to: '/demo/shop', icon: ShoppingBag, name: 'Shop website', body: 'Your menu online. Customers pack their own box, bag and cup holder, pay ahead and skip the line.' },
@@ -22,9 +23,10 @@ export function Landing() {
   const row = MENU.filter((m) => m.baked).slice(0, 8);
   return (
     <div className="min-h-full bg-ink-900 text-white">
-      <header className="mx-auto flex max-w-6xl items-center justify-between px-5 py-5">
+      <header className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-5 py-5">
         <Link to="/" className="flex items-center gap-2.5 font-display text-xl font-bold tracking-tight"><Logo size={28} /> KneadOS</Link>
-        <Link to="/demo/shop" className="rounded-full bg-white/10 px-4 py-2 text-sm font-semibold hover:bg-white/20">Open the demo</Link>
+        <ModeSwitch active="bakery" />
+        <Link to="/demo/shop" className="hidden sm:block rounded-full bg-white/10 px-4 py-2 text-sm font-semibold hover:bg-white/20">Open the demo</Link>
       </header>
 
       <section className="mx-auto max-w-6xl px-5 pb-14 pt-10 md:pt-16">

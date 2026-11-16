@@ -1,4 +1,6 @@
 import { Check, Clock, GripVertical, MapPin, Minus, Phone, Plus, Trash2, X } from 'lucide-react';
+import { useFraud } from '../components/Fraud';
+import { DECLINED_DEMO_CARD, GOOD_DEMO_CARD, demoCardOk, failedTries, orderRisk, triesLeft } from '../lib/fraud';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useEffect, useMemo, useState } from 'react';
 import { OrderTray, useBox } from '../components/BoxBuilder';
@@ -353,13 +355,44 @@ function Checkout({ loose: cartLoose, boxes, add, toppings, merch, addMerch, rem
   // A giant online order is the usual shape of a fake one (it ties up the fryer and sells out the case),
   // so past this size the customer calls the shop or books it as an event with a deposit.
   const tooBig = items > MAX_ONLINE_ITEMS;
-  const ready = (lines.length > 0 || merch.length > 0) && name.trim().length > 1 && digits.length === 10 && pickup && !tooBig;
+  const fraud = useFraud();
+  const [card, setCard] = useState(GOOD_DEMO_CARD);
+  const [cardName, setCardName] = useState('');
+  const [billingZip, setBillingZip] = useState('');
+  const [declined, setDeclined] = useState('');
+  /** Set while the customer's bank is asked to confirm a big or risky payment. */
+  const [bankCheck, setBankCheck] = useState(false);
+  const firstTime = digits.length === 10 && !demo.state.orders.some((o) => o.phone === digits) && !(demo.findMember(digits)?.visits);
+  const priorFails = failedTries(fraud.tries, digits, fraud.device);
+  const risk = orderRisk({ totalCents: t.total, fulfillment: 'pickup', firstTime, orderName: name, cardName: cardName.trim() || undefined, failedTries: priorFails }, fraud.settings);
+  const left = triesLeft(fraud.tries, digits, fraud.device, fraud.settings);
+  const cardOk = risk.payInPerson || (card.replace(/\D/g, '').length === 16 && cardName.trim().length > 1 && (!fraud.settings.zipCheck || /^\d{5}$/.test(billingZip)));
+  const ready = (lines.length > 0 || merch.length > 0) && name.trim().length > 1 && digits.length === 10 && pickup && !tooBig && cardOk && (risk.payInPerson || left > 0);
 
+  /** Runs the card, asks the bank when the order calls for it, then places the order. */
   const place = () => {
     if (!ready) return;
+    setDeclined('');
+    if (!risk.payInPerson) {
+      if (!demoCardOk(card)) {
+        fraud.record({ phone: digits, ok: false });
+        const now = left - 1;
+        setDeclined(now > 0 ? `The bank declined that card. ${now} ${now === 1 ? 'try' : 'tries'} left this hour.` : 'The bank declined that card. That was the last try this hour, so please pay at the counter when you pick up.');
+        return;
+      }
+      if (risk.threeDS && !bankCheck) { setBankCheck(true); return; }
+      fraud.record({ phone: digits, ok: true });
+    }
+    finish(risk.threeDS && !risk.payInPerson);
+  };
+
+  const finish = (bankConfirmed: boolean) => {
+    setBankCheck(false);
+    const flagged = risk.idCheck || risk.payInPerson || risk.flags.length > 0;
     const order = demo.placeOrder({
       source: 'online', pickupAt: pickup, customerName: name.trim(), phone: digits, lines,
-      subtotal: t.subtotal, tax: t.tax, tip: 0, total: t.total, payment: 'online', status: 'new',
+      subtotal: t.subtotal, tax: t.tax, tip: 0, total: t.total, payment: risk.payInPerson ? 'card' : 'online', status: 'new',
+      ...(flagged || bankConfirmed ? { fraud: { flags: risk.flags.map((f) => f.label), idCheck: risk.idCheck, ...(risk.payInPerson ? { payAtPickup: true } : { cardName: cardName.trim() }), ...(bankConfirmed ? { bankConfirmed: true } : {}) } } : {}),
       ...(boxes.length ? { boxes } : {}),
       ...(merch.length ? { merch } : {}),
       ...(toppings.length ? { toppings } : {}),
@@ -490,6 +523,25 @@ function Checkout({ loose: cartLoose, boxes, add, toppings, merch, addMerch, rem
               ? <p className="text-sm font-semibold text-emerald-700">{money(Math.round(t.subtotal * fund.share))} of this order goes to {fund.org}.</p>
               : <p className="text-sm text-amber-700">That code is not for a fundraiser running today.</p>)}
           </div>
+          <div className="mt-4 space-y-2">
+            <p className="text-sm font-semibold text-slate-900">Payment</p>
+            {risk.payInPerson ? (
+              <p data-pay-in-person className="rounded-xl bg-sky-50 p-2.5 text-xs text-sky-900">First order with us? Welcome! You'll pay at the counter when you pick up, by card, cash or phone.</p>
+            ) : left === 0 ? (
+              <p role="alert" className="rounded-xl bg-rose-50 p-2.5 text-xs font-semibold text-rose-700">Too many declined cards from this phone or device in the last hour. Call us at {SHOP.phone} or order at the counter.</p>
+            ) : (
+              <>
+                <input value={card} onChange={(e) => setCard(e.target.value.replace(/[^\d ]/g, '').slice(0, 19))} placeholder="Card number" inputMode="numeric" autoComplete="cc-number" aria-label="Card number" className="tabular w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm" />
+                <div className="grid grid-cols-[1fr_7rem] gap-2">
+                  <input value={cardName} onChange={(e) => setCardName(e.target.value)} placeholder="Name on card" autoComplete="cc-name" aria-label="Name on card" className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm" />
+                  <input value={billingZip} onChange={(e) => setBillingZip(e.target.value.replace(/\D/g, '').slice(0, 5))} placeholder="Billing ZIP" inputMode="numeric" autoComplete="postal-code" aria-label="Billing ZIP" className="tabular w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm" />
+                </div>
+                {risk.idCheck && <p className="text-xs text-slate-500">Bring a photo ID that matches the name on the card. We check it at pickup on bigger orders to keep stolen cards out.</p>}
+                <p className="text-[11px] text-slate-400">Demo: {GOOD_DEMO_CARD} is approved. <button type="button" onClick={() => setCard(DECLINED_DEMO_CARD)} className="font-semibold underline">Use a card that gets declined</button>.</p>
+              </>
+            )}
+            {declined && <p role="alert" className="rounded-xl bg-rose-50 p-2.5 text-xs font-semibold text-rose-700">{declined}</p>}
+          </div>
         </div>
         <div className="border-t border-slate-200 px-5 py-4">
           <dl className="space-y-1 text-sm">
@@ -497,9 +549,19 @@ function Checkout({ loose: cartLoose, boxes, add, toppings, merch, addMerch, rem
             <div className="flex justify-between text-slate-600"><dt>Tax</dt><dd className="tabular">{money(t.tax)}</dd></div>
             <div className="flex justify-between text-base font-bold text-slate-900"><dt>Total</dt><dd className="tabular">{money(t.total)}</dd></div>
           </dl>
+          {bankCheck && (
+            <div data-bank-check className="mt-3 rounded-2xl bg-ink-900 p-4 text-white">
+              <p className="text-xs font-bold uppercase tracking-wider text-glaze-300">Your bank</p>
+              <p className="mt-1 text-sm">Approve this {money(t.total)} payment to {SHOP.name} in your bank's app. Bigger orders get this extra check.</p>
+              <div className="mt-3 grid grid-cols-2 gap-2">
+                <button onClick={() => setBankCheck(false)} className="rounded-xl bg-white/10 py-2.5 text-sm font-semibold">Cancel</button>
+                <button onClick={() => { fraud.record({ phone: digits, ok: true }); finish(true); }} className="rounded-xl bg-glaze-500 py-2.5 text-sm font-bold text-ink-900">Approve (demo)</button>
+              </div>
+            </div>
+          )}
           {tooBig && <p role="alert" className="mt-2 rounded-xl bg-amber-50 p-2.5 text-xs text-amber-900">Online orders go up to {MAX_ONLINE_ITEMS / 12} dozen. For a bigger order, call us at {SHOP.phone} or book it as an event, so we can fry it fresh for you.</p>}
-          <button disabled={!ready} onClick={place} className="mt-3 w-full rounded-xl bg-box-500 py-3.5 text-sm font-bold text-white hover:bg-box-600 disabled:bg-slate-300">
-            Place order
+          <button disabled={!ready || bankCheck} onClick={place} className="mt-3 w-full rounded-xl bg-box-500 py-3.5 text-sm font-bold text-white hover:bg-box-600 disabled:bg-slate-300">
+            {risk.payInPerson ? 'Place order, pay at pickup' : `Pay ${money(t.total)} and place order`}
           </button>
           <p className="mt-2 text-center text-xs text-slate-500">Demo shop: no card is charged. A live shop takes payment here with Stripe.</p>
         </div>

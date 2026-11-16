@@ -82,7 +82,7 @@ export function Dispatch() {
                   </div>
                   <p className="mt-1 text-xs text-slate-300">{r.why}. About {r.minutes} min out and back, {money(r.mileageCents)} mileage at {MILEAGE_CENTS}¢/mi.</p>
                   <ol className="mt-1.5 space-y-0.5 text-xs text-slate-200">
-                    {r.orderIds.map((id, i) => { const o = byId(id); return <li key={id} className="flex items-center gap-1.5"><MapPin size={11} /> {i + 1}. {o.customer.address} · {o.customer.name} · due {new Date(o.promisedAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}</li>; })}
+                    {r.orderIds.map((id, i) => { const o = byId(id); return <li key={id} className="flex items-center gap-1.5"><MapPin size={11} /> {i + 1}. {o.customer.address} · {o.customer.name}{o.fraud?.idCheck ? ' · CHECK ID' : ''} · due {new Date(o.promisedAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}</li>; })}
                   </ol>
                 </div>
               );
@@ -119,7 +119,8 @@ export function Dispatch() {
                 return (
                   <li key={o.id} className="flex items-center gap-2 py-1.5">
                     <span className="w-12 font-bold">#{o.number}</span>
-                    <span className="min-w-0 flex-1 truncate">{o.customer.address} <span className="text-slate-400">zone {o.customer.zone}</span></span>
+                    <span className="min-w-0 flex-1 truncate">{o.customer.address} <span className="text-slate-400">zone {o.customer.zone}</span>{o.fraud && o.fraud.flags.length > 0 && <span className="block truncate text-xs font-semibold text-rose-700">{o.fraud.flags.join(' · ')}</span>}</span>
+                    {o.fraud?.idCheck && <span title="Stolen card check: see a photo ID that matches the card before handing over" className="rounded-full bg-rose-600 px-2 py-0.5 text-[11px] font-bold text-white">ID at door{o.fraud.cardName ? `: ${o.fraud.cardName}` : ''}</span>}
                     <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-bold capitalize">{o.status === 'new' ? 'to make' : o.status}</span>
                     <span className={`flex w-24 items-center justify-end gap-1 text-xs ${late > 0 ? 'font-bold text-rose-600' : 'text-slate-500'}`}><Clock size={11} /> {late > 0 ? `${late} min late` : new Date(o.promisedAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}</span>
                   </li>

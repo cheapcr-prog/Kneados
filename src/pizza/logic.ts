@@ -52,6 +52,8 @@ export interface PizzaOrder {
   /** Paid ahead on a pre-order, in cents. */
   depositCents?: number;
   payment: 'card' | 'cash' | 'online' | 'app' | 'invoice';
+  /** Stolen card checks on an online order: warning signs, and whether the driver or counter checks photo ID. */
+  fraud?: { flags: string[]; idCheck: boolean; cardName?: string; bankConfirmed?: boolean };
   status: OrderStatus;
   ovenAt?: string;
   readyAt?: string;

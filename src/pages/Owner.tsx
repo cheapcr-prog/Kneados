@@ -1,4 +1,5 @@
 import { CloudRain, Gift, MessageSquareText, Sun } from 'lucide-react';
+import { FraudSettingsPanel } from '../components/Fraud';
 import { useMemo, useState, type ReactNode } from 'react';
 import { Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { BreakPlanCard, TONE, breakSummary, tracksBreaks, useTick } from '../components/Breaks';
@@ -44,7 +45,7 @@ const NAV = [
   { group: 'Customers', tabs: ['Rewards', 'Customer texts', 'Gift cards'] },
   { group: 'Sales channels', tabs: ['Delivery apps', 'Wholesale', 'Subscriptions', 'Delivery route', 'Events & fundraisers', 'Merch'] },
   { group: 'Growth', tabs: ['Pricing', 'Menu insights'] },
-  { group: 'Money', tabs: ['Reports', 'Profit & loss', 'Accounting'] },
+  { group: 'Money', tabs: ['Reports', 'Profit & loss', 'Accounting', 'Fraud protection'] },
 ] as const;
 type Tab = (typeof NAV)[number]['tabs'][number];
 const TABS: Tab[] = NAV.flatMap((n) => [...n.tabs]);
@@ -107,6 +108,7 @@ export function Owner() {
         {tab === 'Rewards' && <Rewards demo={demo} />}
         {tab === 'Customer texts' && <Campaigns demo={demo} />}
         {tab === 'Gift cards' && <GiftCards demo={demo} />}
+        {tab === 'Fraud protection' && <FraudSettingsPanel />}
         {tab === 'Delivery apps' && <DeliveryApps demo={demo} />}
         {tab === 'Subscriptions' && <Subscriptions demo={demo} onOpen={setTab} />}
         {tab === 'Delivery route' && <DeliveryRoute demo={demo} />}

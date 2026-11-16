@@ -40,7 +40,7 @@ size), 90 days of generated sales, the forecast and the 48 hour dough plan, stoc
 quote times from what is on the make line, and grouping deliveries into runs. The chat sends `mode: "pizza"` to
 `/api/ask`, which answers with pizza instructions and the same daily cap.
 
-Pizza photos in `public/pizza/` are from [Unsplash](https://unsplash.com) under the Unsplash License.
+Pizza photos in `public/pizza/` are from [Unsplash](https://unsplash.com) under the Unsplash License. The build-your-pizza pie in `public/pizza/real/` uses a real Unsplash photo for the crust and red sauce base; the topping cutouts and the white, BBQ, pesto and no-sauce cheese textures are AI-generated photoreal images (made in Canva), standing in until a shop uploads its own photos.
 
 ## Not built yet
 

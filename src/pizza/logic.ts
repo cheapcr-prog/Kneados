@@ -89,13 +89,20 @@ export function pizzaPrice(config: PizzaConfig, specialtyId?: string): { cents: 
   if (cheese && cheese.extra[config.size] && cheese.id !== sp?.cheese) parts.push({ label: cheese.label, cents: cheese.extra[config.size] });
   for (const [id, side] of Object.entries(config.toppings)) {
     // A specialty's own toppings are in its price. Only extras are charged.
-    if (sp?.toppings.includes(id)) continue;
     const t = TOPPING_BY_ID[id];
     if (!t) continue;
-    parts.push({ label: `${t.name}${side === 'whole' ? '' : ` (${side} half)`}`, cents: toppingCents(config.size, id, side) });
+    const half = side === 'whole' ? '' : ` (${side} half)`;
+    const one = toppingCents(config.size, id, side);
+    // Extra is a second portion, charged like adding the topping again.
+    const extra = isExtra(config, id);
+    if (sp?.toppings.includes(id)) { if (extra) parts.push({ label: `Extra ${t.name.toLowerCase()}${half}`, cents: one }); continue; }
+    parts.push({ label: `${extra ? `Extra ${t.name.toLowerCase()}` : t.name}${half}`, cents: extra ? one * 2 : one });
   }
   return { cents: parts.reduce((a, p) => a + p.cents, 0), parts };
 }
+
+/** True when this topping gets a double portion. */
+export const isExtra = (c: PizzaConfig, id: string) => !!c.toppings[id] && !!c.extra?.includes(id);
 
 export function configFor(specialtyId: string, size: SizeId = 'L'): PizzaConfig {
   const sp = SPECIALTY_BY_ID[specialtyId];
@@ -118,13 +125,15 @@ export function pizzaDetails(c: PizzaConfig, specialtyId?: string): string[] {
   if (c.crust !== 'hand') out.push(CRUSTS.find((x) => x.id === c.crust)!.label);
   if (c.sauce !== (sp?.sauce ?? 'red')) out.push(SAUCES.find((x) => x.id === c.sauce)!.label);
   if (c.cheese !== (sp?.cheese ?? 'regular')) out.push(CHEESES.find((x) => x.id === c.cheese)!.label);
-  const by = (side: string) => Object.entries(c.toppings).filter(([, s]) => s === side).map(([id]) => TOPPING_BY_ID[id]?.name).filter(Boolean);
+  const named = (id: string) => (TOPPING_BY_ID[id] ? (isExtra(c, id) ? `EXTRA ${TOPPING_BY_ID[id].name}` : TOPPING_BY_ID[id].name) : undefined);
+  const by = (side: string) => Object.entries(c.toppings).filter(([, s]) => s === side).map(([id]) => named(id)).filter(Boolean);
   const listed = (ids: string[]) => ids;
   if (sp) {
     const missing = sp.toppings.filter((t) => !c.toppings[t]).map((t) => `No ${TOPPING_BY_ID[t].name.toLowerCase()}`);
     out.push(...missing);
     const extra = Object.entries(c.toppings).filter(([id]) => !sp.toppings.includes(id));
-    for (const [id, side] of extra) out.push(`+ ${TOPPING_BY_ID[id].name}${side === 'whole' ? '' : ` (${side})`}`);
+    for (const [id, side] of extra) out.push(`+ ${named(id)}${side === 'whole' ? '' : ` (${side})`}`);
+    for (const id of sp.toppings) if (isExtra(c, id)) out.push(`EXTRA ${TOPPING_BY_ID[id].name}`);
     for (const [id, side] of Object.entries(c.toppings)) if (sp.toppings.includes(id) && side !== 'whole') out.push(`${TOPPING_BY_ID[id].name} ${side} half only`);
   } else {
     const whole = listed(by('whole') as string[]);
@@ -189,7 +198,7 @@ export function pizzaUsage(c: PizzaConfig): Record<string, number> {
   if (c.sauce === 'red') add('sauce', lb(size.sauceGrams));
   for (const [id, side] of Object.entries(c.toppings)) {
     const t = TOPPING_BY_ID[id];
-    if (t) add(id, lb(t.grams * size.toppingScale * (side === 'whole' ? 1 : 0.5)));
+    if (t) add(id, lb(t.grams * size.toppingScale * (side === 'whole' ? 1 : 0.5) * (isExtra(c, id) ? 2 : 1)));
   }
   add(`box-${c.size}`, 1);
   return use;

@@ -64,6 +64,13 @@ export function Builder({ start, out = [], onAdd, addLabel = 'Add to order', dar
     if (next.notes?.length) next.notes = validNotes(next.notes, next.sauce);
     return next;
   });
+  /** Doubles a topping that is already on the pie, or takes the extra back off. */
+  const toggleExtra = (id: string) => {
+    const on = config.extra?.includes(id);
+    setConfig((c) => ({ ...c, extra: on ? c.extra?.filter((x) => x !== id) : [...(c.extra ?? []), id] }));
+    const name = (TOPPING_BY_ID[id]?.name ?? id).toLowerCase();
+    say(on ? `Back to regular ${name}` : `Extra ${name}, piled on`);
+  };
   /** Puts a topping on a side. Tapping the side it is already on takes it off, unless it was dropped there. */
   const place = (id: string, side: Side | null, dropped = false) => {
     const was = config.toppings[id];
@@ -72,7 +79,7 @@ export function Builder({ start, out = [], onAdd, addLabel = 'Add to order', dar
       const toppings = { ...c.toppings };
       if (off) delete toppings[id];
       else toppings[id] = side!;
-      return { ...c, toppings };
+      return { ...c, toppings, extra: off ? c.extra?.filter((x) => x !== id) : c.extra };
     });
     const name = TOPPING_BY_ID[id]?.name ?? id;
     say(off ? `Took the ${name.toLowerCase()} off` : `${name} on ${SIDE_WORDS[side!]}`);
@@ -212,7 +219,7 @@ export function Builder({ start, out = [], onAdd, addLabel = 'Add to order', dar
 
   const toppingsStep = (
     <div className="space-y-5">
-      {guided && <p className={`text-xs ${muted}`}>Grab a topping by its picture and drag it onto the pie: drop it in the middle for the whole pie, or on the left or right half. You can also tap it, or use the half buttons.</p>}
+      {guided && <p className={`text-xs ${muted}`}>Grab a topping by its picture and drag it onto the pie: drop it in the middle for the whole pie, or on the left or right half. You can also tap it, or use the half buttons. Want more of one? Tap + Extra for a double portion.</p>}
       {(['meat', 'veggie'] as const).map((kind) => (
         <section key={kind}>
           <h3 className="font-display text-lg font-bold">{kind === 'meat' ? 'Meats' : 'Veggies and cheeses'}</h3>
@@ -242,6 +249,17 @@ export function Builder({ start, out = [], onAdd, addLabel = 'Add to order', dar
                     </span>
                   </button>
                   <div className="flex shrink-0 gap-0.5">
+                    {side && (
+                      <button
+                        aria-pressed={!!config.extra?.includes(t.id)}
+                        aria-label={`Extra ${t.name.toLowerCase()}, adds ${money(toppingCents(config.size, t.id, side))}`}
+                        title={`Double portion, +${money(toppingCents(config.size, t.id, side))}`}
+                        onClick={() => toggleExtra(t.id)}
+                        className={`mr-1 h-8 rounded-lg px-2 text-[11px] font-bold ${config.extra?.includes(t.id) ? 'bg-orange-500 text-white' : 'bg-white text-orange-600 ring-1 ring-orange-300 hover:bg-orange-50'}`}
+                      >
+                        {config.extra?.includes(t.id) ? 'Extra ✓' : '+ Extra'}
+                      </button>
+                    )}
                     {(['left', 'whole', 'right'] as Side[]).map((s) => (
                       <button
                         key={s}

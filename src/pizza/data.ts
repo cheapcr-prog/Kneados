@@ -139,6 +139,8 @@ export interface PizzaConfig {
   cheese: CheeseId;
   /** Topping id to where it goes. `left` and `right` are halves. */
   toppings: Record<string, Side>;
+  /** Toppings that get a double portion ("extra pepperoni"). Each must also be in `toppings`. */
+  extra?: string[];
   /** Well done, light bake, cut in squares and so on. */
   notes?: string[];
 }

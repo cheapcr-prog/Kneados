@@ -5,6 +5,12 @@ import { ORDER_MAX_BODY_BYTES, ORDER_MAX_TOKENS, ORDER_MODEL, ORDER_SYSTEM, ORDE
 import { parseTurn, type BotTurn } from '../src/pizza/orderbot';
 import { GEOCODE_PER_VISITOR } from '../src/pizza/geocode';
 import { censusLookUp, findAddress, parseGeocodeBody, type GeocodeReply, type LookUp } from './geocode';
+import { PhoneLine, type LineNamespace } from './line';
+import { NOT_SET_UP, VoiceSession, callTicket, callerFrom, connectTwiml, doneTwiml, fromTwilio, readTicket, tenDigits, twiml, type SavedCustomer } from './voice';
+import { geocodeQuery } from '../src/pizza/geocode';
+import { greeting } from '../src/pizza/orderbot';
+
+export { PhoneLine };
 import { DEFAULT_DAILY_CAP_CENTS, MAX_BODY_BYTES, MAX_OUTPUT_TOKENS, MODEL, OUTPUT_SCHEMA, QUESTIONS_PER_VISITOR, PIZZA_SYSTEM, SYSTEM, budgetDay, costMicros, parseBody, parseReply, userMessage, type AskError, type AskReply, type Usage } from './ask';
 
 interface KV {
@@ -25,6 +31,10 @@ export interface Env {
   DAILY_CAP_CENTS?: string;
   /** The most the deep review may spend in one month, in cents. */
   REVIEW_MONTHLY_CAP_CENTS?: string;
+  /** The Twilio account's Auth Token, stored as a Cloudflare secret. Without it no phone call is answered. */
+  TWILIO_AUTH_TOKEN?: string;
+  /** Each shop phone line's orders and regulars. */
+  PHONE_LINE?: LineNamespace;
 }
 
 export interface ModelResult {
@@ -353,6 +363,110 @@ export async function handleReview(request: Request, env: Env, ctx: Ctx, call: C
   return new Response(readable, { headers: { 'content-type': 'application/x-ndjson', ...API_HEADERS } });
 }
 
+/* ================================================================ the real phone line */
+
+const lineFor = (env: Env, to: string) => env.PHONE_LINE!.get(env.PHONE_LINE!.idFromName(to));
+const voiceReady = (env: Env) => !!env.TWILIO_AUTH_TOKEN && !!env.PHONE_LINE && !!env.ANTHROPIC_API_KEY && !!env.USAGE;
+
+async function twilioForm(request: Request, env: Env): Promise<Record<string, string> | null> {
+  const params: Record<string, string> = {};
+  for (const [k, v] of new URLSearchParams(await request.text())) params[k] = v;
+  return (await fromTwilio(env.TWILIO_AUTH_TOKEN!, request.url, params, request.headers.get('x-twilio-signature'))) ? params : null;
+}
+
+/** A call comes in: Twilio asks what to do. We answer with the greeting and hand the conversation to /api/voice/ws. */
+export async function handleVoice(request: Request, env: Env): Promise<Response> {
+  if (request.method !== 'POST') return json({ error: 'bad' }, 405);
+  if (!voiceReady(env)) return twiml(`<Say>${NOT_SET_UP}</Say><Hangup/>`);
+  const form = await twilioForm(request, env);
+  if (!form) return json({ error: 'bad' }, 403);
+  const to = tenDigits(form.To);
+  if (!to) return twiml(`<Say>${NOT_SET_UP}</Say><Hangup/>`);
+  const from = tenDigits(form.From);
+  const { customer } = (await (await lineFor(env, to).fetch(`https://line/ring?from=${from}`)).json()) as { customer: SavedCustomer | null };
+  const hello = greeting(callerFrom(from, customer), 'call');
+  return connectTwiml(new URL(request.url).host, hello, await callTicket(env.TWILIO_AUTH_TOKEN!, from, to));
+}
+
+/** The conversation is over: hang up, or say what a live shop would do with a handed-off call. */
+export async function handleVoiceDone(request: Request, env: Env): Promise<Response> {
+  if (request.method !== 'POST' || !env.TWILIO_AUTH_TOKEN) return json({ error: 'bad' }, 405);
+  const form = await twilioForm(request, env);
+  if (!form) return json({ error: 'bad' }, 403);
+  return doneTwiml(form.HandoffData);
+}
+
+interface ServerSocket { accept(): void; send(data: string): void; close(code?: number, reason?: string): void; addEventListener(type: 'message' | 'close' | 'error', listener: (event: { data?: unknown }) => void): void }
+declare const WebSocketPair: { new (): { 0: unknown; 1: ServerSocket } };
+
+/** The live conversation: Twilio sends what the caller said as text, we send back what to say. */
+export function handleVoiceSocket(request: Request, env: Env, call: CallModel = callOrder): Response {
+  if (request.headers.get('upgrade')?.toLowerCase() !== 'websocket') return json({ error: 'bad' }, 426);
+  if (!voiceReady(env)) return json({ error: 'off' }, 503);
+  const pair = new WebSocketPair();
+  const socket = pair[1];
+  socket.accept();
+  const usage = env.USAGE!;
+  const send = (message: object) => { try { socket.send(JSON.stringify(message)); } catch { /* the caller hung up */ } };
+  let session: VoiceSession | null = null;
+  let closed = false;
+
+  const model = async (user: string) => {
+    const spendKey = `spend:${budgetDay(new Date())}`;
+    const capMicros = Math.max(0, Number(env.DAILY_CAP_CENTS ?? DEFAULT_DAILY_CAP_CENTS) || 0) * 10_000;
+    const spent = Number((await usage.get(spendKey)) ?? 0) || 0;
+    if (spent >= capMicros) return null;
+    try {
+      const result = await call(env.ANTHROPIC_API_KEY!, user);
+      await usage.put(spendKey, String(spent + costMicros(result.usage, ORDER_MODEL)), { expirationTtl: 40 * DAY });
+      if (result.stop_reason === 'refusal') return null;
+      const text = result.content.find((b) => b.type === 'text')?.text;
+      return text ? parseTurn(text) : null;
+    } catch (error) {
+      console.error('Voice turn failed', error);
+      return null;
+    }
+  };
+
+  socket.addEventListener('message', (event) => {
+    let message: { type?: string; customParameters?: { t?: unknown }; voicePrompt?: unknown; last?: boolean; utteranceUntilInterrupt?: unknown };
+    try { message = JSON.parse(String(event.data)); } catch { return; }
+    if (message.type === 'setup') {
+      void readTicket(env.TWILIO_AUTH_TOKEN!, message.customParameters?.t).then(async (ticket) => {
+        if (!ticket) { socket.close(1008, 'not a call we answered'); return; }
+        const line = lineFor(env, ticket.to);
+        const { customer } = (await (await line.fetch(`https://line/ring?from=${ticket.from}`)).json()) as { customer: SavedCustomer | null };
+        session = new VoiceSession(callerFrom(ticket.from, customer), {
+          model,
+          lookUp: async (said) => { try { return await findAddress(geocodeQuery(said) || said); } catch { return undefined; } },
+          line: {
+            place: async (order, phone) => ((await (await line.fetch('https://line/place', { method: 'POST', body: JSON.stringify({ order, phone }) })).json()) as { number: number }).number,
+          },
+          say: (text) => send({ type: 'text', token: text, last: true }),
+          end: (afterMs, reason) => { setTimeout(() => { if (!closed) send({ type: 'end', handoffData: JSON.stringify({ reason }) }); }, afterMs); },
+        });
+      });
+    } else if (message.type === 'prompt' && message.last !== false && typeof message.voicePrompt === 'string') {
+      void session?.heard(message.voicePrompt);
+    } else if (message.type === 'interrupt' && typeof message.utteranceUntilInterrupt === 'string') {
+      session?.interrupted(message.utteranceUntilInterrupt);
+    }
+  });
+  socket.addEventListener('close', () => { closed = true; });
+  socket.addEventListener('error', () => { closed = true; });
+  return new Response(null, { status: 101, webSocket: pair[0] } as ResponseInit);
+}
+
+/** The make line asks for the phone orders it has not shown yet. Knowing the shop's phone number is what lets a browser see them. */
+export async function handlePhoneOrders(request: Request, env: Env): Promise<Response> {
+  if (request.method !== 'GET') return json({ error: 'bad' }, 405);
+  const url = new URL(request.url);
+  const line = tenDigits(url.searchParams.get('line') ?? '');
+  if (!line || !env.PHONE_LINE) return json({ error: 'bad' }, 400);
+  const since = url.searchParams.get('since') ?? '';
+  return lineFor(env, line).fetch(`https://line/orders?since=${encodeURIComponent(since)}`);
+}
+
 export default {
   async fetch(request: Request, env: Env, ctx: Ctx): Promise<Response> {
     const { pathname } = new URL(request.url);
@@ -361,6 +475,10 @@ export default {
     if (pathname === '/api/draft') return handleDraft(request, env);
     if (pathname === '/api/order') return handleOrder(request, env);
     if (pathname === '/api/geocode') return handleGeocode(request, env);
+    if (pathname === '/api/voice') return handleVoice(request, env);
+    if (pathname === '/api/voice/ws') return handleVoiceSocket(request, env);
+    if (pathname === '/api/voice/done') return handleVoiceDone(request, env);
+    if (pathname === '/api/phone-orders') return handlePhoneOrders(request, env);
     if (pathname.startsWith('/api/')) return json({ error: 'bad' }, 404);
     return env.ASSETS.fetch(request);
   },

@@ -3,9 +3,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useFraud } from '../../components/Fraud';
 import { formatPhone, money } from '../../lib/money';
+import { validLine } from '../phoneLine';
 import { PIZZA_SHOP, PIZZA_STAFF, SIDE_BY_ID, SPECIALTY_BY_ID, ZONES, type Address } from '../data';
 import { MINUTE, lineCents, pizzaDetails, pizzaTitle, quoteTime, upsells, type PizzaLine } from '../logic';
-import { EMPTY_ORDER, fill, greeting, hideMachinery, missing, needsLookup, offersWrongPayment, oneQuestion, quickReplies, rememberAddress, skipNameQuestion, ticketFor, turnContext, type BotOrder, type BotTurn, type Caller, type ShopNow, type Surface, type Ticket, type TranscriptLine } from '../orderbot';
+import { EMPTY_ORDER, greeting, missing, needsLookup, quickReplies, rememberAddress, settle, ticketFor, turnContext, type BotOrder, type BotTurn, type Caller, type ShopNow, type Surface, type Ticket, type TranscriptLine } from '../orderbot';
 import { SAMPLES, type Sample } from '../orderbotSamples';
 import { PizzaArt } from '../PizzaArt';
 import { usePizzaBrain } from '../brain';
@@ -192,50 +193,28 @@ export function AiOrders() {
   const apply = async (turn: BotTurn, transcript: Row[], run: number) => {
     const c = live.current.caller;
     const s = live.current.surface;
-    const t = ticketFor(turn.order, c, shop);
-    const open = missing(turn.order, t, s);
-    let say = hideMachinery(fill(turn.say, t));
+    const done = settle(turn, live.current.order, c, shop, s);
+    const t = done.ticket;
+    let say = done.say;
     let next: Phase = 'live';
     const extra: Row[] = [];
-    if (t.policy.transfer || turn.action === 'transfer') {
-      // Too big for the AI, or the customer asked for a person: a manager picks it up with everything so far.
-      if (t.policy.transfer && turn.action !== 'transfer') say = open[0].ask;
+    if (done.outcome === 'transfer') {
       next = 'transferred';
       const manager = PIZZA_STAFF.find((x) => x.role === 'manager')?.name ?? 'the manager';
       extra.push({ who: 'shop', note: true, text: `Handed to ${manager}, manager on duty, with the conversation and the ticket so far.` });
-    } else if (turn.action === 'place_order') {
-      // The AI may only send an order that is complete and inside the shop's rules. Otherwise KneadOS asks for what is missing.
-      if (open.length) say = open[0].ask;
-      else {
-        const done = place(turn.order, t, [...transcript, { who: 'ai', text: say }]);
-        if (done) {
-          say = hideMachinery(fill(turn.say, t, { number: done.number }));
-          next = 'placed';
-          setPlaced({ number: done.number, total: t.totals.total, minutes: t.quoteMinutes, bankConfirm: t.policy.bankConfirm, idCheck: t.policy.idCheck });
-          extra.push({ who: 'shop', note: true, text: `Order #${done.number} is on the make line. Quoted ${t.quoteMinutes} min.` });
-          if (turn.order.payment === 'pay_link') extra.push({ who: 'shop', pay: 'due', text: `Pay ${money(t.totals.total)} for order #${done.number}: kneados.app/pay/${done.number}` });
-        }
+    } else if (done.outcome === 'place') {
+      const placedOrder = place(done.order, t, [...transcript, { who: 'ai', text: say }]);
+      if (placedOrder) {
+        say = done.placedSay(placedOrder.number);
+        next = 'placed';
+        setPlaced({ number: placedOrder.number, total: t.totals.total, minutes: t.quoteMinutes, bankConfirm: t.policy.bankConfirm, idCheck: t.policy.idCheck });
+        extra.push({ who: 'shop', note: true, text: `Order #${placedOrder.number} is on the make line. Quoted ${t.quoteMinutes} min.` });
+        if (done.order.payment === 'pay_link') extra.push({ who: 'shop', pay: 'due', text: `Pay ${money(t.totals.total)} for order #${placedOrder.number}: kneados.app/pay/${placedOrder.number}` });
       }
-    } else if (turn.action === 'end') next = 'ended';
-    else {
-      // The customer picked a way to pay that this order cannot use (the total may have just crossed a limit): KneadOS says so right away.
-      const pay = open.find((n) => n.code === 'payment_not_allowed');
-      const address = open.find((n) => n.code === 'address');
-      const before = live.current.order;
-      const ask = open.find((n) => n.code === 'payment');
-      if (pay) { say = pay.ask; turn = { ...turn, order: { ...turn.order, payment: '' } }; }
-      // The address was checked the moment it was given. If we cannot deliver there, KneadOS says so now, before any read-back or total.
-      else if (address && t.policy.noDelivery && turn.order.address.trim() && (turn.order.address.trim() !== before.address.trim() || before.fulfillment !== 'delivery')) say = address.ask;
-      // No total or delivery fee is quoted until the delivery address is settled.
-      else if (address && /\{(total|fee)\}/.test(turn.say)) say = address.ask;
-      // The AI offered a way to pay that does not fit this order (the counter on a delivery): KneadOS asks with the right ones.
-      else if (ask && !t.policy.noDelivery && offersWrongPayment(say, turn.order)) say = ask.ask;
-      // One question at a time, so a plain "yes" always has one meaning.
-      else say = skipNameQuestion(oneQuestion(say), open);
-    }
+    } else if (done.outcome === 'end') next = 'ended';
     const after: Row[] = [...transcript, { who: 'ai', text: say }, ...extra];
     if (live.current.run !== run) return after;
-    setOrder(turn.order);
+    setOrder(done.order);
     setRows(after);
     setPhase(next);
     live.current.phase = next;
@@ -551,11 +530,45 @@ export function AiOrders() {
             <li>A phone and text line from Twilio: $1.15 a month, plus a one-time text registration of about $20.</li>
             <li>A 3 minute call costs about 30 cents all in (line, speech and Claude). A text order is under 20 cents.</li>
             <li>At 600 phone orders a month that is roughly $180, with no missed calls and no hold music.</li>
-            <li className="list-none pt-1 text-[11px] text-slate-400">Estimates from Twilio and Anthropic list prices on Nov 16, 2026. In this demo your browser does the listening and speaking.</li>
+            <li className="list-none pt-1 text-[11px] text-slate-400">Estimates from Twilio and Anthropic list prices on Nov 16, 2026. On this page your browser does the listening and speaking; a connected phone line uses Twilio.</li>
           </Card>
         </div>
+        <RealLine />
       </div>
     </div>
+  );
+}
+
+/** Connects this browser to a real phone number, so orders taken on real calls land on the make line here. */
+function RealLine() {
+  const { phoneLine, lastCallAt, setPhoneLine, state } = usePizza();
+  const [draft, setDraft] = useState('');
+  const fromCalls = state.orders.filter((o) => o.ai && o.number >= 7001).length;
+  return (
+    <section className="mt-4 rounded-3xl bg-ink-900 p-5 text-white shadow-sm">
+      <h3 className="flex items-center gap-2 font-display text-lg font-bold"><Phone size={18} className="text-emerald-400" /> Real phone line</h3>
+      {phoneLine ? (
+        <>
+          <p className="mt-1 text-sm text-slate-300">Call <b className="text-white">{formatPhone(phoneLine)}</b> from any phone. The AI answers, takes the order by voice, and the ticket appears on the make line within a few seconds.</p>
+          <p className="mt-2 text-xs text-slate-400">
+            {lastCallAt ? `Last call answered ${new Date(lastCallAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}.` : 'No call has reached this line yet.'} {fromCalls > 0 && `${fromCalls} order${fromCalls === 1 ? '' : 's'} from real calls on this screen.`}
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Link to="/pizza/demo/kitchen" className="flex items-center gap-1.5 rounded-xl bg-emerald-500 px-4 py-2.5 text-sm font-bold hover:bg-emerald-400"><ChefHat size={15} /> Watch the make line</Link>
+            <button onClick={() => setPhoneLine('')} className="rounded-xl bg-white/10 px-4 py-2.5 text-sm font-bold hover:bg-white/20">Disconnect this screen</button>
+          </div>
+          <p className="mt-3 text-[11px] text-slate-400">On a real call the line offers cash at the door or paying at the counter. Card links by text start once the number's texting is registered. Callers' numbers are never shown here, only the last four digits.</p>
+        </>
+      ) : (
+        <>
+          <p className="mt-1 text-sm text-slate-300">If the shop has a phone number connected to KneadOS, type it here to see its phone orders arrive on this screen.</p>
+          <form onSubmit={(e) => { e.preventDefault(); if (validLine(draft)) { setPhoneLine(draft); setDraft(''); } }} className="mt-3 flex max-w-sm gap-2">
+            <input value={draft} onChange={(e) => setDraft(e.target.value)} inputMode="tel" placeholder="(562) 555-0100" aria-label="The shop's phone number" className="min-w-0 flex-1 rounded-xl bg-white/10 px-4 py-2.5 text-sm text-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-400" />
+            <button type="submit" disabled={!validLine(draft)} className="rounded-xl bg-emerald-500 px-4 py-2.5 text-sm font-bold hover:bg-emerald-400 disabled:opacity-40">Connect</button>
+          </form>
+        </>
+      )}
+    </section>
   );
 }
 

@@ -309,7 +309,7 @@ export const TRANSFER_OVER_PIES = 12;
  * - A pay link order at or above the ID check amount has the name on the card checked against photo ID at handoff.
  * - Very big orders go to a manager.
  */
-export function orderPolicy(o: { totalCents: number; pies: number; fulfillment: BotOrder['fulfillment']; caller: Caller; addressFound: boolean; addressSaid: boolean }, s: FraudSettings = DEFAULT_FRAUD): Policy {
+export function orderPolicy(o: { totalCents: number; pies: number; fulfillment: BotOrder['fulfillment']; caller: Caller; addressFound: boolean; addressSaid: boolean; payLinks?: boolean }, s: FraudSettings = DEFAULT_FRAUD): Policy {
   const reasons: string[] = [];
   const hidden = !o.caller.phone;
   let noDelivery: string | undefined;
@@ -322,11 +322,15 @@ export function orderPolicy(o: { totalCents: number; pies: number; fulfillment: 
     payments = bigNew ? ['pay_link'] : ['pay_link', 'cash_at_door'];
     if (bigNew) reasons.push(`First order from this number and over ${money(s.bigFirstOrderCents)}: delivery is paid on the secure pay link before it is made, not cash at the door.`);
   } else payments = ['pay_at_pickup', 'pay_link'];
+  // A line that cannot text a pay link only offers the ways to pay that need none. An order that must be prepaid goes to the manager.
+  let needsLink = false;
+  if (o.payLinks === false) { needsLink = payments.length === 1 && payments[0] === 'pay_link'; payments = payments.filter((p) => p !== 'pay_link'); }
   const idCheck = payments.includes('pay_link') && s.idCheckOverCents > 0 && o.totalCents >= s.idCheckOverCents;
   if (idCheck) reasons.push(`If they pay on the link, ${o.fulfillment === 'delivery' ? 'the driver' : 'the counter'} checks photo ID against the name on the card (orders over ${money(s.idCheckOverCents)}).`);
   const bankConfirm = s.threeDSOverCents > 0 && o.totalCents >= s.threeDSOverCents;
   let transfer: string | undefined;
   if (o.totalCents >= TRANSFER_OVER_CENTS || o.pies > TRANSFER_OVER_PIES) { transfer = `Orders over ${money(TRANSFER_OVER_CENTS)} or ${TRANSFER_OVER_PIES} pizzas go to the manager on duty (catering pricing and timing).`; reasons.push(transfer); }
+  if (needsLink && !transfer) { transfer = 'A first delivery this size is paid ahead by card, and this phone line cannot text a pay link yet, so the manager on duty takes it.'; reasons.push(transfer); }
   return { payments, noDelivery, idCheck, bankConfirm, transfer, reasons };
 }
 
@@ -348,6 +352,8 @@ export interface ShopNow {
   out: string[];
   open: boolean;
   fraud: FraudSettings;
+  /** False on a line that cannot text a pay link yet (a real phone number before its texting is registered). */
+  payLinks?: boolean;
 }
 
 export function ticketFor(order: BotOrder, caller: Caller, shop: ShopNow): Ticket {
@@ -357,7 +363,7 @@ export function ticketFor(order: BotOrder, caller: Caller, shop: ShopNow): Ticke
   const t = totals(lines, { zone: order.fulfillment === 'delivery' ? zone : undefined });
   const pies = lines.reduce((a, l) => a + (l.kind === 'pizza' ? l.qty : 0), 0);
   const quoteMinutes = shop.quote(Math.max(1, pies), order.fulfillment === 'delivery' ? zone ?? 'B' : undefined);
-  const policy = orderPolicy({ totalCents: t.total, pies, fulfillment: order.fulfillment, caller, addressFound: !!zone, addressSaid: !!order.address.trim() }, shop.fraud);
+  const policy = orderPolicy({ totalCents: t.total, pies, fulfillment: order.fulfillment, caller, addressFound: !!zone, addressSaid: !!order.address.trim(), payLinks: shop.payLinks }, shop.fraud);
   return { lines, problems, totals: t, zone, address, quoteMinutes, policy };
 }
 
@@ -381,7 +387,7 @@ export const PAY_REPLY: Record<Exclude<Payment, ''>, string> = { pay_link: 'Text
 export function missing(order: BotOrder, ticket: Ticket, surface: Surface): Need[] {
   const m: Need[] = [];
   const options = ticket.policy.payments.map(payWords).join(' or ');
-  if (ticket.policy.transfer) m.push({ code: 'transfer', note: ticket.policy.transfer, ask: 'An order this size goes to our manager so you get catering pricing. Let me get them for you.' });
+  if (ticket.policy.transfer) m.push({ code: 'transfer', note: ticket.policy.transfer, ask: /pay link/.test(ticket.policy.transfer) ? 'Our manager finishes a first delivery this size. Let me get them for you.' : 'An order this size goes to our manager so you get catering pricing. Let me get them for you.' });
   if (!ticket.lines.length) m.push({ code: 'items', note: 'Nothing is on the order yet.', ask: 'What can I get started for you?' });
   for (const p of ticket.problems) m.push({ code: 'problem', note: p, ask: `One thing: ${p[0].toLowerCase()}${p.slice(1)}. What would you like instead?` });
   if (!order.fulfillment) m.push({ code: 'fulfillment', note: 'Pickup or delivery is not known yet.', ask: 'Is this for pickup or delivery?' });
@@ -467,7 +473,7 @@ const caller_hidden = (t: Ticket) => t.policy.payments.length === 1 && t.policy.
 
 /** Fills the placeholders in what the AI says with the real numbers. */
 export function fill(say: string, ticket: Ticket, extra: { number?: number; now?: number } = {}): string {
-  const at = new Date((extra.now ?? Date.now()) + ticket.quoteMinutes * 60_000).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+  const at = new Date((extra.now ?? Date.now()) + ticket.quoteMinutes * 60_000).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: PIZZA_SHOP.timezone });
   const values: Record<string, string> = {
     total: money(ticket.totals.total),
     subtotal: money(ticket.totals.subtotal),
@@ -478,6 +484,61 @@ export function fill(say: string, ticket: Ticket, extra: { number?: number; now?
     number: extra.number ? String(extra.number) : '',
   };
   return say.replace(/\{(total|subtotal|tax|fee|minutes|time|number)\}/g, (_, k: string) => values[k] || '');
+}
+
+/* ================================================================ the AI's turn, checked */
+
+export interface Settled {
+  /** What the customer hears or reads, with the real numbers filled in. */
+  say: string;
+  /** The order as it stands after this turn. */
+  order: BotOrder;
+  ticket: Ticket;
+  /** "place" means the order is complete and inside the rules: send it to the make line, then say `placedSay(number)`. */
+  outcome: 'continue' | 'place' | 'transfer' | 'end';
+  /** What to say once the order has its number. */
+  placedSay: (number: number) => string;
+}
+
+/**
+ * Takes what the AI wants to say and do, prices the order, checks every rule, and decides what really happens.
+ * The web demo and the real phone line both run this, so an order is held to the same rules wherever it comes from.
+ */
+export function settle(turn: BotTurn, before: BotOrder, caller: Caller, shop: ShopNow, surface: Surface): Settled {
+  let order = turn.order;
+  let t = ticketFor(order, caller, shop);
+  // Only one way to pay fits this order and it needs nothing from the customer: it is set without asking.
+  if (order.fulfillment && !order.payment && t.policy.payments.length === 1 && t.policy.payments[0] !== 'pay_link' && !(order.fulfillment === 'delivery' && t.policy.noDelivery)) {
+    order = { ...order, payment: t.policy.payments[0] };
+    t = ticketFor(order, caller, shop);
+  }
+  const open = missing(order, t, surface);
+  let say = hideMachinery(fill(turn.say, t));
+  let outcome: Settled['outcome'] = 'continue';
+  if (t.policy.transfer || turn.action === 'transfer') {
+    // Too big for the AI, or the customer asked for a person: a manager picks it up with everything so far.
+    if (t.policy.transfer && turn.action !== 'transfer') say = open[0].ask;
+    outcome = 'transfer';
+  } else if (turn.action === 'place_order') {
+    // The AI may only send an order that is complete and inside the shop's rules. Otherwise KneadOS asks for what is missing.
+    if (open.length) say = open[0].ask; else outcome = 'place';
+  } else if (turn.action === 'end') outcome = 'end';
+  else {
+    const pay = open.find((n) => n.code === 'payment_not_allowed');
+    const address = open.find((n) => n.code === 'address');
+    const ask = open.find((n) => n.code === 'payment');
+    // The customer picked a way to pay that this order cannot use (the total may have just crossed a limit): KneadOS says so right away.
+    if (pay) { say = pay.ask; order = { ...order, payment: '' }; }
+    // The address was checked the moment it was given. If we cannot deliver there, KneadOS says so now, before any read-back or total.
+    else if (address && t.policy.noDelivery && order.address.trim() && (order.address.trim() !== before.address.trim() || before.fulfillment !== 'delivery')) say = address.ask;
+    // No total or delivery fee is quoted until the delivery address is settled.
+    else if (address && /\{(total|fee)\}/.test(turn.say)) say = address.ask;
+    // The AI offered a way to pay that does not fit this order (the counter on a delivery): KneadOS asks with the right ones.
+    else if (ask && !t.policy.noDelivery && offersWrongPayment(say, order)) say = ask.ask;
+    // One question at a time, so a plain "yes" always has one meaning.
+    else say = skipNameQuestion(oneQuestion(say), open);
+  }
+  return { say, order, ticket: t, outcome, placedSay: (number) => hideMachinery(fill(turn.say, t, { number })) };
 }
 
 /* ================================================================ what goes to Claude */

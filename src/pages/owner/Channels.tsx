@@ -8,6 +8,8 @@ import type { Order } from '../../data/types';
 import { DELIVERY_APPS, appPrice, breakEvenMarkup, deliveryCents, deliveryNet, invoiceState, type DeliveryApp } from '../../lib/channels';
 import { DOW_SHORT, addDays, isoDate, shortDate, timeLabel } from '../../lib/dates';
 import { money, moneyShort } from '../../lib/money';
+import { MISS_WINDOW_MS, isLocked, type Tries } from '../../lib/secure';
+import { useShopState } from '../../data/local';
 import { Brain, Card, Demo as DemoNote, Pill, Stat, btn, download, field } from './ui';
 
 const isDelivery = (o: Order) => o.channel === 'doordash' || o.channel === 'ubereats' || o.channel === 'grubhub';
@@ -281,8 +283,16 @@ export function GiftCards({ demo }: { demo: Demo }) {
   const recent = gift.cards.filter((c) => c.sold >= monthAgo);
   const found = lookup.replace(/[^a-z0-9]/gi, '').length >= 8 ? gift.find(lookup) : undefined;
   const newest = sold ? gift.find(sold) : undefined;
+  const [tries, setTries] = useShopState<Tries>('gift-tries', () => ({ misses: [] }));
+  const wrong = tries.misses.filter((at) => Date.now() - at < MISS_WINDOW_MS).length;
   return (
     <div className="space-y-4">
+      {wrong > 0 && (
+        <div role="alert" className="flex flex-wrap items-center justify-between gap-2 rounded-2xl bg-rose-50 p-3 text-sm text-rose-800 ring-1 ring-rose-200">
+          <span><span className="font-bold">{wrong} wrong gift card code{wrong === 1 ? '' : 's'}</span> typed at the register in the last 15 minutes.{isLocked(tries) ? ' Gift cards are paused there until the tries clear.' : ''} Someone guessing codes is a common gift card scam.</span>
+          <button onClick={() => setTries({ misses: [] })} className="rounded-full bg-white px-3 py-1.5 text-xs font-bold text-rose-700 ring-1 ring-rose-200">It was us, clear it</button>
+        </div>
+      )}
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Stat label="Unspent balance" value={moneyShort(outstanding)} sub="donuts you still owe" />
         <Stat label="Sold in the last 30 days" value={moneyShort(recent.reduce((a, c) => a + c.loadedCents, 0))} sub={`${recent.length} cards`} tone="good" />

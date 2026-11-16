@@ -1,7 +1,7 @@
 import { DEFAULT_APP_MARKUP, seedGiftCards, seedInvoices } from '../data/channels';
 import { useShopState } from '../data/local';
 import { useDemo } from '../data/store';
-import { giftCode, normalizeCode, redeemGift, type DeliveryApp, type GiftCard, type Invoice } from '../lib/channels';
+import { newGiftCode, normalizeCode, redeemGift, type DeliveryApp, type GiftCard, type Invoice } from '../lib/channels';
 
 export interface GiftUse {
   code: string;
@@ -20,7 +20,7 @@ export function useGiftCards() {
     find,
     /** Loads a new card and returns it. */
     sell: (name: string, cents: number): GiftCard => {
-      const card: GiftCard = { code: giftCode(data.next * 7919 + cents), name: name.trim() || 'Gift card', loadedCents: cents, balanceCents: cents, sold: demo.state.today };
+      const card: GiftCard = { code: newGiftCode(), name: name.trim() || 'Gift card', loadedCents: cents, balanceCents: cents, sold: demo.state.today };
       setData((d) => ({ ...d, cards: [card, ...d.cards], next: d.next + 1 }));
       return card;
     },

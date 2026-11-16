@@ -7,7 +7,7 @@ import { useDemo } from '../data/store';
 import type { RewardsMember } from '../data/types';
 import { formatPhone } from '../lib/money';
 import { PUNCHES_PER_REWARD } from '../lib/rewards';
-import { cardCode, cardPayload, pressKey, readScan } from '../lib/wallet';
+import { cardCode, cardPayload, pressKey, readScan, type FoundBy } from '../lib/wallet';
 
 /** The QR code on a member's card, drawn as crisp squares at any size. */
 export function CardQr({ phone, size = 160 }: { phone: string; size?: number }) {
@@ -103,7 +103,7 @@ function Keypad({ digits, onChange }: { digits: string; onChange: (d: string) =>
 type CamState = 'starting' | 'on' | 'blocked';
 
 /** Watches the camera for a Dough Rewards card and reports the member's phone. */
-function Scanner({ onPhone }: { onPhone: (phone: string) => void }) {
+function Scanner({ onPhone, phones }: { onPhone: (phone: string, by: FoundBy) => void; phones: readonly string[] }) {
   const video = useRef<HTMLVideoElement>(null);
   const [facing, setFacing] = useState<'environment' | 'user'>('environment');
   const [cam, setCam] = useState<CamState>('starting');
@@ -129,9 +129,9 @@ function Scanner({ onPhone }: { onPhone: (phone: string) => void }) {
           ctx.drawImage(v, 0, 0, w, h);
           const hit = jsQR(ctx.getImageData(0, 0, w, h).data, w, h);
           if (hit?.data) {
-            const phone = readScan(hit.data);
-            if (phone && !done.current) { done.current = true; onPhone(phone); return; }
-            if (!phone) setWrong(true);
+            const found = readScan(hit.data, phones);
+            if (found && !done.current) { done.current = true; onPhone(found.phone, found.by); return; }
+            if (!found) setWrong(true);
           }
         }
       }
@@ -147,7 +147,7 @@ function Scanner({ onPhone }: { onPhone: (phone: string) => void }) {
       raf = requestAnimationFrame(look);
     }).catch(() => setCam('blocked'));
     return () => { stopped = true; cancelAnimationFrame(raf); stream?.getTracks().forEach((t) => t.stop()); };
-  }, [facing, onPhone]);
+  }, [facing, onPhone, phones]);
 
   return (
     <div>
@@ -177,8 +177,9 @@ function Scanner({ onPhone }: { onPhone: (phone: string) => void }) {
  * Full screen Dough Rewards entry for the cashier: big number buttons, or the camera
  * reading the card in the customer's phone wallet.
  */
-export function RewardsEntry({ start, initial, onDone, onClose }: { start: 'keypad' | 'scan'; initial: string; onDone: (phone: string) => void; onClose: () => void }) {
+export function RewardsEntry({ start, initial, onDone, onClose }: { start: 'keypad' | 'scan'; initial: string; onDone: (phone: string, by: FoundBy) => void; onClose: () => void }) {
   const demo = useDemo();
+  const phones = useMemo(() => demo.state.members.map((m) => m.phone), [demo.state.members]);
   const [mode, setMode] = useState(start);
   const [digits, setDigits] = useState(initial.replace(/\D/g, '').slice(0, 10));
   const member = digits.length === 10 ? demo.findMember(digits) : undefined;
@@ -206,19 +207,19 @@ export function RewardsEntry({ start, initial, onDone, onClose }: { start: 'keyp
               </p>
             </div>
             <div className="mt-3"><Keypad digits={digits} onChange={setDigits} /></div>
-            <button disabled={digits.length !== 10} onClick={() => onDone(digits)} className="mt-3 w-full rounded-2xl bg-glaze-600 py-4 text-lg font-bold text-white hover:bg-glaze-700 disabled:bg-slate-300">
+            <button disabled={digits.length !== 10} onClick={() => onDone(digits, 'typed')} className="mt-3 w-full rounded-2xl bg-glaze-600 py-4 text-lg font-bold text-white hover:bg-glaze-700 disabled:bg-slate-300">
               {member ? `Add ${member.name.split(' ')[0]} to this sale` : 'Add to this sale'}
             </button>
           </div>
         ) : (
           <div className="mt-3">
-            <Scanner onPhone={onDone} />
+            <Scanner onPhone={onDone} phones={phones} />
             <div className="mt-3 rounded-2xl bg-white p-3 ring-1 ring-slate-200">
               <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Demo: no card handy?</p>
               <p className="mt-0.5 text-xs text-slate-600">Tap a sample member to scan their card, or open a card on a phone and hold it up.</p>
               <div className="mt-2 flex flex-wrap gap-1.5">
                 {samples.map((m) => (
-                  <button key={m.phone} onClick={() => onDone(readScan(cardPayload(m.phone)) ?? m.phone)} className="rounded-full bg-box-50 px-3 py-1.5 text-xs font-semibold text-box-700 hover:bg-box-100">{m.name}</button>
+                  <button key={m.phone} onClick={() => { const found = readScan(cardPayload(m.phone), phones); if (found) onDone(found.phone, found.by); }} className="rounded-full bg-box-50 px-3 py-1.5 text-xs font-semibold text-box-700 hover:bg-box-100">{m.name}</button>
                 ))}
               </div>
             </div>

@@ -3,6 +3,7 @@
  * Every figure the screens and the AI show is worked out here from the demo data. Nothing is guessed.
  */
 import { addDays, dowOf } from '../lib/dates';
+import { randomCode } from '../lib/secure';
 import {
   ADDRESSES, CHEESES, CRUSTS, DOUGH_RECIPE, DOUGH_TOTAL_PCT, INVENTORY, MILEAGE_CENTS, PIZZA_SHOP, PIZZA_SUPPLIERS, SAUCES, SIDES, SIDE_BY_ID,
   SIZES, SIZE_BY_ID, SPECIALTIES, SPECIALTY_BY_ID, TOPPINGS, TOPPING_BY_ID, TOPPING_ON_HAND, TOPPING_SUPPLIER, ZONES,
@@ -820,13 +821,21 @@ export interface PizzaInvoice {
   reminders: string[];
 }
 
-/** Builds the invoice for a catering order: due a set number of days after the food is delivered. */
+/**
+ * Builds the invoice for a catering order: due a set number of days after the food is delivered.
+ * The id carries a random part, so the pay link cannot be guessed from the invoice number. Otherwise
+ * anyone could walk through /pay/inv-1040, inv-1041... and read every company's invoice, which is exactly
+ * what a fake "we changed our bank details" email scam needs.
+ */
 export function invoiceFor(o: { id?: string; number: number; total: number; customer: { name: string } }, bill: { company: string; email: string; po?: string }, memo: string, serviceDate: string, issued: string, number: number): PizzaInvoice {
   return {
-    id: `inv-${number}`, number, orderId: o.id, orderNumber: o.number, company: bill.company.trim(), contact: o.customer.name, email: bill.email.trim(),
+    id: `inv-${number}-${randomCode(10, LINK_ALPHABET)}`, number, orderId: o.id, orderNumber: o.number, company: bill.company.trim(), contact: o.customer.name, email: bill.email.trim(),
     po: bill.po?.trim() || undefined, memo, serviceDate, issued, due: addDays(serviceDate, INVOICE_TERMS_DAYS), totalCents: o.total, paid: false, reminders: [],
   };
 }
+
+/** Lower case letters and digits for links, without look-alikes. */
+const LINK_ALPHABET = 'abcdefghjkmnpqrstuvwxyz23456789';
 
 /** The link in the invoice email. */
 export const payPath = (inv: Pick<PizzaInvoice, 'id'>) => `/pizza/demo/pay/${inv.id}`;

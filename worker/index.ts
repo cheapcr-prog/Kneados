@@ -46,8 +46,26 @@ const callClaude: CallModel = async (apiKey, user, system = SYSTEM) => {
   });
 };
 
+/** Headers on every /api answer: never cached, never sniffed as something else, never framed. */
+const API_HEADERS = { 'cache-control': 'no-store', 'x-content-type-options': 'nosniff', 'x-frame-options': 'DENY', 'referrer-policy': 'no-referrer' };
+
 const json = (body: AskReply | ReviewStatus | { text: string } | { error: AskError | ReviewError } | { ready: boolean }, status = 200) =>
-  new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json', 'cache-control': 'no-store' } });
+  new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json', ...API_HEADERS } });
+
+/**
+ * True when the request came from one of the app's own pages. Browsers always send Origin on a POST,
+ * so other websites cannot spend the shop's AI budget from a visitor's browser. A missing, "null"
+ * or garbled Origin is turned away instead of crashing the request.
+ */
+export function sameOrigin(request: Request): boolean {
+  const origin = request.headers.get('origin');
+  if (!origin || origin === 'null') return false;
+  try {
+    return new URL(origin).host === new URL(request.url).host;
+  } catch {
+    return false;
+  }
+}
 
 const DAY = 60 * 60 * 24;
 
@@ -55,9 +73,7 @@ export async function handleAsk(request: Request, env: Env, call: CallModel = ca
   const ready = !!env.ANTHROPIC_API_KEY && !!env.USAGE;
   if (request.method === 'GET') return json({ ready });
   if (request.method !== 'POST') return json({ error: 'bad' }, 405);
-  // Only the app's own pages may ask, so other sites cannot spend the shop's budget from a visitor's browser.
-  const origin = request.headers.get('origin');
-  if (!origin || new URL(origin).host !== new URL(request.url).host) return json({ error: 'bad' }, 403);
+  if (!sameOrigin(request)) return json({ error: 'bad' }, 403);
   if (!ready) return json({ error: 'off' }, 503);
   if (Number(request.headers.get('content-length') ?? 0) > MAX_BODY_BYTES) return json({ error: 'bad' }, 413);
   const body = parseBody(await request.text());
@@ -110,8 +126,7 @@ export async function handleDraft(request: Request, env: Env, call: CallModel = 
   const ready = !!env.ANTHROPIC_API_KEY && !!env.USAGE;
   if (request.method === 'GET') return json({ ready });
   if (request.method !== 'POST') return json({ error: 'bad' }, 405);
-  const origin = request.headers.get('origin');
-  if (!origin || new URL(origin).host !== new URL(request.url).host) return json({ error: 'bad' }, 403);
+  if (!sameOrigin(request)) return json({ error: 'bad' }, 403);
   if (!ready) return json({ error: 'off' }, 503);
   const body = parseDraftBody(await request.text());
   if (!body) return json({ error: 'bad' }, 400);
@@ -186,8 +201,7 @@ export async function handleReview(request: Request, env: Env, ctx: Ctx, call: C
   const state = await reviewState(env, now);
   if (request.method === 'GET') return json({ ready: state.ready, saved: state.saved, blocked: state.blocked, nextAt: state.nextAt });
   if (request.method !== 'POST') return json({ error: 'bad' }, 405);
-  const origin = request.headers.get('origin');
-  if (!origin || new URL(origin).host !== new URL(request.url).host) return json({ error: 'bad' }, 403);
+  if (!sameOrigin(request)) return json({ error: 'bad' }, 403);
   if (state.blocked) return json({ error: state.blocked }, state.blocked === 'off' ? 503 : 429);
   if (Number(request.headers.get('content-length') ?? 0) > REVIEW_MAX_BODY_BYTES) return json({ error: 'bad' }, 413);
   const body = parseReviewBody(await request.text());
@@ -242,7 +256,7 @@ export async function handleReview(request: Request, env: Env, ctx: Ctx, call: C
     await writer.close().catch(() => undefined);
   })();
   ctx.waitUntil(work);
-  return new Response(readable, { headers: { 'content-type': 'application/x-ndjson', 'cache-control': 'no-store' } });
+  return new Response(readable, { headers: { 'content-type': 'application/x-ndjson', ...API_HEADERS } });
 }
 
 export default {

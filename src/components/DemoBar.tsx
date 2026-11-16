@@ -26,14 +26,20 @@ export function DemoBar() {
             <NavLink
               key={to}
               to={to}
+              aria-label={label}
               className={({ isActive }) =>
-                `flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition ${
+                `flex shrink-0 items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-medium transition sm:px-3 ${
                   isActive ? 'bg-white text-ink-900' : 'text-slate-300 hover:bg-white/10 hover:text-white'
                 }`
               }
             >
-              <Icon size={15} />
-              {label}
+              {({ isActive }) => (
+                <>
+                  <Icon size={15} />
+                  {/* On a phone only the screen you are on keeps its name, so all four fit. */}
+                  <span className={isActive ? '' : 'hidden sm:inline'}>{label}</span>
+                </>
+              )}
             </NavLink>
           ))}
         </nav>

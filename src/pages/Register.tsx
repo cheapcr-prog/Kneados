@@ -1,4 +1,4 @@
-import { Banknote, Check, ClipboardCheck, CreditCard, Gift, Keyboard, LogOut, MessageCircle, Minus, PackageCheck, Plus, ScanLine, Timer, Trash2, X } from 'lucide-react';
+import { Banknote, Check, ChevronDown, ChevronUp, ClipboardCheck, CreditCard, Gift, Keyboard, LogOut, MessageCircle, Minus, PackageCheck, Plus, ScanLine, Timer, Trash2, X } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { BreakButton, BreakScreen } from '../components/Breaks';
 import { useGiftCards } from '../components/Channels';
@@ -54,6 +54,8 @@ function Till({ staff, onLogout }: { staff: StaffMember; onLogout: () => void })
   const [sawOffer, setSawOffer] = useState(false);
   const [giftCode, setGiftCode] = useState('');
   const [pickupsOpen, setPickupsOpen] = useState(false);
+  /** Phone only: whether the ticket sheet is open. */
+  const [sheet, setSheet] = useState(false);
   const [tasksOpen, setTasksOpen] = useState(false);
   const upkeep = useUpkeep();
   const myTasks = upkeep.statuses.filter((t) => (t.state === 'due' || t.state === 'overdue') && upkeep.assigned[t.task.id] === staff.id).length;
@@ -79,7 +81,8 @@ function Till({ staff, onLogout }: { staff: StaffMember; onLogout: () => void })
   const tipping = demo.state.tippingEnabled;
 
   const add = (id: string, n: number) => setTicket((c) => ({ ...c, [id]: Math.max(0, (c[id] ?? 0) + n) }));
-  const clear = () => { setTicket({}); setTaken([]); setSawOffer(false); setPhone(''); setRedeem(false); setTip(0); setGiftCode(''); setStage('ticket'); };
+  const count = lines.reduce((a, l) => a + l.qty, 0);
+  const clear = () => { setTicket({}); setTaken([]); setSawOffer(false); setPhone(''); setRedeem(false); setTip(0); setGiftCode(''); setStage('ticket'); setSheet(false); };
 
   const giftCard = giftCode.replace(/[^a-z0-9]/gi, '').length >= 8 ? gift.find(giftCode) : undefined;
   /** What the gift card on screen would cover of this bill. */
@@ -193,14 +196,15 @@ function Till({ staff, onLogout }: { staff: StaffMember; onLogout: () => void })
   }
 
   return (
-    <div className="flex h-[calc(100vh-48px)] flex-col bg-slate-100 lg:flex-row">
-      <div className="flex min-h-0 flex-1 flex-col">
-        <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 bg-white px-3 py-2">
-          <div className="flex min-w-0 flex-1 basis-full gap-1 overflow-x-auto md:basis-0">
+    <div className="flex h-[calc(100dvh-48px)] flex-col bg-slate-100 md:flex-row">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 border-b border-slate-200 bg-white px-3 py-2">
+          <div className="flex min-w-0 flex-1 basis-full gap-1 overflow-x-auto lg:basis-0">
             {TABS.map((c) => (
               <button key={c} onClick={() => setTab(c)} className={`shrink-0 rounded-lg px-3.5 py-2 text-sm font-semibold ${tab === c ? 'bg-ink-900 text-white' : 'text-slate-600 hover:bg-slate-100'}`}>{c}</button>
             ))}
           </div>
+          <div className="-mx-3 flex min-w-0 basis-full items-center gap-2 overflow-x-auto px-3 lg:mx-0 lg:basis-auto lg:overflow-visible lg:px-0">
           <button
             onClick={() => setPickupsOpen(true)}
             className={`flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold ${mineNow > 0 ? 'bg-amber-400 text-ink-900' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}
@@ -219,9 +223,10 @@ function Till({ staff, onLogout }: { staff: StaffMember; onLogout: () => void })
           <button onClick={onLogout} className="flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100">
             <LogOut size={14} /> {staff.name}
           </button>
+          </div>
         </div>
         {prices.preview && <p className="bg-amber-100 px-3 py-1.5 text-xs font-semibold text-amber-900">Previewing prices as if it were {DOW_NAMES[prices.preview.dow]} at {hourLabel(prices.preview.hour)}. Turn this off under Owner, Pricing.</p>}
-        <div className="grid flex-1 auto-rows-min grid-cols-3 gap-2 overflow-y-auto p-3 sm:grid-cols-4 xl:grid-cols-5">
+        <div className="grid flex-1 auto-rows-min grid-cols-3 gap-2 overflow-y-auto p-3 pb-24 sm:grid-cols-4 md:grid-cols-3 md:pb-3 lg:grid-cols-4 xl:grid-cols-5">
           {MENU.filter((m) => tab === 'All' || m.category === tab).map((item) => {
             const soldOut = demo.state.bake[item.id]?.soldOut;
             const qty = ticket[item.id] ?? 0;
@@ -244,16 +249,31 @@ function Till({ staff, onLogout }: { staff: StaffMember; onLogout: () => void })
         </div>
       </div>
 
-      <aside className="flex max-h-[55vh] w-full shrink-0 flex-col border-t border-slate-200 bg-white lg:max-h-none lg:w-[380px] lg:border-l lg:border-t-0">
+      {/* On a phone the ticket is a bar at the bottom that opens into a sheet, so the menu gets the whole screen. */}
+      {!sheet && (
+        <button onClick={() => setSheet(true)} className="fixed inset-x-0 bottom-0 z-30 flex items-center gap-3 bg-ink-900 px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 text-left text-white shadow-[0_-8px_24px_rgba(11,18,32,0.25)] md:hidden">
+          <span className="min-w-0 flex-1">
+            <span className="block text-sm font-bold">{count === 0 ? 'Ticket is empty' : `${count} item${count === 1 ? '' : 's'} on the ticket`}</span>
+            <span className="block truncate text-xs text-slate-300">{offers.length > 0 ? `${offers.length} thing${offers.length === 1 ? '' : 's'} to ask the customer` : member ? `${member.name} · Dough Rewards` : 'Rewards, payment and gift cards'}</span>
+          </span>
+          <span className="tabular font-display text-xl font-extrabold">{money(t.total)}</span>
+          <span className="flex items-center gap-1 rounded-xl bg-glaze-500 px-3.5 py-2.5 text-sm font-bold text-ink-900">{count === 0 ? 'Open' : 'Pay'} <ChevronUp size={16} /></span>
+        </button>
+      )}
+      {sheet && <div className="fixed inset-0 z-40 bg-ink-900/50 md:hidden" onClick={() => setSheet(false)} />}
+      <aside className={`${sheet ? 'fixed inset-x-0 bottom-0 z-50 flex max-h-[88dvh] overflow-y-auto rounded-t-3xl shadow-2xl' : 'hidden'} w-full shrink-0 flex-col bg-white md:static md:z-auto md:flex md:max-h-none md:w-[320px] lg:w-[380px] md:overflow-visible md:rounded-none md:border-l md:border-slate-200 md:shadow-none`}>
         <div className="flex items-center justify-between px-4 pb-1 pt-3">
           <h2 className="font-display text-lg font-bold">Ticket</h2>
-          {lines.length > 0 && (
-            <button onClick={clear} className="flex items-center gap-1 text-xs font-medium text-slate-500 hover:text-rose-600"><Trash2 size={13} /> Clear</button>
-          )}
+          <div className="flex items-center gap-3">
+            {lines.length > 0 && (
+              <button onClick={clear} className="flex items-center gap-1 text-xs font-medium text-slate-500 hover:text-rose-600"><Trash2 size={13} /> Clear</button>
+            )}
+            <button onClick={() => setSheet(false)} className="flex items-center gap-1 rounded-full bg-slate-100 px-3 py-1.5 text-xs font-bold text-slate-700 md:hidden"><ChevronDown size={14} /> Back to the menu</button>
+          </div>
         </div>
-        <div className="min-h-0 flex-1 overflow-y-auto px-4">
+        <div className="min-h-0 shrink-0 px-4 md:flex-1 md:shrink md:overflow-y-auto">
           {lines.length === 0 ? (
-            <p className="py-10 text-center text-sm text-slate-400">Tap items to start a ticket</p>
+            <p className="py-4 text-center text-sm text-slate-400 md:py-10">Tap items to start a ticket</p>
           ) : (
             <ul className="divide-y divide-slate-100">
               {lines.map((l) => {
@@ -314,7 +334,7 @@ function Till({ staff, onLogout }: { staff: StaffMember; onLogout: () => void })
           )}
         </div>
 
-        <div className="border-t border-slate-200 px-4 pb-4 pt-3">
+        <div className="border-t border-slate-200 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3">
           <dl className="space-y-0.5 text-sm">
             <div className="flex justify-between text-slate-600"><dt>Subtotal</dt><dd className="tabular">{money(t.subtotal)}</dd></div>
             {t.discount > 0 && <div className="flex justify-between text-box-600"><dt>Dough Rewards</dt><dd className="tabular">-{money(t.discount)}</dd></div>}

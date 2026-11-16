@@ -15,7 +15,7 @@ export function Kitchen() {
 
   return (
     <div className="min-h-[calc(100vh-48px)] bg-ink-950 p-3 text-white md:p-4">
-      <div className="mx-auto grid max-w-[1400px] gap-4 lg:grid-cols-[minmax(0,4fr)_minmax(0,8fr)]">
+      <div className="mx-auto grid max-w-[1400px] gap-4 lg:grid-cols-[minmax(0,3fr)_minmax(0,9fr)] xl:grid-cols-[minmax(0,4fr)_minmax(0,8fr)]">
         <section>
           <h2 className="flex items-center gap-2 font-display text-xl font-bold"><CalendarClock size={20} className="text-glaze-400" /> Pre-orders for {longDate(demo.tomorrow).split(',')[0]}</h2>
           <div className="mt-3 space-y-2">
@@ -49,7 +49,7 @@ export function Kitchen() {
                   <div className="flex min-w-0 items-center gap-2.5">
                     <ItemArt item={item} size={34} />
                     <div className="min-w-0">
-                      <p className="truncate text-[15px] font-semibold">{item.name}</p>
+                      <p className="text-[15px] font-semibold leading-tight">{item.name}</p>
                       <p className="text-xs text-slate-400">
                         {b.soldOut ? 'Marked sold out' : toGo > 0 ? <span className="font-semibold text-amber-300">Make {toGo} more</span> : low ? <span className="font-semibold text-rose-300">Running low</span> : 'Plan met'}
                         <span className="md:hidden"> · plan {plan} · made {b.made} · sold {sold} · rack {rack}</span>

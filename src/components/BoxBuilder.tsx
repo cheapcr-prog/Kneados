@@ -162,6 +162,8 @@ export function OrderTray({ box, boxOpen, onOpenBox, onCloseBox, closedBoxes, on
   const loose = Object.entries(cart).filter(([, q]) => q > 0).map(([id, q]) => ({ item: MENU_BY_ID[id], qty: q }));
   const bag = loose.filter((l) => !isDrink(l.item));
   const cups = loose.filter((l) => isDrink(l.item) && !l.item.addon).flatMap((l) => Array<typeof l.item>(l.qty).fill(l.item));
+  /** Toppings ride in the cup holder next to the drinks, so they can be taken back out. */
+  const toppings = loose.filter((l) => l.item.addon);
   const boxHot = drag !== null && (over === 'box' || typeof over === 'number');
 
   return (
@@ -240,7 +242,7 @@ export function OrderTray({ box, boxOpen, onOpenBox, onCloseBox, closedBoxes, on
                 ))}
               </Zone>
 
-              <Zone zone="cups" hot={drag !== null && over === 'cups'} label="Cup holder" hint="Drinks go here" empty={cups.length === 0} className="bg-slate-200 text-slate-600">
+              <Zone zone="cups" hot={drag !== null && over === 'cups'} label="Cup holder" hint="Drinks go here" empty={cups.length === 0 && toppings.length === 0} className="bg-slate-200 text-slate-600">
                 <div className="grid grid-cols-4 gap-1 md:grid-cols-2">
                   {Array.from({ length: CUP_WELLS }, (_, i) => {
                     const item = cups[i];
@@ -257,6 +259,17 @@ export function OrderTray({ box, boxOpen, onOpenBox, onCloseBox, closedBoxes, on
                     );
                   })}
                 </div>
+                {toppings.length > 0 && (
+                  <div className="mt-1 flex flex-wrap gap-1">
+                    {toppings.map(({ item, qty }) => (
+                      <button key={item.id} type="button" onClick={() => add(item.id, -1)} aria-label={`Remove one ${item.name.replace(/^Add /, '')}`} title="Tap to take one off" className="donut-drop flex items-center gap-1 rounded-full bg-white px-1.5 py-0.5 text-[10px] font-bold text-slate-700 shadow-sm">
+                        <ItemArt item={item} size={14} />
+                        {qty > 1 ? `${qty} ` : ''}{item.name.replace(/^Add /, '')}
+                        <X size={10} />
+                      </button>
+                    ))}
+                  </div>
+                )}
               </Zone>
             </div>
           )}

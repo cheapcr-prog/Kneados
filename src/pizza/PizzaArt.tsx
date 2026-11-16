@@ -34,7 +34,12 @@ export function PizzaArt({ config, size = 320, className = '', animate = false, 
   const pan = config.crust === 'pan';
   const thin = config.crust === 'thin';
   const R = 100;
-  const crustW = pan ? 8 : thin ? 6 : 12;
+  // Round pies are built from a real photo; the square pan pie is still drawn.
+  const photo = !pan;
+  const crustW = pan ? 8 : thin ? 10 : 16;
+  // The photo's pizza fills 95% of its frame; thin crust zooms in so less rim shows.
+  const half = (R / 0.951) * (thin ? 1.07 : 1);
+  const base = (sauceId: string, cheeseId: string) => <image href={`/pizza/real/base/${sauceId}-${cheeseId}.webp`} x={-half} y={-half} width={2 * half} height={2 * half} preserveAspectRatio="none" />;
   const inner = R - crustW;
   const scale = SIZE_BY_ID[config.size].toppingScale;
   const entries = Object.entries(config.toppings).filter(([tid]) => TOPPING_BY_ID[tid]);
@@ -84,30 +89,44 @@ export function PizzaArt({ config, size = 320, className = '', animate = false, 
         <filter id={id('shadow')} x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0.4" dy="1" stdDeviation="0.8" floodColor="#3a1404" floodOpacity="0.45" /></filter>
         <clipPath id={id('left')}><rect x="-104" y="-104" width="104" height="208" /></clipPath>
         <clipPath id={id('right')}><rect x="0" y="-104" width="104" height="208" /></clipPath>
+        <clipPath id={id('outer')}><circle r={R + 3} /></clipPath>
         <clipPath id={id('inner')}>{shape(inner + 0.5, {})}</clipPath>
       </defs>
       <g style={{ transform: `scale(${grow})`, transition: 'transform 500ms cubic-bezier(.2,.8,.3,1.1)' }}>
       <g ref={dough}>
-      {/* Crust, with the bread texture baked in. */}
-      <g filter={url('wobble')}>
-        <g filter={url('bread')}>{shape(R, { fill: url('crust') })}</g>
-      </g>
-      <Rim R={R} w={crustW} pan={pan} soft={url('soft')} />
-      {/* The oven browns the crust. */}
-      {shape(R, { fill: '#7a3a0e', style: { opacity: baked ? 0.28 : 0, transition: 'opacity 1.2s', mixBlendMode: 'multiply' } })}
+      {photo ? (
+        <g clipPath={url('outer')} style={{ filter: baked ? 'brightness(0.86) saturate(1.15)' : 'none', transition: 'filter 1.2s' }}>
+          {/* Three real photos stacked: bare dough, then the sauce, then the cheese melting in. */}
+          {base('none', 'none')}
+          <g key={config.sauce} className={animate ? 'pz-melt' : undefined} style={delay(250)}>{config.sauce !== 'none' && base(config.sauce, 'none')}</g>
+          <g key={config.sauce + config.cheese} className={animate ? 'pz-melt' : undefined} style={delay(550)}>{config.cheese !== 'none' && base(config.sauce, config.cheese)}</g>
+        </g>
+      ) : (
+        <>
+        {/* Crust, with the bread texture baked in. */}
+        <g filter={url('wobble')}>
+          <g filter={url('bread')}>{shape(R, { fill: url('crust') })}</g>
+        </g>
+        <Rim R={R} w={crustW} pan={pan} soft={url('soft')} />
+        {/* The oven browns the crust. */}
+        {shape(R, { fill: '#7a3a0e', style: { opacity: baked ? 0.28 : 0, transition: 'opacity 1.2s', mixBlendMode: 'multiply' } })}
+        <g clipPath={url('inner')}>
+          {/* Bare dough shows until the sauce goes on. */}
+          <g filter={url('bread')}>{shape(inner + 1, { fill: '#efd2a0' })}</g>
+          <g key={config.sauce} className={animate ? 'pz-spread' : undefined} style={delay(250)}>
+            {config.sauce !== 'none' && <g filter={url('wobble')}>{shape(inner - 1.5, { fill: url('sauce') })}</g>}
+          </g>
+          <g key={config.cheese} className={animate ? 'pz-melt' : undefined} style={delay(550)}>
+            {cheese.amount > 0 && <CheeseLayer r={inner} amount={cheese.amount} melt={url('melt')} pan={pan} animate={animate} />}
+            {cheese.id === 'vegan' && <CheeseLayer r={inner} amount={0.85} tone="#f4ecd2" melt={url('melt')} pan={pan} animate={animate} />}
+          </g>
+          {(cheese.amount > 0 || cheese.id === 'vegan') && <BakedSpots r={inner} strong={baked} soft={url('soft')} />}
+          </g>
+        </>
+      )}
       <g clipPath={url('inner')}>
-        {/* Bare dough shows until the sauce goes on. */}
-        <g filter={url('bread')}>{shape(inner + 1, { fill: '#efd2a0' })}</g>
-        <g key={config.sauce} className={animate ? 'pz-spread' : undefined} style={delay(250)}>
-          {config.sauce !== 'none' && <g filter={url('wobble')}>{shape(inner - 1.5, { fill: url('sauce') })}</g>}
-        </g>
-        <g key={config.cheese} className={animate ? 'pz-melt' : undefined} style={delay(550)}>
-          {cheese.amount > 0 && <CheeseLayer r={inner} amount={cheese.amount} melt={url('melt')} pan={pan} animate={animate} />}
-          {cheese.id === 'vegan' && <CheeseLayer r={inner} amount={0.85} tone="#f4ecd2" melt={url('melt')} pan={pan} animate={animate} />}
-        </g>
-        {(cheese.amount > 0 || cheese.id === 'vegan') && <BakedSpots r={inner} strong={baked} soft={url('soft')} />}
         {/* Pepperoni sweats orange oil into the cheese around it. */}
-        {hasPep && cheese.amount > 0 && <OilPools r={inner} soft={url('soft')} />}
+        {hasPep && cheese.amount > 0 && !photo && <OilPools r={inner} soft={url('soft')} />}
         {entries.map(([tid, side], n) => (
           <g key={tid + side} clipPath={side === 'whole' ? undefined : url(side)}>
             <ToppingLayer t={TOPPING_BY_ID[tid]} r={inner - 4} side={side} scale={scale} shadow={url('shadow')} animate={animate} startMs={intro ? 850 + n * 180 : 0} />
@@ -288,7 +307,14 @@ function specks(seed: number, n: number, spread: number) {
 function Piece({ t, x, y, rot, k }: { t: Topping; x: number; y: number; rot: number; k: number }) {
   const seed = Math.round(rot * 7) + 1;
   const shine = (cx: number, cy: number, rx: number, ry: number, o = 0.35) => <ellipse cx={cx} cy={cy} rx={rx} ry={ry} fill="#fff" opacity={o} transform={`rotate(-35 ${cx} ${cy})`} />;
+  const pic = (name: string, n: number, w: number) => <image href={`/pizza/real/top/${name}-${Math.abs(seed) % n}.webp`} x={-w} y={-w} width={2 * w} height={2 * w} />;
+  const real = t.id === 'pepperoni' || t.id === 'cupchar' || t.id === 'tomato' || t.id === 'freshmozz' || t.id === 'ricotta';
   const body = (() => {
+    // Real photo cutouts where we have them.
+    if (t.id === 'pepperoni') return pic('pep', 4, 8.2);
+    if (t.id === 'cupchar') return <g><circle r="6.6" fill="#2a0a04" />{pic('pep', 4, 6)}<circle r="5.9" fill="none" stroke="#2a0a04" strokeWidth="1.2" opacity="0.6" /></g>;
+    if (t.id === 'tomato') return pic('tom', 8, 7.8);
+    if (t.id === 'freshmozz' || t.id === 'ricotta') return pic('mozz', 10, t.id === 'ricotta' ? 6.5 : 8);
     switch (t.shape) {
       case 'disc':
         if (t.id === 'tomato') {
@@ -430,7 +456,7 @@ function Piece({ t, x, y, rot, k }: { t: Topping; x: number; y: number; rot: num
     }
   })();
   const r = REACH[t.shape];
-  const shiny = t.shape === 'disc' || t.shape === 'cup' || t.shape === 'dollop' || t.id === 'olive';
+  const shiny = !real && (t.shape === 'disc' || t.shape === 'cup' || t.shape === 'dollop' || t.id === 'olive');
   return (
     <g transform={`translate(${x} ${y}) scale(${k})`}>
       <g transform={`rotate(${rot})`}>{body}</g>

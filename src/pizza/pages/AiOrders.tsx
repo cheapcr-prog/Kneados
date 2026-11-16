@@ -168,7 +168,7 @@ export function AiOrders() {
       channel: 'phone', fulfillment: o.fulfillment === 'delivery' ? 'delivery' : 'pickup', createdAt: new Date(now).toISOString(), promisedAt: new Date(now + t.quoteMinutes * MINUTE).toISOString(),
       customer: { name, phone: c.phone, ...(o.fulfillment === 'delivery' && t.address && t.zone ? { address: t.address.line, x: t.address.x, y: t.address.y, zone: t.zone } : {}) },
       lines: t.lines, ...t.totals, payment: o.payment === 'pay_link' ? 'online' : o.payment === 'cash_at_door' ? 'cash' : 'card', status: 'new',
-      note: `Taken by the AI ${s === 'call' ? 'on a call' : 'by text'}. ${o.payment === 'pay_link' ? 'Pay link sent.' : o.payment === 'cash_at_door' ? 'Cash at the door.' : 'Pays at the counter.'}`,
+      note: [o.note.trim(), o.payment === 'pay_link' ? 'Pay link sent' : o.payment === 'cash_at_door' ? 'Cash at the door' : 'Pays at the counter'].filter(Boolean).join(' · '),
       ...(o.payment === 'pay_link' ? { fraud: { flags: t.policy.idCheck ? ['Phone order paid by link: check photo ID'] : [], idCheck: t.policy.idCheck } } : {}),
       ai: { surface: s, transcript: transcript.map(({ who, text }) => ({ who, text })) },
     }, { rewardPhone: c.phone });
@@ -205,6 +205,11 @@ export function AiOrders() {
         }
       }
     } else if (turn.action === 'end') next = 'ended';
+    else {
+      // The customer picked a way to pay that this order cannot use (the total may have just crossed a limit): KneadOS says so right away.
+      const pay = open.find((n) => turn.order.payment && n.note.startsWith(`"${turn.order.payment}" is not allowed`));
+      if (pay) { say = pay.ask; turn = { ...turn, order: { ...turn.order, payment: '' } }; }
+    }
     const after: Row[] = [...transcript, { who: 'ai', text: say }, ...extra];
     if (live.current.run !== run) return after;
     setOrder(turn.order);
@@ -459,6 +464,7 @@ export function AiOrders() {
                 </li>
               ))}
             </ul>
+            {order.note && ticket.lines.length > 0 && <p className="mb-2 rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-600"><b className="text-slate-800">Note for the kitchen:</b> {order.note}</p>}
             {ticket.lines.length > 0 && (
               <>
                 <dl className="tabular space-y-0.5 border-t border-slate-100 pt-2 text-sm">

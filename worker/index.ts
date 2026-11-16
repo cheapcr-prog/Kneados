@@ -170,6 +170,8 @@ const callOrder: CallModel = async (apiKey, user) => {
     fallbacks: 'default',
     // The rules and the whole menu never change between turns, so every turn after the first reads them from the cache.
     system: [{ type: 'text', text: ORDER_SYSTEM, cache_control: { type: 'ephemeral' } }],
+    // No thinking pass before the reply: a caller is waiting on the line, and the order is checked by KneadOS afterwards.
+    thinking: { type: 'between_tools' },
     output_config: { effort: 'low', format: { type: 'json_schema', schema: TURN_SCHEMA } },
     messages: [{ role: 'user', content: user }],
   });

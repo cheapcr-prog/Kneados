@@ -139,6 +139,7 @@ function Ticket({ o, now, timer, action, onAction, disabled }: { o: PizzaOrder; 
           </li>
         ) : <li key={i} className="text-sm text-slate-700">{l.qty > 1 ? `${l.qty} × ` : ''}{SIDE_BY_ID[l.sideId].name}</li>)}
       </ul>
+      {o.ai && o.note && <p className="mt-2 rounded-lg bg-amber-50 px-2 py-1 text-xs font-semibold text-amber-900">{o.note}</p>}
       {timer !== undefined && (
         <div className="mt-2">
           <div className="h-2 overflow-hidden rounded-full bg-slate-100"><div className={`h-full ${timer <= 0 ? 'bg-orange-500' : 'bg-emerald-500'}`} style={{ width: `${pct * 100}%` }} /></div>

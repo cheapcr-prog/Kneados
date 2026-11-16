@@ -7,6 +7,7 @@ import {
   MINUTE, PACKS, buildPizzaHistory, invoiceFor, type PizzaInvoice, configFor, packLines, pizzaPrice, pizzaRewardText, pizzaUsage, preorderPies, forecastDay, rng, totals, zoneFor,
   DEPOSIT_SHARE, type Channel, type DriverState, type Line, type OrderStatus, type PizzaDay, type PizzaOrder,
 } from './logic';
+import { PHONE_POLL_MS, fetchFeed, markSeen, saveLine, savedLine, seenOrders, ticketFromPhone } from './phoneLine';
 
 const KEY = 'kneados-pizza-v1';
 
@@ -212,11 +213,13 @@ function usePizzaStore() {
   const now = () => new Date().toISOString();
   const text = (to: string, body: string, kind: Text['kind']): Text[] => (to ? [{ to, body, at: now(), kind }] : []);
 
-  const placeOrder = useCallback((o: Omit<PizzaOrder, 'id' | 'number'>, opts: { rewardPhone?: string; bill?: { company: string; email: string; po?: string; memo: string } } = {}) => {
+  const placeOrder = useCallback((o: Omit<PizzaOrder, 'id' | 'number'>, opts: { rewardPhone?: string; bill?: { company: string; email: string; po?: string; memo: string }; /** A ticket number given elsewhere (a real phone order is numbered on the call). */ number?: number } = {}) => {
     let placed: PizzaOrder | undefined;
     let invoice: PizzaInvoice | undefined;
     setState((s) => {
-      const order: PizzaOrder = { ...o, id: `pz-${s.nextNumber}`, number: s.nextNumber };
+      if (opts.number && s.orders.some((x) => x.number === opts.number)) return s;
+      const number = opts.number ?? s.nextNumber;
+      const order: PizzaOrder = { ...o, id: `pz-${number}`, number };
       placed = order;
       // Billed to a company: the invoice is emailed with a pay link as soon as the order is booked.
       invoice = opts.bill ? invoiceFor(order, opts.bill, opts.bill.memo, order.promisedAt.slice(0, 10), s.today, s.nextInvoice) : undefined;
@@ -232,7 +235,7 @@ function usePizzaStore() {
         if (earnedReward) texts.push(...text(phone, pizzaRewardText(PIZZA_SHOP.name), 'reward'));
       }
       return {
-        ...s, orders: [...s.orders, order], nextNumber: s.nextNumber + 1, texts: [...texts, ...s.texts], members,
+        ...s, orders: [...s.orders, order], nextNumber: opts.number ? s.nextNumber : s.nextNumber + 1, texts: [...texts, ...s.texts], members,
         invoices: invoice ? [invoice, ...s.invoices] : s.invoices, nextInvoice: invoice ? s.nextInvoice + 1 : s.nextInvoice,
       };
     });
@@ -331,6 +334,29 @@ function usePizzaStore() {
     setState((s) => ({ ...s, out: s.out.includes(id) ? s.out.filter((x) => x !== id) : [...s.out, id] }));
   }, []);
 
+  // The real phone line: orders taken on a call show up here a few seconds later, on every page of the demo.
+  const [phoneLine, setLine] = useState(savedLine);
+  const [lastCallAt, setLastCallAt] = useState<string | null>(null);
+  const setPhoneLine = useCallback((number: string) => { saveLine(number); setLine(savedLine()); setLastCallAt(null); }, []);
+  useEffect(() => {
+    if (!phoneLine) return;
+    let stop = false;
+    const check = async () => {
+      if (document.hidden) return;
+      const feed = await fetchFeed(phoneLine);
+      if (!feed || stop) return;
+      setLastCallAt(feed.lastCallAt);
+      const seen = new Set(seenOrders());
+      const fresh = feed.orders.filter((o) => !seen.has(o.id));
+      if (!fresh.length) return;
+      markSeen(fresh.map((o) => o.id));
+      for (const o of fresh) placeOrder(ticketFromPhone(o), { number: o.number });
+    };
+    void check();
+    const id = setInterval(() => void check(), PHONE_POLL_MS);
+    return () => { stop = true; clearInterval(id); };
+  }, [phoneLine, placeOrder]);
+
   const addTexts = useCallback((list: Text[]) => setState((s) => ({ ...s, texts: [...list, ...s.texts] })), []);
   const setMembers = useCallback((members: RewardsMember[]) => setState((s) => ({ ...s, members })), []);
   const setRain = useCallback((rain: boolean) => setState((s) => (s.rain === rain ? s : { ...s, rain })), []);
@@ -339,7 +365,7 @@ function usePizzaStore() {
   const tomorrow = addDays(state.today, 1);
   const forecastFor = useCallback((date: string) => forecastDay(history, date, { rain: date === tomorrow ? state.rain : false, preorderPies: preorderPies(state.orders, date) }), [history, tomorrow, state.rain, state.orders]);
 
-  return { state, history, tomorrow, forecastFor, placeOrder, setStatus, dispatch, driverBack, setDriverOn, sendPO, receivePO, bumpDough, toggleOut, addTexts, setMembers, setRain, reset, payInvoice, remindInvoice };
+  return { state, history, tomorrow, forecastFor, phoneLine, lastCallAt, setPhoneLine, placeOrder, setStatus, dispatch, driverBack, setDriverOn, sendPO, receivePO, bumpDough, toggleOut, addTexts, setMembers, setRain, reset, payInvoice, remindInvoice };
 }
 
 export type PizzaDemo = ReturnType<typeof usePizzaStore>;

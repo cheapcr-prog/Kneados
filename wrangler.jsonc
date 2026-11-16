@@ -17,6 +17,10 @@
   "vars": { "DAILY_CAP_CENTS": "200", "REVIEW_MONTHLY_CAP_CENTS": "500" },
   // Counts the day's spending. The Anthropic key itself is a secret named ANTHROPIC_API_KEY, set in the Cloudflare dashboard.
   "kv_namespaces": [{ "binding": "USAGE", "id": "a343adc5789f4ba1b31b379603e06061" }],
+  // The real phone line: each shop number keeps its phone orders and regulars in a Durable Object.
+  // The Twilio Auth Token is a secret named TWILIO_AUTH_TOKEN, set in the Cloudflare dashboard.
+  "durable_objects": { "bindings": [{ "name": "PHONE_LINE", "class_name": "PhoneLine" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["PhoneLine"] }],
   // Keep settings made in the dashboard, such as the secret, when a new version deploys.
   "keep_vars": true
 }

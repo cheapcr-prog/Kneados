@@ -4,6 +4,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useShopState } from '../data/local';
 import { SHOP, STAFF, STAFF_BY_ID } from '../data/shop';
 import type { Role, StaffMember } from '../data/types';
+import { addMiss, isLocked, minutesLocked, type Tries } from '../lib/secure';
 
 interface Screen { to: string; label: string }
 const KITCHEN: Screen = { to: '/demo/kitchen', label: 'Kitchen' };
@@ -32,15 +33,18 @@ export function StaffLogin() {
   const [who, setWho] = useState<StaffMember | null>(null);
   const [pin, setPin] = useState('');
   const [wrong, setWrong] = useState(false);
+  // Wrong PINs on this device. Five in 15 minutes locks the keypad, so a 4 digit PIN cannot be guessed by trying them all.
+  const [tries, setTries] = useShopState<Tries>('pin-tries', () => ({ misses: [] }));
+  const locked = isLocked(tries);
 
   const press = (d: string) => {
-    if (!who) return;
+    if (!who || locked) return;
     const next = (pin + d).slice(0, 4);
     setPin(next);
     setWrong(false);
     if (next.length === 4) {
       if (next === who.pin) onLogin(who);
-      else { setWrong(true); setPin(''); }
+      else { setWrong(true); setPin(''); setTries((t) => addMiss(t)); }
     }
   };
 
@@ -70,7 +74,7 @@ export function StaffLogin() {
               ))}
             </div>
             <p className="mt-2 h-5 text-center text-xs text-slate-400">
-              {wrong ? <span className="text-rose-300">Wrong PIN, try again</span> : <>Demo PIN for {who.name}: <span className="font-mono text-glaze-300">{who.pin}</span></>}
+              {locked ? <span className="text-rose-300">Too many wrong PINs. Try again in {minutesLocked(tries)} min.</span> : wrong ? <span className="text-rose-300">Wrong PIN, try again</span> : <>Demo PIN for {who.name}: <span className="font-mono text-glaze-300">{who.pin}</span></>}
             </p>
             <div className="mx-auto mt-3 grid max-w-[260px] grid-cols-3 gap-2">
               {['1', '2', '3', '4', '5', '6', '7', '8', '9'].map((d) => (

@@ -1,3 +1,5 @@
+import { randomCode } from './secure';
+
 /** Sales that do not come over the counter: delivery apps, wholesale accounts and gift cards. */
 
 export type DeliveryApp = 'doordash' | 'ubereats' | 'grubhub';
@@ -90,7 +92,10 @@ export interface GiftCard {
   sold: string;
 }
 
-/** A code that is easy to read out loud: no 0, O, 1 or I. */
+/**
+ * A fixed code for the demo's sample cards, so they are the same in every browser.
+ * Never use it for a card that is sold: those get newGiftCode().
+ */
 export function giftCode(seed: number): string {
   const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
   let n = (seed * 2654435761) >>> 0;
@@ -101,6 +106,15 @@ export function giftCode(seed: number): string {
     if (i === 3) out += '-';
   }
   return out;
+}
+
+/**
+ * The code for a newly sold card: 8 random characters that are easy to read out loud (no 0, O, 1 or I).
+ * About a trillion possible codes, so nobody can guess a live card from the one sold before it.
+ */
+export function newGiftCode(): string {
+  const raw = randomCode(8);
+  return `${raw.slice(0, 4)}-${raw.slice(4)}`;
 }
 
 /** Takes as much of a bill as the card can cover. */

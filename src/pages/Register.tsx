@@ -1,5 +1,6 @@
 import { Banknote, Check, ChevronDown, ChevronUp, ClipboardCheck, CreditCard, Gift, Keyboard, LogOut, Package, MessageCircle, Minus, PackageCheck, Plus, ScanLine, Timer, Trash2, X } from 'lucide-react';
 import { useMemo, useState } from 'react';
+import { useShopState } from '../data/local';
 import { BreakButton, BreakScreen } from '../components/Breaks';
 import { useGiftCards } from '../components/Channels';
 import { ItemArt } from '../components/ItemArt';
@@ -14,6 +15,8 @@ import type { Category, StaffMember } from '../data/types';
 import { formatPhone, money } from '../lib/money';
 import { BOX_SIZE, boxCounts, boxPrice, boxUpcharge, cartLines, isBoxable, linePrice, rewardDiscount, totals } from '../lib/pricing';
 import { PUNCHES_PER_REWARD } from '../lib/rewards';
+import { addMiss, isLocked, minutesLocked, oneTimeCode, type Tries } from '../lib/secure';
+import { lastFour, type FoundBy } from '../lib/wallet';
 import { hourLabel } from '../lib/smartpricing';
 import { suggestOffers, type Offer } from '../lib/upsell';
 import { DOW_NAMES } from '../lib/dates';
@@ -42,6 +45,13 @@ function Till({ staff, onLogout }: { staff: StaffMember; onLogout: () => void })
   const [phone, setPhone] = useState('');
   const [entry, setEntry] = useState<'keypad' | 'scan' | null>(null);
   const [redeem, setRedeem] = useState(false);
+  /** How the customer was found. A scanned card can use its free donut right away; a typed number needs a texted code first. */
+  const [foundBy, setFoundBy] = useState<FoundBy>('typed');
+  /** The code texted to the member before a free donut is used, and the wrong tries so far. */
+  const [check, setCheck] = useState<{ phone: string; code: string; typed: string; misses: number } | null>(null);
+  /** The phone that proved itself with the texted code during this sale. */
+  const [proven, setProven] = useState('');
+  const [checkFailed, setCheckFailed] = useState(false);
   const [stage, setStage] = useState<Stage>('ticket');
   const [tip, setTip] = useState(0);
   const [result, setResult] = useState<{ number: number; total: number; payment: Pay; earned: boolean; giftCents: number; giftLeft?: number } | null>(null);
@@ -53,6 +63,9 @@ function Till({ staff, onLogout }: { staff: StaffMember; onLogout: () => void })
   const [taken, setTaken] = useState<Offer[]>([]);
   const [sawOffer, setSawOffer] = useState(false);
   const [giftCode, setGiftCode] = useState('');
+  // Wrong gift card codes typed at this register. Kept across reloads so guessing codes hits a wall.
+  const [giftTries, setGiftTries] = useShopState<Tries>('gift-tries', () => ({ misses: [] }));
+  const giftLocked = isLocked(giftTries);
   const [pickupsOpen, setPickupsOpen] = useState(false);
   /** Phone only: whether the ticket sheet is open. */
   const [sheet, setSheet] = useState(false);
@@ -81,6 +94,26 @@ function Till({ staff, onLogout }: { staff: StaffMember; onLogout: () => void })
   const digits = phone.replace(/\D/g, '');
   const member = digits.length === 10 ? demo.findMember(digits) : undefined;
   const canRedeem = !!member && member.rewards > 0;
+  const holdsCard = foundBy === 'card' || proven === digits;
+  /** Use the free donut: right away for a scanned card, otherwise text the member a code to read back. */
+  const askRedeem = () => {
+    if (redeem) { setRedeem(false); return; }
+    if (holdsCard) { setRedeem(true); return; }
+    const code = oneTimeCode();
+    demo.sendTexts([{ to: digits, body: `Dough Rewards: ${code} is your code to use a free donut at ${SHOP.name}. Only give it to the cashier. If you are not at the counter, ignore this.` }]);
+    setCheck({ phone: digits, code, typed: '', misses: 0 });
+    setCheckFailed(false);
+  };
+  const typeCheck = (value: string) => {
+    if (!check) return;
+    const typed = value.replace(/\D/g, '').slice(0, 6);
+    if (typed.length < 6) { setCheck({ ...check, typed }); return; }
+    if (typed === check.code) { setProven(check.phone); setRedeem(true); setCheck(null); return; }
+    // Three wrong codes and the free donut stays on the card.
+    if (check.misses + 1 >= 3) { setCheck(null); setCheckFailed(true); return; }
+    setCheck({ ...check, typed: '', misses: check.misses + 1 });
+  };
+  const changePhone = (p: string, by: FoundBy) => { setPhone(p); setFoundBy(by); setRedeem(false); setCheck(null); setCheckFailed(false); };
   const discount = redeem && canRedeem ? rewardDiscount(lines, MENU_BY_ID) : 0;
   const t = totals(lines, MENU_BY_ID, discount);
   const clock = demo.state.clock[staff.id];
@@ -98,9 +131,15 @@ function Till({ staff, onLogout }: { staff: StaffMember; onLogout: () => void })
   const tap = (id: string) => (filling && isBoxable(MENU_BY_ID[id]) ? intoBox(id) : add(id, 1));
   const inBox = (id: string) => (filling ? filling.filter((x) => x === id).length : 0);
   const count = lines.reduce((a, l) => a + l.qty, 0);
-  const clear = () => { setTicket({}); setTaken([]); setSawOffer(false); setPhone(''); setRedeem(false); setTip(0); setGiftCode(''); setStage('ticket'); setSheet(false); setBoxes([]); setFilling(null); };
+  const clear = () => { setTicket({}); setTaken([]); setSawOffer(false); setPhone(''); setRedeem(false); setFoundBy('typed'); setCheck(null); setProven(''); setCheckFailed(false); setTip(0); setGiftCode(''); setStage('ticket'); setSheet(false); setBoxes([]); setFilling(null); };
 
-  const giftCard = giftCode.replace(/[^a-z0-9]/gi, '').length >= 8 ? gift.find(giftCode) : undefined;
+  const giftCard = !giftLocked && giftCode.replace(/[^a-z0-9]/gi, '').length >= 8 ? gift.find(giftCode) : undefined;
+  /** Takes a typed code. A full code that matches no card counts as a wrong try. */
+  const typeGiftCode = (value: string) => {
+    const clean = value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8);
+    setGiftCode(clean.length > 4 ? `${clean.slice(0, 4)}-${clean.slice(4)}` : clean);
+    if (clean.length === 8 && !gift.find(clean)) setGiftTries((t) => addMiss(t));
+  };
   /** What the gift card on screen would cover of this bill. */
   const giftCovers = giftCard ? Math.min(giftCard.balanceCents, t.total) : 0;
 
@@ -154,10 +193,15 @@ function Till({ staff, onLogout }: { staff: StaffMember; onLogout: () => void })
         <p className="text-sm font-semibold uppercase tracking-widest text-slate-500">Pay with a gift card</p>
         <p className="tabular mt-3 font-display text-6xl font-extrabold">{money(t.total)}</p>
         <input
-          autoFocus value={giftCode} onChange={(e) => setGiftCode(e.target.value)} placeholder="ABCD-2345" aria-label="Gift card code"
+          autoFocus value={giftCode} onChange={(e) => typeGiftCode(e.target.value)} disabled={giftLocked} placeholder="ABCD-2345" aria-label="Gift card code"
           className="mt-6 w-full max-w-xs rounded-2xl border-2 border-slate-200 px-4 py-4 text-center font-display text-2xl font-bold uppercase tracking-widest focus:border-glaze-500 focus:outline-none"
         />
-        {!giftCard && (
+        {giftLocked && (
+          <p role="alert" className="mt-3 max-w-sm rounded-xl bg-rose-50 p-3 text-sm font-semibold text-rose-700">
+            Too many wrong gift card codes. Gift cards are paused on this register for {minutesLocked(giftTries)} min, and the owner can see the tries. Take another payment for now.
+          </p>
+        )}
+        {!giftCard && !giftLocked && (
           <div className="mt-3 max-w-sm text-xs text-slate-500">
             <p>{giftCode.replace(/[^a-z0-9]/gi, '').length >= 8 ? 'No card with that code.' : 'Type the code from the card.'} Demo cards to try:</p>
             <p className="mt-1.5 flex flex-wrap justify-center gap-1.5">
@@ -373,20 +417,32 @@ function Till({ staff, onLogout }: { staff: StaffMember; onLogout: () => void })
             <button onClick={() => setEntry('keypad')} className="flex items-center justify-center gap-1.5 rounded-xl bg-slate-100 py-3 text-sm font-bold text-slate-800 hover:bg-slate-200"><Keyboard size={16} /> Phone number</button>
             <button onClick={() => setEntry('scan')} className="flex items-center justify-center gap-1.5 rounded-xl bg-slate-100 py-3 text-sm font-bold text-slate-800 hover:bg-slate-200"><ScanLine size={16} /> Scan card</button>
           </div>
-          <input id="rewards-phone" value={formatPhone(phone)} onChange={(e) => { setPhone(e.target.value); setRedeem(false); }} inputMode="tel" placeholder="or type the number" className="mt-2 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
-          {entry && <RewardsEntry start={entry} initial={phone} onClose={() => setEntry(null)} onDone={(p) => { setPhone(p); setRedeem(false); setEntry(null); }} />}
+          <input id="rewards-phone" value={formatPhone(phone)} onChange={(e) => changePhone(e.target.value, 'typed')} inputMode="tel" placeholder="or type the number" className="mt-2 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
+          {entry && <RewardsEntry start={entry} initial={phone} onClose={() => setEntry(null)} onDone={(p, by) => { changePhone(p, by); setEntry(null); }} />}
           {digits.length === 10 && (
             <div className="mt-1.5 flex items-center justify-between gap-2 text-xs">
               <span className="text-slate-600">
                 {member ? <><span className="font-semibold text-slate-900">{member.name}</span> · {member.punches}/{PUNCHES_PER_REWARD} punches</> : 'New member: this visit is punch 1'}
               </span>
               {canRedeem && (
-                <button onClick={() => setRedeem(!redeem)} className={`flex items-center gap-1 rounded-full px-2.5 py-1 font-semibold ${redeem ? 'bg-box-500 text-white' : 'bg-box-50 text-box-700'}`}>
+                <button onClick={askRedeem} disabled={!!check} className={`flex items-center gap-1 rounded-full px-2.5 py-1 font-semibold disabled:opacity-50 ${redeem ? 'bg-box-500 text-white' : 'bg-box-50 text-box-700'}`}>
                   <Gift size={12} /> {redeem ? 'Free donut applied' : `Use free donut (${member!.rewards})`}
                 </button>
               )}
             </div>
           )}
+          {check && check.phone === digits && (
+            <div data-reward-check className="mt-2 rounded-xl bg-box-50 p-2.5 text-xs text-slate-700 ring-1 ring-box-100">
+              <p>The number was typed, not scanned, so we texted a code to {lastFour(digits)}. Ask the customer to read it from their phone.</p>
+              <div className="mt-1.5 flex items-center gap-2">
+                <input autoFocus value={check.typed} onChange={(e) => typeCheck(e.target.value)} inputMode="numeric" autoComplete="one-time-code" placeholder="6 digit code" aria-label="Code from the customer's text" className="tabular w-32 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-center text-sm font-bold tracking-widest" />
+                <button onClick={() => setCheck(null)} className="font-semibold text-slate-500 underline">Cancel</button>
+              </div>
+              {check.misses > 0 && <p className="mt-1 font-semibold text-rose-600">That code is wrong. {3 - check.misses} {3 - check.misses === 1 ? 'try' : 'tries'} left.</p>}
+              <p className="mt-1 text-[11px] text-slate-500">Demo: the text is not really sent. The code is {check.code}.</p>
+            </div>
+          )}
+          {checkFailed && <p role="alert" className="mt-2 text-xs font-semibold text-rose-600">Three wrong codes. The free donut stays on the member's card. Scanning their wallet card works too.</p>}
         </div>
 
         <div className="border-t border-slate-200 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3">

@@ -17,7 +17,7 @@ import { formatPhone, money } from '../lib/money';
 import { boxCounts, boxPrice, boxUpcharge, cartLines, isBoxable, linePrice, totals } from '../lib/pricing';
 import type { OrderLine } from '../data/types';
 import { PUNCHES_PER_REWARD } from '../lib/rewards';
-import { cardCode } from '../lib/wallet';
+import { cardCode, lastFour } from '../lib/wallet';
 import { applyPrices, type LivePrice } from '../lib/smartpricing';
 import { attachTopping, clampToppings, cycleTopping, detachTopping, toppingLines, toppingTotals, type ToppingLine, type Toppings } from '../lib/toppings';
 import { suggestOffers, type Offer } from '../lib/upsell';
@@ -349,8 +349,11 @@ function Checkout({ loose: cartLoose, boxes, add, toppings, merch, addMerch, rem
   const offers = upsells.stats.on ? suggestOffers(lines, menu, (id) => !!demo.state.bake[id]?.soldOut).filter((o) => !taken.some((x) => x.kind === o.kind)) : [];
   const digits = phone.replace(/\D/g, '');
   const pickup = slot || slots[0]?.toISOString() || '';
-  const ready = (lines.length > 0 || merch.length > 0) && name.trim().length > 1 && digits.length === 10 && pickup;
-  const member = digits.length === 10 ? demo.findMember(digits) : undefined;
+  const items = lines.reduce((a, l) => a + l.qty, 0);
+  // A giant online order is the usual shape of a fake one (it ties up the fryer and sells out the case),
+  // so past this size the customer calls the shop or books it as an event with a deposit.
+  const tooBig = items > MAX_ONLINE_ITEMS;
+  const ready = (lines.length > 0 || merch.length > 0) && name.trim().length > 1 && digits.length === 10 && pickup && !tooBig;
 
   const place = () => {
     if (!ready) return;
@@ -477,9 +480,8 @@ function Checkout({ loose: cartLoose, boxes, add, toppings, merch, addMerch, rem
               <span>
                 <span className="font-semibold">Count this visit toward Dough Rewards</span>
                 <span className="block text-xs text-slate-500">
-                  {member
-                    ? `Welcome back, ${member.name}. You have ${member.punches} of ${PUNCHES_PER_REWARD} punches.`
-                    : `Free donut every ${PUNCHES_PER_REWARD}th visit. We'll text you when you earn one.`}
+                  {/* Never say whose number this is or how many punches it has: anyone can type any number here. */}
+                  {`Free donut every ${PUNCHES_PER_REWARD}th visit. The punch goes on the card for this number, and we text that phone when a free donut is ready.`}
                 </span>
               </span>
             </label>
@@ -495,6 +497,7 @@ function Checkout({ loose: cartLoose, boxes, add, toppings, merch, addMerch, rem
             <div className="flex justify-between text-slate-600"><dt>Tax</dt><dd className="tabular">{money(t.tax)}</dd></div>
             <div className="flex justify-between text-base font-bold text-slate-900"><dt>Total</dt><dd className="tabular">{money(t.total)}</dd></div>
           </dl>
+          {tooBig && <p role="alert" className="mt-2 rounded-xl bg-amber-50 p-2.5 text-xs text-amber-900">Online orders go up to {MAX_ONLINE_ITEMS / 12} dozen. For a bigger order, call us at {SHOP.phone} or book it as an event, so we can fry it fresh for you.</p>}
           <button disabled={!ready} onClick={place} className="mt-3 w-full rounded-xl bg-box-500 py-3.5 text-sm font-bold text-white hover:bg-box-600 disabled:bg-slate-300">
             Place order
           </button>
@@ -571,11 +574,20 @@ function Confirmation({ order, onClose }: { order: Order; onClose: () => void })
             </ul>
           </div>
         )}
-        {order.phone && demo.findMember(order.phone) && (
-          <Link to={`/demo/shop/card/${cardCode(order.phone)}`} className="mt-3 flex items-center justify-center gap-2 rounded-xl bg-box-50 px-3 py-2.5 text-sm font-semibold text-box-700 hover:bg-box-100">
-            Get your Dough Rewards card for your phone wallet
-          </Link>
-        )}
+        {order.phone && (() => {
+          const m = demo.findMember(order.phone);
+          if (!m) return null;
+          // Only a brand new member gets the card link on this screen. Anyone can type any number at checkout,
+          // so an existing member's card only ever goes to their own phone by text.
+          if (m.visits <= 1 && m.joined === demo.state.today) {
+            return (
+              <Link to={`/demo/shop/card/${cardCode(order.phone)}`} className="mt-3 flex items-center justify-center gap-2 rounded-xl bg-box-50 px-3 py-2.5 text-sm font-semibold text-box-700 hover:bg-box-100">
+                Get your Dough Rewards card for your phone wallet
+              </Link>
+            );
+          }
+          return <p className="mt-3 rounded-xl bg-box-50 px-3 py-2.5 text-center text-sm text-box-700">Your Dough Rewards card is in the texts we sent to {lastFour(order.phone)}.</p>;
+        })()}
         <p className="mt-3 rounded-xl bg-slate-50 p-3 text-xs text-slate-600">
           This order just landed in <span className="font-semibold">Pickup orders</span> on the Register, where the counter staff pack it.
           {order.phone ? ' When they tap "Packed and ready", the customer gets a text.' : ''} Demo: texts are shown here, not sent.
@@ -585,6 +597,9 @@ function Confirmation({ order, onClose }: { order: Order; onClose: () => void })
     </div>
   );
 }
+
+/** The most donuts and drinks one online order can hold: twelve dozen. */
+const MAX_ONLINE_ITEMS = 144;
 
 function isoLocal(iso: string): string {
   const d = new Date(iso);

@@ -9,10 +9,9 @@ import { phoneFromCode } from '../lib/wallet';
 export function RewardsCardPage() {
   const { code = '' } = useParams();
   const demo = useDemo();
-  const phone = phoneFromCode(code);
-  const member: RewardsMember | undefined = phone
-    ? demo.findMember(phone) ?? { phone, name: 'New member', punches: 0, rewards: 0, visits: 0, joined: demo.state.today }
-    : undefined;
+  // Only a real member's card opens. A made-up or mistyped code shows nothing about anyone.
+  const phone = phoneFromCode(code, demo.state.members.map((m) => m.phone));
+  const member: RewardsMember | undefined = phone ? demo.findMember(phone) : undefined;
   return (
     <div className="min-h-[calc(100vh-48px)] bg-slate-100 px-4 py-8">
       <div className="mx-auto max-w-sm">

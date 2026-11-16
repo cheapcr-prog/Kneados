@@ -92,6 +92,9 @@ describe('/api/ask', () => {
   });
   it('refuses questions sent from another site', async () => {
     expect((await handleAsk(post(good, 'https://elsewhere.example'), env(), reply('x'), now)).status).toBe(403);
+    expect((await handleAsk(post(good, 'null'), env(), reply('x'), now)).status).toBe(403);
+    expect((await handleAsk(post(good, 'not a url'), env(), reply('x'), now)).status).toBe(403);
+    expect((await handleAsk(new Request('https://kneados.app/api/ask', { method: 'POST', body: good }), env(), reply('x'), now)).status).toBe(403);
   });
   it('still counts the cost when the model declines', async () => {
     const e = env();
@@ -126,5 +129,14 @@ describe('pizza mode', () => {
     const call: CallModel = async (_k, _u, system) => { used = system ?? ''; return reply('ok')(_k, _u); };
     await handleAsk(post(good), env(), call, now);
     expect(used).toContain('donut shop');
+  });
+});
+
+describe('api answers', () => {
+  it('are never cached, sniffed or framed', async () => {
+    const res = await handleAsk(new Request('https://kneados.app/api/ask'), env());
+    expect(res.headers.get('cache-control')).toBe('no-store');
+    expect(res.headers.get('x-content-type-options')).toBe('nosniff');
+    expect(res.headers.get('x-frame-options')).toBe('DENY');
   });
 });

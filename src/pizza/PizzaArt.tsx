@@ -177,7 +177,13 @@ export function PizzaArt({ config, size = 320, className = '', animate = false, 
         </g>
       )}
       </g>
-      {!cut && entries.some(([, s]) => s !== 'whole') && <line x1="0" y1={-inner} x2="0" y2={inner} stroke="#fff" strokeWidth="0.8" strokeDasharray="3 3" opacity="0.7" />}
+      {!cut && entries.some(([, s]) => s !== 'whole') && (
+        // Half and half: a clear line down the middle, readable over any sauce or topping.
+        <g strokeLinecap="round">
+          <line x1="0" y1={-inner - 2} x2="0" y2={inner + 2} stroke="#1f1206" strokeWidth="2.2" opacity="0.45" />
+          <line x1="0" y1={-inner - 2} x2="0" y2={inner + 2} stroke="#fff" strokeWidth="1.1" strokeDasharray="4 3" />
+        </g>
+      )}
       </g>
     </svg>
   );

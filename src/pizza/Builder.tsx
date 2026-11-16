@@ -358,6 +358,14 @@ export function Builder({ start, out = [], onAdd, addLabel = 'Add to order', dar
           )}
         </div>
         <p key={caption.n} className={`pz-caption mt-2 min-h-[1.25rem] text-center text-sm font-semibold ${dark ? 'text-emerald-300' : 'text-emerald-700'}`} aria-live="polite">{caption.text}</p>
+        {(['left', 'right'] as const).some((h) => Object.values(config.toppings).includes(h)) && (
+          <div className="mt-1 grid grid-cols-2 gap-2 text-center text-xs">
+            {(['left', 'right'] as const).map((h) => {
+              const names = Object.entries(config.toppings).filter(([, v]) => v === h).map(([tid]) => TOPPING_BY_ID[tid]?.name).filter(Boolean);
+              return <p key={h} className={muted}><b className={dark ? 'text-white' : 'text-slate-700'}>{h === 'left' ? 'Left half' : 'Right half'}:</b> {names.length ? names.join(', ') : 'nothing extra'}</p>;
+            })}
+          </div>
+        )}
         {guided && <div className="mt-3 hidden lg:block">{summary}</div>}
       </div>
 

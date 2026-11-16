@@ -133,8 +133,9 @@ export function Builder({ start, out = [], onAdd, addLabel = 'Add to order', dar
           <span className="tabular w-5 text-center font-bold">{qty}</span>
           <button aria-label="One more" onClick={() => setQty(qty + 1)} className={`rounded-full p-1.5 ${dark ? 'bg-white/10' : 'bg-slate-100'}`}><Plus size={14} /></button>
         </div>
-        <button disabled={!!baking} onClick={finish} className="flex items-center gap-1.5 rounded-full bg-emerald-600 px-5 py-2.5 text-sm font-bold text-white hover:bg-emerald-700 disabled:opacity-60">
-          {guided && <Flame size={15} />}{addLabel} · {money(price.cents * qty)}
+        {/* One final action: on the website it bakes the pie, then adds it to the order. */}
+        <button disabled={!!baking} onClick={finish} className={`flex items-center gap-1.5 rounded-full px-5 py-2.5 text-sm font-bold text-white disabled:opacity-60 ${guided ? 'bg-orange-600 hover:bg-orange-700' : 'bg-emerald-600 hover:bg-emerald-700'}`}>
+          {guided ? <><Flame size={15} /> Put it in the oven</> : addLabel} · {money(price.cents * qty)}
         </button>
       </div>
     </div>
@@ -341,7 +342,7 @@ export function Builder({ start, out = [], onAdd, addLabel = 'Add to order', dar
                 : <span />}
               {step < STEPS.length - 1
                 ? <button onClick={() => setStep(step + 1)} className="flex items-center gap-1 rounded-full bg-ink-900 px-5 py-2.5 text-sm font-bold text-white hover:bg-ink-800">Next: {STEPS[step + 1].label} <ChevronRight size={16} /></button>
-                : <button disabled={!!baking} onClick={finish} className="flex items-center gap-1.5 rounded-full bg-orange-600 px-5 py-2.5 text-sm font-bold text-white hover:bg-orange-700 disabled:opacity-60"><Flame size={16} /> Put it in the oven</button>}
+                : <span className={`text-right text-xs ${muted}`}>Happy with it? Put it in the oven and it goes in your order.</span>}
             </div>
             <div className="lg:hidden">{summary}</div>
           </>

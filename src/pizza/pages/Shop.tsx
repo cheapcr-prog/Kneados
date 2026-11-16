@@ -3,9 +3,9 @@ import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useTick } from '../../components/Breaks';
 import { formatPhone, money } from '../../lib/money';
-import { ADDRESSES, PIZZA_SHOP, SIDES, SIDE_BY_ID, SIZES, SPECIALTIES, ZONES, type SizeId } from '../data';
+import { ADDRESSES, PIZZA_SHOP, SIDES, SIDE_BY_ID, SIZES, SPECIALTIES, ZONES, type PizzaConfig, type SizeId } from '../data';
 import { DEPOSIT_SHARE, INVOICE_TERMS_DAYS, MINUTE, PACKS, payPath, validEmail, type PizzaInvoice, configFor, lineCents, packLines, packValue, pizzaDetails, pizzaPrice, pizzaTitle, quoteTime, totals, upsells, zoneFor, type Line, type PizzaLine, type PizzaOrder } from '../logic';
-import { Builder } from '../Builder';
+import { Builder, Oven, reducedMotion } from '../Builder';
 import { usePizza } from '../store';
 import { usePizzaBrain } from '../brain';
 
@@ -22,6 +22,8 @@ export function PizzaShop() {
   const [building, setBuilding] = useState<{ specialtyId?: string; size?: SizeId } | null>(null);
   const [open, setOpen] = useState(false);
   const [placed, setPlaced] = useState<string | null>(null);
+  // Once the order is paid, every pizza in it goes into the oven together before the confirmation shows.
+  const [baking, setBaking] = useState<{ id: string; number: number; configs: PizzaConfig[] } | null>(null);
   const [toast, setToast] = useState('');
 
   const add = (l: Line) => {
@@ -163,8 +165,23 @@ export function PizzaShop() {
       {open && (
         <Checkout cart={cart} setCart={setCart} history={history} gameDay={brain.facts.tomorrow.event ?? undefined} onClose={() => setOpen(false)}
           quote={(zone, pies) => quoteTime(state.orders.filter((o) => o.status !== 'done'), pies, { zone, cooks: brain.cooks, driversFreeInMin: brain.freeIn }).minutes}
-          onPlace={(o, phone) => { const placedO = placeOrder(o, { rewardPhone: phone }); setCart([]); setOpen(false); if (placedO) setPlaced(placedO.id); }}
+          onPlace={(o, phone) => {
+            const placedO = placeOrder(o, { rewardPhone: phone });
+            const configs = cart.flatMap((l) => (l.kind === 'pizza' ? Array.from({ length: l.qty }, () => l.config) : []));
+            setCart([]); setOpen(false);
+            if (!placedO) return;
+            if (configs.length && !reducedMotion()) setBaking({ id: placedO.id, number: placedO.number, configs });
+            else setPlaced(placedO.id);
+          }}
         />
+      )}
+
+      {baking && (
+        <Modal onClose={() => { setPlaced(baking.id); setBaking(null); }} title={`Order #${baking.number} is paid`}>
+          <p className="mb-3 text-sm text-slate-600">{baking.configs.length > 1 ? `All ${baking.configs.length} pizzas go in the oven together.` : 'Your pizza goes in the oven now.'}</p>
+          <Oven configs={baking.configs} onDone={() => { setPlaced(baking.id); setBaking(null); }} />
+          {baking.configs.length > 6 && <p className="mt-2 text-center text-xs text-slate-500">Showing 6 of {baking.configs.length} pizzas.</p>}
+        </Modal>
       )}
 
       {placedOrder && (

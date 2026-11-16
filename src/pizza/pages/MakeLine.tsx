@@ -12,7 +12,8 @@ const clock = (ms: number) => new Date(ms).toLocaleTimeString('en-US', { hour: '
 
 /** The cooks' screen: tickets to make, the oven with a timer on every pie, and what is boxed and waiting. */
 export function MakeLine() {
-  useTick(5_000);
+  // Every second, so the oven countdowns tick like a real timer.
+  useTick(1_000);
   const demo = usePizza();
   const { state, setStatus, toggleOut, bumpDough } = demo;
   const now = Date.now();

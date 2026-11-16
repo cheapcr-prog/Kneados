@@ -105,7 +105,7 @@ export interface Topping {
 }
 
 export const TOPPINGS: Topping[] = [
-  { id: 'pepperoni', name: 'Pepperoni', kind: 'meat', grams: 70, costPerLbCents: 499, shape: 'disc', color: '#b8321e', accent: '#8f1f12', pieces: 18 },
+  { id: 'pepperoni', name: 'Pepperoni', kind: 'meat', grams: 70, costPerLbCents: 499, shape: 'disc', color: '#b8321e', accent: '#8f1f12', pieces: 24 },
   { id: 'cupchar', name: 'Cup & char pepperoni', kind: 'meat', premium: true, grams: 70, costPerLbCents: 649, shape: 'cup', color: '#a32a17', accent: '#5e140a', pieces: 22 },
   { id: 'sausage', name: 'Italian sausage', kind: 'meat', grams: 85, costPerLbCents: 399, shape: 'crumble', color: '#7a4428', accent: '#5a2f1a', pieces: 26 },
   { id: 'bacon', name: 'Bacon', kind: 'meat', premium: true, grams: 60, costPerLbCents: 699, shape: 'strip', color: '#9c3b2a', accent: '#f0b8a6', pieces: 12 },

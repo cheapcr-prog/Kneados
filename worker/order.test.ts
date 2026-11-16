@@ -60,3 +60,13 @@ describe('/api/order', () => {
     expect(await res.json()).toEqual({ error: 'limit' });
   });
 });
+
+describe('address lookup endpoint', () => {
+  it('turns what was sent into a query, and refuses things that are not addresses', async () => {
+    const { parseGeocodeBody, findAddress } = await import('./geocode');
+    expect(parseGeocodeBody(JSON.stringify({ address: '1746 Ximeno Ave' }))).toBe('1746 Ximeno Ave, Long Beach, CA');
+    expect(parseGeocodeBody(JSON.stringify({ address: 'my house' }))).toBeNull();
+    expect(parseGeocodeBody('not json')).toBeNull();
+    expect(await findAddress('x', async () => ({ result: { addressMatches: [] } }))).toBeNull();
+  });
+});

@@ -175,3 +175,22 @@ describe('company invoices', () => {
     expect(validEmail('ap@harbor')).toBe(false);
   });
 });
+
+describe('extra toppings', () => {
+  const base = { size: 'L' as const, crust: 'hand' as const, sauce: 'red' as const, cheese: 'regular' as const };
+  it('charges a second portion and uses twice the topping', () => {
+    const one = pizzaPrice({ ...base, toppings: { pepperoni: 'whole' } });
+    const two = pizzaPrice({ ...base, toppings: { pepperoni: 'whole' }, extra: ['pepperoni'] });
+    expect(two.cents - one.cents).toBe(one.parts[1].cents);
+    expect(two.parts[1].label).toBe('Extra pepperoni');
+    const u1 = pizzaUsage({ ...base, toppings: { pepperoni: 'left' } });
+    const u2 = pizzaUsage({ ...base, toppings: { pepperoni: 'left' }, extra: ['pepperoni'] });
+    expect(u2.pepperoni).toBeCloseTo(u1.pepperoni * 2);
+  });
+  it('charges only the extra portion on a specialty topping, and ignores extra for a topping that is off', () => {
+    const sp = configFor('pepperoni', 'L');
+    const plain = pizzaPrice(sp, 'pepperoni').cents;
+    expect(pizzaPrice({ ...sp, extra: ['pepperoni'] }, 'pepperoni').cents).toBeGreaterThan(plain);
+    expect(pizzaPrice({ ...sp, extra: ['bacon'] }, 'pepperoni').cents).toBe(plain);
+  });
+});

@@ -146,8 +146,8 @@ export function PizzaArt({ config, size = 320, className = '', animate = false, 
         {/* Pepperoni sweats orange oil into the cheese around it. */}
         {hasPep && cheese.amount > 0 && !photo && <OilPools r={inner} soft={url('soft')} />}
         {stage >= 3 && entries.map(([tid, side], n) => (
-          <g key={tid + side} clipPath={side === 'whole' ? undefined : url(side)}>
-            <ToppingLayer t={TOPPING_BY_ID[tid]} r={inner - 4} side={side} scale={scale} shadow={url('shadow')} animate={animate} startMs={intro ? 850 + n * 180 : 0} />
+          <g key={tid + side + (config.extra?.includes(tid) ? 'x' : '')} clipPath={side === 'whole' ? undefined : url(side)}>
+            <ToppingLayer t={TOPPING_BY_ID[tid]} r={inner - 4} side={side} scale={scale} extra={config.extra?.includes(tid)} shadow={url('shadow')} animate={animate} startMs={intro ? 850 + n * 180 : 0} />
           </g>
         ))}
       </g>
@@ -267,10 +267,11 @@ const GOLDEN = Math.PI * (3 - Math.sqrt(5));
  * A half uses the same spacing as the whole pie and keeps only the pieces on its side, clear of the middle line.
  * Each topping turns the spiral by its own angle so different toppings sit between each other.
  */
-function ToppingLayer({ t, r, side, scale, shadow, animate, startMs }: { t: Topping; r: number; side: string; scale: number; shadow: string; animate: boolean; startMs: number }) {
+function ToppingLayer({ t, r, side, scale, shadow, animate, startMs, extra = false }: { t: Topping; r: number; side: string; scale: number; shadow: string; animate: boolean; startMs: number; extra?: boolean }) {
   const rand = rng([...t.id].reduce((a, c) => a * 31 + c.charCodeAt(0), 3) >>> 0);
   const reach = REACH[t.shape] * (t.id === 'meatball' ? 1.1 : 1);
-  const count = Math.round(t.pieces * Math.max(0.85, Math.min(1.3, scale)));
+  // Extra piles on about two thirds more pieces, as many as fit without burying the pie.
+  const count = Math.round(t.pieces * Math.max(0.85, Math.min(1.3, scale)) * (extra ? 1.65 : 1));
   const usable = r - reach - 1;
   const turn = rand() * Math.PI * 2;
   const pts: { x: number; y: number; rot: number; k: number }[] = [];

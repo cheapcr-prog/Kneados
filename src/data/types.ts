@@ -98,6 +98,22 @@ export interface Order {
   toppings?: { drink: string; addon: string; qty: number }[];
   /** Mixed dozen boxes the customer built online. Their donuts are already counted in `lines`. */
   boxes?: string[][];
+  /** Stolen card checks on an online order. */
+  fraud?: OrderFraud;
+}
+
+export interface OrderFraud {
+  /** Warning signs, worded for the staff screen. */
+  flags: string[];
+  /** Staff must check photo ID against the card name before handing it over. */
+  idCheck: boolean;
+  cardName?: string;
+  /** Not paid online: the customer pays at the counter. */
+  payAtPickup?: boolean;
+  /** The bank confirmed the payment (3D Secure). */
+  bankConfirmed?: boolean;
+  /** Set at pickup: the ID matched, or it did not and the order was held. */
+  idResult?: 'matched' | 'held';
 }
 
 export interface DayItemSales {

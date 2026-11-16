@@ -1,4 +1,6 @@
 import { Bike, Check, ChevronRight, Clock, Minus, Plus, ShoppingBag, Sparkles, Store, Trophy, X } from 'lucide-react';
+import { useFraud } from '../../components/Fraud';
+import { DECLINED_DEMO_CARD, GOOD_DEMO_CARD, demoCardOk, failedTries, orderRisk, triesLeft } from '../../lib/fraud';
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useTick } from '../../components/Breaks';
@@ -291,6 +293,45 @@ function Checkout({ cart, setCart, history, gameDay, onClose, onPlace, quote }: 
   const minutes = quote(zone, pies);
   const ups = useMemo(() => upsells(cart, history, gameDay), [cart, history, gameDay]);
   const outOfRange = mode === 'delivery' && !zone;
+  const { state: shopState } = usePizza();
+  const fraud = useFraud();
+  const [card, setCard] = useState(GOOD_DEMO_CARD);
+  const [cardName, setCardName] = useState('');
+  const [billingZip, setBillingZip] = useState('');
+  const [declined, setDeclined] = useState('');
+  const [bankCheck, setBankCheck] = useState(false);
+  const firstTime = phone.length === 10 && !shopState.orders.some((o) => o.customer.phone === phone) && !shopState.members.some((m) => m.phone === phone && m.visits > 0);
+  const risk = orderRisk({
+    totalCents: t.total, fulfillment: mode, firstTime, orderName: name, cardName: cardName.trim() || undefined, billingZip,
+    deliveryAreas: LOCAL_ZIP_AREAS, failedTries: failedTries(fraud.tries, phone, fraud.device),
+  }, fraud.settings);
+  const left = triesLeft(fraud.tries, phone, fraud.device, fraud.settings);
+  const cardOk = risk.payInPerson || (card.replace(/\D/g, '').length === 16 && cardName.trim().length > 1 && /^\d{5}$/.test(billingZip));
+  const send = (bankConfirmed: boolean) => {
+    setBankCheck(false);
+    const now = Date.now();
+    const flagged = risk.idCheck || risk.flags.length > 0;
+    onPlace({
+      channel: 'online', fulfillment: mode, createdAt: new Date(now).toISOString(), promisedAt: new Date(now + minutes * MINUTE).toISOString(),
+      customer: { name, phone, ...(mode === 'delivery' ? { address: a.line, x: a.x, y: a.y, zone } : {}) },
+      lines: cart, ...t, payment: risk.payInPerson ? (mode === 'delivery' ? 'cash' : 'card') : 'online', status: 'new',
+      ...(flagged || bankConfirmed ? { fraud: { flags: risk.flags.map((f) => f.label), idCheck: risk.idCheck, cardName: risk.payInPerson ? undefined : cardName.trim(), bankConfirmed } } : {}),
+    }, rewards ? phone : undefined);
+  };
+  const pay = () => {
+    setDeclined('');
+    if (!risk.payInPerson) {
+      if (!demoCardOk(card)) {
+        fraud.record({ phone, ok: false });
+        const n = left - 1;
+        setDeclined(n > 0 ? `The bank declined that card. ${n} ${n === 1 ? 'try' : 'tries'} left this hour.` : 'The bank declined that card. That was the last try this hour: pay when the pizza arrives or at pickup.');
+        return;
+      }
+      if (risk.threeDS && !bankCheck) { setBankCheck(true); return; }
+      fraud.record({ phone, ok: true });
+    }
+    send(risk.threeDS && !risk.payInPerson);
+  };
 
   return (
     <Modal onClose={onClose} title="Your order">
@@ -362,24 +403,49 @@ function Checkout({ cart, setCart, history, gameDay, onClose, onPlace, quote }: 
         <div className="flex justify-between text-base font-bold"><dt>Total</dt><dd>{money(t.total)}</dd></div>
       </dl>
       <p className="mt-2 flex items-center gap-1.5 text-sm text-slate-600"><Clock size={14} className="shrink-0" /> <span>{mode === 'delivery' ? 'At your door' : 'Ready'} in about <b>{minutes} min</b>, based on what's in our oven right now.</span></p>
+      <div className="mt-3 space-y-2">
+        <p className="text-sm font-semibold">Payment</p>
+        {risk.payInPerson ? (
+          <p className="rounded-xl bg-sky-50 p-2.5 text-xs text-sky-900">First order with us? Welcome! You'll pay {mode === 'delivery' ? 'the driver' : 'at the counter'} by card or cash.</p>
+        ) : left === 0 ? (
+          <p role="alert" className="rounded-xl bg-rose-50 p-2.5 text-xs font-semibold text-rose-700">Too many declined cards from this phone or device in the last hour. Please call the shop.</p>
+        ) : (
+          <>
+            <input value={card} onChange={(e) => setCard(e.target.value.replace(/[^\d ]/g, '').slice(0, 19))} placeholder="Card number" inputMode="numeric" autoComplete="cc-number" aria-label="Card number" className="tabular w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
+            <div className="grid grid-cols-[1fr_7rem] gap-2">
+              <input value={cardName} onChange={(e) => setCardName(e.target.value)} placeholder="Name on card" autoComplete="cc-name" aria-label="Name on card" className="rounded-lg border border-slate-200 px-3 py-2 text-sm" />
+              <input value={billingZip} onChange={(e) => setBillingZip(e.target.value.replace(/\D/g, '').slice(0, 5))} placeholder="Billing ZIP" inputMode="numeric" autoComplete="postal-code" aria-label="Billing ZIP" className="tabular rounded-lg border border-slate-200 px-3 py-2 text-sm" />
+            </div>
+            {risk.idCheck && <p className="text-xs text-slate-500">{mode === 'delivery' ? 'The driver will ask to see a photo ID that matches the card.' : 'Bring a photo ID that matches the card.'}</p>}
+            <p className="text-[11px] text-slate-400">Demo: {GOOD_DEMO_CARD} is approved. <button type="button" onClick={() => setCard(DECLINED_DEMO_CARD)} className="font-semibold underline">Use a card that gets declined</button>. Try billing ZIP 33101 on a delivery.</p>
+          </>
+        )}
+        {declined && <p role="alert" className="rounded-xl bg-rose-50 p-2.5 text-xs font-semibold text-rose-700">{declined}</p>}
+      </div>
+      {bankCheck && (
+        <div data-bank-check className="mt-3 rounded-2xl bg-slate-900 p-4 text-white">
+          <p className="text-xs font-bold uppercase tracking-wider text-emerald-300">Your bank</p>
+          <p className="mt-1 text-sm">Approve this {money(t.total)} payment in your bank's app. Bigger or unusual orders get this extra check.</p>
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            <button onClick={() => setBankCheck(false)} className="rounded-xl bg-white/10 py-2.5 text-sm font-semibold">Cancel</button>
+            <button onClick={() => { fraud.record({ phone, ok: true }); send(true); }} className="rounded-xl bg-emerald-500 py-2.5 text-sm font-bold text-slate-900">Approve (demo)</button>
+          </div>
+        </div>
+      )}
       <button
-        disabled={!cart.length || !name || phone.length !== 10 || outOfRange}
-        onClick={() => {
-          const now = Date.now();
-          onPlace({
-            channel: 'online', fulfillment: mode, createdAt: new Date(now).toISOString(), promisedAt: new Date(now + minutes * MINUTE).toISOString(),
-            customer: { name, phone, ...(mode === 'delivery' ? { address: a.line, x: a.x, y: a.y, zone } : {}) },
-            lines: cart, ...t, payment: 'online', status: 'new',
-          }, rewards ? phone : undefined);
-        }}
+        disabled={!cart.length || !name || phone.length !== 10 || outOfRange || !cardOk || (!risk.payInPerson && left === 0) || bankCheck}
+        onClick={pay}
         className="mt-3 w-full rounded-full bg-emerald-600 py-3.5 text-sm font-bold text-white hover:bg-emerald-700 disabled:opacity-40"
       >
-        Pay {money(t.total)} and place order
+        {risk.payInPerson ? 'Place order, pay on arrival' : `Pay ${money(t.total)} and place order`}
       </button>
       <p className="mt-2 text-center text-[11px] text-slate-400">Demo checkout: nothing is charged and texts are only shown in the owner's dashboard.</p>
     </Modal>
   );
 }
+
+/** ZIP areas the shop delivers in, by first three digits. 908 is Long Beach. */
+const LOCAL_ZIP_AREAS = ['908'];
 
 export function Modal({ title, children, onClose, wide = false }: { title: string; children: React.ReactNode; onClose: () => void; wide?: boolean }) {
   return (

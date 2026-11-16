@@ -1,4 +1,4 @@
-import { Coffee, MessageSquareText, Package, Shirt, ShoppingBag, Sparkles } from 'lucide-react';
+import { Coffee, IdCard, MessageSquareText, Package, ShieldAlert, Shirt, ShoppingBag, Sparkles } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { MENU_BY_ID, STAFF, STAFF_BY_ID } from '../data/shop';
 import { useDemo } from '../data/store';
@@ -181,7 +181,28 @@ export function PickupQueue({ me }: { me?: string }) {
               if (o.status !== 'ready' && o.status !== 'done') return <p className="mt-2.5 flex items-center gap-1.5 text-xs text-slate-500"><MessageSquareText size={13} /> {due !== undefined ? (due > 0 ? `Event order. The deposit is paid. Collect ${money(due)} at pickup.` : 'Event order. It is paid in full.') : ch ? ch.note : o.phone ? 'The customer gets a text the moment this is marked packed.' : 'No phone number, so no text for this one.'}</p>;
               return null;
             })()}
-            {next && (
+            {o.fraud && (o.fraud.flags.length > 0 || o.fraud.payAtPickup) && (
+              <div data-fraud-flags className="mt-2.5 rounded-xl bg-rose-50 px-2.5 py-2 text-xs text-rose-900 ring-1 ring-rose-200">
+                <p className="flex items-center gap-1.5 font-bold"><ShieldAlert size={13} /> {o.fraud.payAtPickup ? `Not paid yet: collect ${money(o.total)} at pickup` : 'Check before handing over'}</p>
+                {o.fraud.flags.filter((f) => !f.startsWith('First order')).map((f) => <p key={f} className="mt-0.5">· {f}</p>)}
+                {o.fraud.bankConfirmed && <p className="mt-0.5 text-emerald-800">· The customer's bank confirmed this payment</p>}
+              </div>
+            )}
+            {o.fraud?.idCheck && o.status === 'ready' && !o.fraud.idResult && (
+              <div data-id-check className="mt-2.5 rounded-xl bg-amber-50 p-2.5 text-sm text-amber-950 ring-1 ring-amber-300">
+                <p className="flex items-center gap-1.5 font-bold"><IdCard size={15} /> Check photo ID before handing over</p>
+                <p className="mt-0.5 text-xs">The name on the ID must match the card: <span className="font-bold">{o.fraud.cardName ?? o.customerName}</span>. No ID, or a different name: keep the order and don't hand it over.</p>
+                <div className="mt-2 grid grid-cols-2 gap-2">
+                  <button onClick={() => demo.checkId(o.id, 'held')} className="rounded-lg bg-white py-2 text-xs font-bold text-rose-700 ring-1 ring-rose-200">Doesn't match</button>
+                  <button onClick={() => demo.checkId(o.id, 'matched')} className="rounded-lg bg-amber-500 py-2 text-xs font-bold text-white">ID matches</button>
+                </div>
+              </div>
+            )}
+            {o.fraud?.idResult === 'held' && (
+              <p role="alert" className="mt-2.5 rounded-xl bg-rose-600 p-2.5 text-xs font-semibold text-white">Held: the ID didn't match the card. Keep the order back and refund it to the card. The owner can see this in Fraud protection.</p>
+            )}
+            {o.fraud?.idResult === 'matched' && o.status !== 'done' && <p className="mt-2.5 flex items-center gap-1.5 text-xs font-semibold text-emerald-700"><IdCard size={13} /> ID checked and matches the card</p>}
+            {next && !(o.fraud?.idCheck && next.to === 'done' && o.fraud.idResult !== 'matched') && (
               <button onClick={() => demo.setStatus(o.id, next.to)} className="mt-3 w-full rounded-xl bg-ink-900 py-3 text-sm font-bold text-white active:bg-ink-700">
                 {next.to === 'done' && ch ? (ch.when === 'Driver at' ? 'Handed to driver' : o.channel === 'wholesale' || o.channel === 'subscription' ? 'Out for delivery' : next.label) : next.label}
               </button>

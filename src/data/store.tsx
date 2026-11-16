@@ -57,6 +57,7 @@ type Action =
   | { type: 'syncOrders'; prefix: string; orders: Order[] }
   | { type: 'bumpMade'; itemId: string; delta: number }
   | { type: 'toggleSoldOut'; itemId: string }
+  | { type: 'patchOrder'; id: string; patch: Partial<Order> }
   | { type: 'setMembers'; members: RewardsMember[]; text?: SentText }
   | { type: 'addTexts'; texts: SentText[] }
   | { type: 'clock'; staffId: string; now: string }
@@ -71,6 +72,8 @@ function reducer(state: DemoState, a: Action): DemoState {
   switch (a.type) {
     case 'addOrder':
       return { ...state, orders: [...state.orders, a.order], nextNumber: state.nextNumber + 1, texts: a.text ? [a.text, ...state.texts] : state.texts };
+    case 'patchOrder':
+      return { ...state, orders: state.orders.map((o) => (o.id === a.id ? { ...o, ...a.patch } : o)) };
     case 'setStatus':
       return { ...state, orders: state.orders.map((o) => (o.id === a.id ? { ...o, status: a.status } : o)), texts: a.text ? [a.text, ...state.texts] : state.texts };
     case 'syncOrders':
@@ -221,6 +224,8 @@ export interface Demo {
   endBreak: (staffId: string) => void;
   placeOrder: (o: Omit<Order, 'id' | 'number' | 'createdAt'>) => Order;
   setStatus: (id: string, status: OrderStatus) => void;
+  /** Records the photo ID check at pickup. A held order stays on the shelf. */
+  checkId: (id: string, result: 'matched' | 'held') => void;
   bumpMade: (itemId: string, delta: number) => void;
   toggleSoldOut: (itemId: string) => void;
   findMember: (phone: string) => RewardsMember | undefined;
@@ -306,6 +311,10 @@ export function DemoProvider({ children }: { children: ReactNode }) {
           ? { to: order.phone, body: orderReadyText(SHOP.name, order), at: new Date().toISOString(), orderId: id, kind: 'ready' }
           : undefined;
         dispatch({ type: 'setStatus', id, status, text });
+      },
+      checkId: (id, result) => {
+        const o = state.orders.find((x) => x.id === id);
+        if (o?.fraud) dispatch({ type: 'patchOrder', id, patch: { fraud: { ...o.fraud, idResult: result } } });
       },
       bumpMade: (itemId, delta) => dispatch({ type: 'bumpMade', itemId, delta }),
       toggleSoldOut: (itemId) => dispatch({ type: 'toggleSoldOut', itemId }),

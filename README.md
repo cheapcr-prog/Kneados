@@ -48,6 +48,8 @@ Stack: React 19, Vite, TypeScript, Tailwind. Hosted on Cloudflare (see `wrangler
 
 Menu photos in `public/menu/` come from [Unsplash](https://unsplash.com) and are used under the [Unsplash License](https://unsplash.com/license), which allows free commercial use. They are placeholders for the demo. A real shop uploads its own photos.
 
+Smoothie photos: strawberry by Kofi Buckley, mango by Julia Zyablova, taro by Penfer, boba by Malcolm Broström, all on Unsplash. Popping boba and fruit jelly still use drawings because no free photo was found.
+
 ## Claude in the briefing chat
 
 The "Ask KneadOS" chat on the owner Briefing can be answered by Claude. The browser sends the question and the shop's figures to `/api/ask`, a small server in `worker/` that calls the Claude API (Claude Sonnet 5.5) with the shop owner's own key.

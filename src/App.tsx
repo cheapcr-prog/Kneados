@@ -11,6 +11,10 @@ import { Kitchen } from './pages/Kitchen';
 import { Landing } from './pages/Landing';
 import { Register } from './pages/Register';
 import { Shop } from './pages/Shop';
+import { PizzaLanding } from './pizza/pages/Landing';
+
+// Pizza mode is its own demo shop with its own screens, loaded only when opened.
+const PizzaDemoRoutes = lazy(() => import('./pizza/PizzaApp').then((m) => ({ default: m.PizzaDemoRoutes })));
 
 // The owner dashboard carries the charting library, so it loads only when opened.
 const Owner = lazy(() => import('./pages/Owner').then((m) => ({ default: m.Owner })));
@@ -23,6 +27,8 @@ export function App() {
     <Routes>
       <Route path="/" element={<Landing />} />
       <Route path="/demo/*" element={<DemoRoutes />} />
+      <Route path="/pizza" element={<PizzaLanding />} />
+      <Route path="/pizza/demo/*" element={<Suspense fallback={<p className="p-6 text-sm text-slate-500">Loading the pizza shop…</p>}><PizzaDemoRoutes /></Suspense>} />
       <Route path="*" element={<Landing />} />
     </Routes>
   );

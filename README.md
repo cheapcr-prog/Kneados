@@ -28,6 +28,20 @@ The parts that are real, tested logic (in `src/lib`, with tests beside them):
 The demo data lives in `src/data`. `history.ts` generates 90 days of sales from a seeded random
 generator, so everyone sees the same shop on a given day.
 
+## Pizza mode
+
+KneadOS also runs pizza shops. The pizza demo is a made-up shop, Shoreline Slice Co., at `/pizza` (product page)
+and `/pizza/demo/*`: a website with an interactive pizza builder (toppings on the whole pie or either half, drawn live,
+price as you go), the phone and counter register with caller lookup, the make line with oven timers and tonight's dough
+batch sheet, dispatch with a delivery map and stacked runs, and the owner dashboard with the AI briefing and Ask KneadOS.
+
+The logic lives in `src/pizza/logic.ts` with tests beside it: prices with half toppings, recipes (what each pie uses by
+size), 90 days of generated sales, the forecast and the 48 hour dough plan, stock and purchase orders by recipe,
+quote times from what is on the make line, and grouping deliveries into runs. The chat sends `mode: "pizza"` to
+`/api/ask`, which answers with pizza instructions and the same daily cap.
+
+Pizza photos in `public/pizza/` are from [Unsplash](https://unsplash.com) under the Unsplash License.
+
 ## Not built yet
 
 Accounts and a real database (Supabase), card payments and the Stripe reader, the native iPad app

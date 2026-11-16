@@ -9,6 +9,7 @@ import { PizzaShop } from './pages/Shop';
 import { PizzaRegister } from './pages/Register';
 import { MakeLine } from './pages/MakeLine';
 import { Dispatch } from './pages/Dispatch';
+import { PayInvoice } from './pages/Pay';
 
 const PizzaOwner = lazy(() => import('./pages/Owner').then((m) => ({ default: m.PizzaOwner })));
 
@@ -46,6 +47,7 @@ export function PizzaDemoRoutes() {
             <Route path="kitchen" element={<MakeLine />} />
             <Route path="dispatch" element={<Dispatch />} />
             <Route path="login" element={<PizzaLogin />} />
+            <Route path="pay/:id" element={<PayInvoice />} />
             <Route path="owner/*" element={<Suspense fallback={<p className="p-6 text-sm text-slate-500">Loading the dashboard…</p>}><PizzaOwner /></Suspense>} />
             <Route path="*" element={<PizzaShop />} />
           </Routes>

@@ -93,6 +93,7 @@ function Briefing({ brain }: { brain: PizzaBrain }) {
     if (d.kind === 'campaign' && d.payload?.phones) {
       demo.addTexts(d.payload.phones.map((to) => ({ to, at: new Date().toISOString(), kind: 'campaign' as const, body: `${PIZZA_SHOP.name}: We miss you! Free garlic bread with any pizza this week. Use code SLICE${to.slice(-3)} online or say it on the phone. Reply STOP to opt out.` })));
     }
+    if (d.kind === 'invoice' && d.payload?.invoiceId) demo.remindInvoice(d.payload.invoiceId);
     if (d.kind === 'call') {
       const id = d.id.replace('late-', '');
       const o = demo.state.orders.find((x) => x.id === id);

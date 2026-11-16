@@ -4,7 +4,7 @@ import { addVisit } from '../lib/rewards';
 import type { RewardsMember } from '../data/types';
 import { ADDRESSES, DRIVERS, INVENTORY, PIZZA_SHOP, SIDE_BY_ID, TOPPING_ON_HAND, nextBigDay, type SizeId } from './data';
 import {
-  MINUTE, PACKS, buildPizzaHistory, configFor, packLines, pizzaPrice, pizzaRewardText, pizzaUsage, preorderPies, forecastDay, rng, totals, zoneFor,
+  MINUTE, PACKS, buildPizzaHistory, invoiceFor, type PizzaInvoice, configFor, packLines, pizzaPrice, pizzaRewardText, pizzaUsage, preorderPies, forecastDay, rng, totals, zoneFor,
   DEPOSIT_SHARE, type Channel, type DriverState, type Line, type OrderStatus, type PizzaDay, type PizzaOrder,
 } from './logic';
 
@@ -32,6 +32,26 @@ export interface PizzaState {
   rain: boolean;
   /** Sales already rung before the staged rush, so the day's numbers look like a real evening. */
   earlier: { orders: number; salesCents: number; tipsCents: number };
+  /** Catering orders billed to a company on net terms. */
+  invoices: PizzaInvoice[];
+  nextInvoice: number;
+}
+
+/** Company invoices: the upcoming office lunch is open, one from last month is paid and one is past due. */
+function seedInvoices(today: string, orders: PizzaOrder[]): PizzaInvoice[] {
+  const out: PizzaInvoice[] = [];
+  const past = (company: string, email: string, contact: string, po: string | undefined, daysAgo: number, cents: number, n: number, paid: boolean) => {
+    const day = addDays(today, -daysAgo);
+    const inv = invoiceFor({ number: 2100 - n * 37, total: cents, customer: { name: contact } }, { company, email, po }, 'Office Lunch', day, addDays(day, -3), 1038 + n);
+    return paid ? { ...inv, paid: true, paidOn: addDays(day, 9) } : { ...inv, reminders: [addDays(inv.due, 2)] };
+  };
+  out.push(past('Pacific Gateway Realty', 'accounts@pgrealty.example', 'Monica Reyes', 'PG-2207', 34, 17938, 0, true));
+  out.push(past('Bixby Knolls Law Group', 'billing@bixbylaw.example', 'Tom Alvarez', undefined, 24, 35876, 1, false));
+  let n = 1041;
+  for (const o of orders.filter((x) => x.payment === 'invoice')) {
+    out.push({ ...invoiceFor(o, { company: o.customer.name.replace(/ office$/, ''), email: 'ap@harbordental.example', po: '4471' }, `Office Lunch, ${o.event ?? 'catering'}`, o.promisedAt.slice(0, 10), addDays(today, -2), n++), contact: 'Dana Lee' });
+  }
+  return out;
 }
 
 const FIRST = ['Maya', 'Jordan', 'Chris', 'Priya', 'Leo', 'Alex', 'Sam', 'Taylor', 'Nina', 'Omar', 'Grace', 'Diego', 'Riley', 'Hana', 'Marcus', 'Ivy', 'Ben', 'Zoe', 'Andre', 'Lucy'];
@@ -130,6 +150,7 @@ function fresh(now = Date.now()): PizzaState {
     today, orders, nextNumber: 2201, drivers, members: seedMembers(today), texts: [], onHand, pos: [],
     doughMade: { S: 0, M: 0, L: 0 }, out: [], rain: false,
     earlier: { orders: 41 + Math.floor(r() * 8), salesCents: 142000 + Math.floor(r() * 18000), tipsCents: 15600 },
+    invoices: seedInvoices(today, orders), nextInvoice: 1050,
   };
 }
 
@@ -138,7 +159,7 @@ function load(): PizzaState {
     const raw = localStorage.getItem(KEY);
     if (raw) {
       const s = JSON.parse(raw) as PizzaState;
-      if (s.today === isoDate(new Date()) && Array.isArray(s.orders)) return s;
+      if (s.today === isoDate(new Date()) && Array.isArray(s.orders)) return Array.isArray(s.invoices) ? s : { ...s, invoices: seedInvoices(s.today, s.orders), nextInvoice: 1050 };
     }
   } catch {
     // Fall through to a fresh shift.
@@ -155,11 +176,14 @@ function usePizzaStore() {
   const now = () => new Date().toISOString();
   const text = (to: string, body: string, kind: Text['kind']): Text[] => (to ? [{ to, body, at: now(), kind }] : []);
 
-  const placeOrder = useCallback((o: Omit<PizzaOrder, 'id' | 'number'>, opts: { rewardPhone?: string } = {}) => {
+  const placeOrder = useCallback((o: Omit<PizzaOrder, 'id' | 'number'>, opts: { rewardPhone?: string; bill?: { company: string; email: string; po?: string; memo: string } } = {}) => {
     let placed: PizzaOrder | undefined;
+    let invoice: PizzaInvoice | undefined;
     setState((s) => {
       const order: PizzaOrder = { ...o, id: `pz-${s.nextNumber}`, number: s.nextNumber };
       placed = order;
+      // Billed to a company: the invoice is emailed with a pay link as soon as the order is booked.
+      invoice = opts.bill ? invoiceFor(order, opts.bill, opts.bill.memo, order.promisedAt.slice(0, 10), s.today, s.nextInvoice) : undefined;
       const when = new Date(order.promisedAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
       const texts = [...text(order.customer.phone, `${PIZZA_SHOP.name}: Got your order #${order.number}. ${order.fulfillment === 'delivery' ? `At your door by about ${when}.` : `Ready for pickup at ${when}.`} We'll text you when it's ${order.fulfillment === 'delivery' ? 'on the way' : 'ready'}.`, 'received')];
       let members = s.members;
@@ -171,9 +195,20 @@ function usePizzaStore() {
         members = existing ? members.map((m) => (m.phone === phone ? member : m)) : [member, ...members];
         if (earnedReward) texts.push(...text(phone, pizzaRewardText(PIZZA_SHOP.name), 'reward'));
       }
-      return { ...s, orders: [...s.orders, order], nextNumber: s.nextNumber + 1, texts: [...texts, ...s.texts], members };
+      return {
+        ...s, orders: [...s.orders, order], nextNumber: s.nextNumber + 1, texts: [...texts, ...s.texts], members,
+        invoices: invoice ? [invoice, ...s.invoices] : s.invoices, nextInvoice: invoice ? s.nextInvoice + 1 : s.nextInvoice,
+      };
     });
-    return placed;
+    return placed && { ...placed, invoice };
+  }, []);
+
+  /** The company paid through the link, or a check came in. */
+  const payInvoice = useCallback((id: string) => {
+    setState((s) => ({ ...s, invoices: s.invoices.map((i) => (i.id === id ? { ...i, paid: true, paidOn: s.today } : i)) }));
+  }, []);
+  const remindInvoice = useCallback((id: string) => {
+    setState((s) => ({ ...s, invoices: s.invoices.map((i) => (i.id === id && !i.reminders.includes(s.today) ? { ...i, reminders: [...i.reminders, s.today] } : i)) }));
   }, []);
 
   const setStatus = useCallback((id: string, status: OrderStatus) => {
@@ -268,7 +303,7 @@ function usePizzaStore() {
   const tomorrow = addDays(state.today, 1);
   const forecastFor = useCallback((date: string) => forecastDay(history, date, { rain: date === tomorrow ? state.rain : false, preorderPies: preorderPies(state.orders, date) }), [history, tomorrow, state.rain, state.orders]);
 
-  return { state, history, tomorrow, forecastFor, placeOrder, setStatus, dispatch, driverBack, setDriverOn, sendPO, receivePO, bumpDough, toggleOut, addTexts, setMembers, setRain, reset };
+  return { state, history, tomorrow, forecastFor, placeOrder, setStatus, dispatch, driverBack, setDriverOn, sendPO, receivePO, bumpDough, toggleOut, addTexts, setMembers, setRain, reset, payInvoice, remindInvoice };
 }
 
 export type PizzaDemo = ReturnType<typeof usePizzaStore>;

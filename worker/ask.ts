@@ -43,7 +43,7 @@ Rules:
 
 /** The same rules for a pizza shop. Kept word for word the same on every request so it can be cached. */
 export const PIZZA_SYSTEM = SYSTEM
-  .replace('the back office of a donut shop', 'the back office of a pizza shop that does pickup, delivery with its own drivers, delivery apps and game-day pre-orders')
+  .replace('the back office of a donut shop', 'the back office of a pizza shop that does pickup, delivery with its own drivers, delivery apps, game-day pre-orders and office catering billed to companies on net-15 invoices')
   .replace('Only help with running this shop.', 'Dough is made 48 hours ahead, so dough questions are about the plan in the snapshot. Only help with running this shop.');
 
 export const OUTPUT_SCHEMA = {

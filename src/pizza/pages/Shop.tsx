@@ -1,9 +1,10 @@
 import { Bike, Check, ChevronRight, Clock, Minus, Plus, ShoppingBag, Sparkles, Store, Trophy, X } from 'lucide-react';
 import { useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useTick } from '../../components/Breaks';
 import { formatPhone, money } from '../../lib/money';
 import { ADDRESSES, PIZZA_SHOP, SIDES, SIDE_BY_ID, SIZES, SPECIALTIES, ZONES, type SizeId } from '../data';
-import { DEPOSIT_SHARE, MINUTE, PACKS, configFor, lineCents, packLines, packValue, pizzaDetails, pizzaPrice, pizzaTitle, quoteTime, totals, upsells, zoneFor, type Line, type PizzaLine, type PizzaOrder } from '../logic';
+import { DEPOSIT_SHARE, INVOICE_TERMS_DAYS, MINUTE, PACKS, payPath, validEmail, type PizzaInvoice, configFor, lineCents, packLines, packValue, pizzaDetails, pizzaPrice, pizzaTitle, quoteTime, totals, upsells, zoneFor, type Line, type PizzaLine, type PizzaOrder } from '../logic';
 import { Builder } from '../Builder';
 import { usePizza } from '../store';
 import { usePizzaBrain } from '../brain';
@@ -184,38 +185,75 @@ export function PizzaShop() {
 
 function PreorderButton({ pack, date, label }: { pack: string; date: string; label: string }) {
   const { placeOrder } = usePizza();
+  const p = PACKS.find((x) => x.id === pack)!;
   const [step, setStep] = useState<'idle' | 'form' | 'done'>('idle');
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [time, setTime] = useState('12:30');
-  const [num, setNum] = useState<number | null>(null);
-  const p = PACKS.find((x) => x.id === pack)!;
-  if (step === 'done') return <p className="mt-4 rounded-xl bg-emerald-50 p-3 text-sm font-semibold text-emerald-800">Pre-order #{num} is booked. Deposit paid, the rest is due at {time}.</p>;
+  // Office lunches are billed to the company by default; any pack can still pay a deposit by card.
+  const [payBy, setPayBy] = useState<'card' | 'invoice'>(pack === 'office' ? 'invoice' : 'card');
+  const [company, setCompany] = useState('');
+  const [email, setEmail] = useState('');
+  const [po, setPo] = useState('');
+  const [booked, setBooked] = useState<{ number?: number; invoice?: PizzaInvoice } | null>(null);
+  if (step === 'done') {
+    const inv = booked?.invoice;
+    return inv ? (
+      <div className="mt-4 rounded-xl bg-emerald-50 p-3 text-sm text-emerald-900">
+        <p className="font-semibold">Pre-order #{booked?.number} is booked, nothing to pay today.</p>
+        <p className="mt-1">Invoice {inv.number} for {money(inv.totalCents)} was emailed to {inv.email}{inv.po ? `, with PO ${inv.po} on it` : ''}. It is due {longDate(inv.due)}, {INVOICE_TERMS_DAYS} days after the lunch.</p>
+        <Link to={payPath(inv)} className="mt-2 inline-flex items-center gap-1 font-bold text-emerald-700 underline">Open the invoice and pay link <ChevronRight size={14} /></Link>
+      </div>
+    ) : <p className="mt-4 rounded-xl bg-emerald-50 p-3 text-sm font-semibold text-emerald-800">Pre-order #{booked?.number} is booked. Deposit paid, the rest is due at {time}.</p>;
+  }
   if (step === 'idle') return <button onClick={() => setStep('form')} className="mt-4 rounded-full bg-slate-900 px-5 py-2.5 text-sm font-bold text-white hover:bg-slate-700">Pre-order for {label}</button>;
   const lines = packLines(p);
   const t = totals(lines);
+  const invoice = payBy === 'invoice';
+  const ok = !!name && phone.length === 10 && (!invoice || (company.trim().length > 1 && validEmail(email)));
+  const field = 'w-full rounded-lg border border-slate-200 px-3 py-2 text-sm';
   return (
     <div className="mt-4 space-y-2 rounded-2xl bg-slate-50 p-3">
-      <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Your name" className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
-      <input value={formatPhone(phone)} onChange={(e) => setPhone(e.target.value.replace(/\D/g, '').slice(0, 10))} placeholder="Mobile number" inputMode="tel" className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
-      <label className="flex items-center justify-between text-sm">Pickup time <input type="time" value={time} onChange={(e) => setTime(e.target.value)} className="rounded-lg border border-slate-200 px-2 py-1" /></label>
+      <div className="grid grid-cols-2 gap-1 rounded-full bg-white p-1 text-xs font-bold ring-1 ring-slate-200" role="radiogroup" aria-label="How to pay">
+        {(['invoice', 'card'] as const).map((k) => (
+          <button key={k} role="radio" aria-checked={payBy === k} onClick={() => setPayBy(k)} className={`rounded-full px-2 py-1.5 ${payBy === k ? 'bg-slate-900 text-white' : 'text-slate-600'}`}>
+            {k === 'invoice' ? 'Invoice my company' : `Card, ${Math.round(DEPOSIT_SHARE * 100)}% deposit`}
+          </button>
+        ))}
+      </div>
+      <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Your name" className={field} />
+      <input value={formatPhone(phone)} onChange={(e) => setPhone(e.target.value.replace(/\D/g, '').slice(0, 10))} placeholder="Mobile number" inputMode="tel" className={field} />
+      {invoice && (
+        <>
+          <input value={company} onChange={(e) => setCompany(e.target.value)} placeholder="Company name" autoComplete="organization" className={field} />
+          <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Billing email (accounts payable)" type="email" autoComplete="email" className={field} />
+          <input value={po} onChange={(e) => setPo(e.target.value)} placeholder="PO number (optional)" className={field} />
+          <p className="text-xs text-slate-500">We email the invoice with a pay link (card or bank transfer). Due {INVOICE_TERMS_DAYS} days after the lunch.</p>
+        </>
+      )}
+      <label className="flex items-center justify-between text-sm">Ready at <input type="time" value={time} onChange={(e) => setTime(e.target.value)} className="rounded-lg border border-slate-200 px-2 py-1" /></label>
       <button
-        disabled={!name || phone.length !== 10}
+        disabled={!ok}
         onClick={() => {
           const [h, m] = time.split(':').map(Number);
           const [y, mo, d] = date.split('-').map(Number);
           const when = new Date(y, mo - 1, d, h, m).toISOString();
-          const o = placeOrder({ channel: 'online', fulfillment: 'pickup', createdAt: new Date().toISOString(), promisedAt: when, scheduled: true, event: label, customer: { name, phone }, lines, ...t, depositCents: Math.round(t.total * DEPOSIT_SHARE), payment: 'online', status: 'new' });
-          setNum(o?.number ?? null);
+          const o = placeOrder(
+            { channel: invoice ? 'catering' : 'online', fulfillment: 'pickup', createdAt: new Date().toISOString(), promisedAt: when, scheduled: true, event: label, customer: { name, phone }, lines, ...t, depositCents: invoice ? undefined : Math.round(t.total * DEPOSIT_SHARE), payment: invoice ? 'invoice' : 'online', status: 'new', note: invoice ? `Bill to ${company.trim()}${po.trim() ? `, PO ${po.trim()}` : ''}` : undefined },
+            invoice ? { bill: { company, email, po, memo: `${p.name}, ${label}` } } : {},
+          );
+          setBooked({ number: o?.number, invoice: o?.invoice });
           setStep('done');
         }}
         className="w-full rounded-full bg-emerald-600 px-4 py-2.5 text-sm font-bold text-white disabled:opacity-40"
       >
-        Pay {money(Math.round(t.total * DEPOSIT_SHARE))} deposit
+        {invoice ? `Book it and send the invoice · ${money(t.total)}` : `Pay ${money(Math.round(t.total * DEPOSIT_SHARE))} deposit`}
       </button>
     </div>
   );
 }
+
+const longDate = (iso: string) => new Date(`${iso}T12:00:00`).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
 
 function Checkout({ cart, setCart, history, gameDay, onClose, onPlace, quote }: {
   cart: Line[]; setCart: (f: (c: Line[]) => Line[]) => void; history: ReturnType<typeof usePizza>['history']; gameDay?: string;

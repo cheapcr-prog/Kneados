@@ -72,7 +72,8 @@ export interface Invoice {
 
 export type InvoiceState = 'paid' | 'open' | 'overdue';
 
-export function invoiceState(inv: Invoice, today: string): InvoiceState {
+/** Works for any invoice with a due date: wholesale accounts and pizza catering alike. */
+export function invoiceState(inv: Pick<Invoice, 'paid' | 'due'>, today: string): InvoiceState {
   if (inv.paid) return 'paid';
   return inv.due < today ? 'overdue' : 'open';
 }

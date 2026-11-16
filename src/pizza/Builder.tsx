@@ -1,4 +1,4 @@
-import { Check, ChevronLeft, ChevronRight, Flame, Minus, Plus, RotateCcw } from 'lucide-react';
+import { Check, ChevronLeft, ChevronRight, Minus, Plus, RotateCcw } from 'lucide-react';
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import { money } from '../lib/money';
 import { CHEESES, CRUSTS, PIZZA_SHOP, SAUCES, SIZES, SPECIALTIES, SPECIALTY_BY_ID, TOPPING_BY_ID, TOPPINGS, type PizzaConfig, type Side } from './data';
@@ -20,11 +20,11 @@ const STEPS = [
   { id: 'sauce', label: 'Sauce', hint: 'Ladle on a sauce.' },
   { id: 'cheese', label: 'Cheese', hint: 'Cover it in cheese.' },
   { id: 'toppings', label: 'Toppings', hint: 'Pile them on, the whole pie or half and half.' },
-  { id: 'bake', label: 'Bake', hint: 'How should we bake and cut it?' },
+  { id: 'bake', label: 'Bake', hint: 'How should we bake and cut it once you order?' },
 ] as const;
 
 const SIDE_WORDS: Record<Side, string> = { whole: 'the whole pie', left: 'the left half', right: 'the right half' };
-const reducedMotion = () => typeof window !== 'undefined' && !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+export const reducedMotion = () => typeof window !== 'undefined' && !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 
 type Drag = { id: string; x0: number; y0: number; x: number; y: number; moving: boolean };
 
@@ -50,7 +50,6 @@ export function Builder({ start, out = [], onAdd, addLabel = 'Add to order', dar
   const [step, setStep] = useState(0);
   const [caption, setCaption] = useState<{ text: string; n: number }>({ text: start?.specialtyId ? `Starting from the ${SPECIALTY_BY_ID[start.specialtyId]?.name}` : 'Fresh dough, ready to stretch', n: 0 });
   const [drag, setDrag] = useState<Drag | null>(null);
-  const [baking, setBaking] = useState<PizzaLine | null>(null);
   const pie = useRef<HTMLDivElement>(null);
   const price = pizzaPrice(config, specialtyId);
   const sp = specialtyId ? SPECIALTY_BY_ID[specialtyId] : undefined;
@@ -67,7 +66,7 @@ export function Builder({ start, out = [], onAdd, addLabel = 'Add to order', dar
       config.sauce === 'none' ? 'No sauce, just the dough' : `${sauce?.label} sauce, spread to the edge`,
       config.cheese === 'none' ? 'No cheese on this one' : `${cheese?.label}, scattered on top`,
       Object.keys(config.toppings).length ? 'Add, move or pile on more toppings' : 'Now the toppings: tap or drag them on',
-      'Built. Ready for the oven',
+      'Built. It bakes with the rest of your order',
     ][step]);
     // Only the step changing should speak here; picks on a step have their own lines.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -137,8 +136,8 @@ export function Builder({ start, out = [], onAdd, addLabel = 'Add to order', dar
 
   const line: PizzaLine = { kind: 'pizza', config, specialtyId, qty, unitCents: price.cents };
   const finish = () => {
-    if (!guided || reducedMotion()) { onAdd(line); setQty(1); return; }
-    setBaking(line);
+    onAdd(line);
+    setQty(1);
   };
 
   const card = dark ? 'border-white/10 bg-white/5 text-white' : 'border-slate-200 bg-white';
@@ -159,8 +158,8 @@ export function Builder({ start, out = [], onAdd, addLabel = 'Add to order', dar
           <button aria-label="One more" onClick={() => setQty(qty + 1)} className={`rounded-full p-1.5 ${dark ? 'bg-white/10' : 'bg-slate-100'}`}><Plus size={14} /></button>
         </div>
         {/* One final action: on the website it bakes the pie, then adds it to the order. */}
-        <button disabled={!!baking} onClick={finish} className={`flex items-center gap-1.5 rounded-full px-5 py-2.5 text-sm font-bold text-white disabled:opacity-60 ${guided ? 'bg-orange-600 hover:bg-orange-700' : 'bg-emerald-600 hover:bg-emerald-700'}`}>
-          {guided ? <><Flame size={15} /> Put it in the oven</> : addLabel} · {money(price.cents * qty)}
+        <button onClick={finish} className="flex items-center gap-1.5 rounded-full bg-emerald-600 px-5 py-2.5 text-sm font-bold text-white hover:bg-emerald-700">
+          {addLabel} · {money(price.cents * qty)}
         </button>
       </div>
     </div>
@@ -312,7 +311,7 @@ export function Builder({ start, out = [], onAdd, addLabel = 'Add to order', dar
       {heading('Bake and cut')}
       <p className={`text-xs ${muted}`}>
         {guided
-          ? `We bake it on the 550° deck for about ${PIZZA_SHOP.bakeMinutes} minutes and cut it into ${config.crust === 'pan' ? 'squares' : `${SIZES.find((s) => s.id === config.size)?.slices} slices`}. Change that here, or leave it and send it to the oven.`
+          ? `We bake it on the 550° deck for about ${PIZZA_SHOP.bakeMinutes} minutes and cut it into ${config.crust === 'pan' ? 'squares' : `${SIZES.find((s) => s.id === config.size)?.slices} slices`}. Change that here, or leave it. Everything in your order goes in the oven together once you pay.`
           : 'Pick one from each row, or leave it as the kitchen normally makes it.'}
       </p>
       <div className="mt-2 space-y-1.5">
@@ -343,7 +342,7 @@ export function Builder({ start, out = [], onAdd, addLabel = 'Add to order', dar
           ref={pie}
           className={`relative mx-auto flex aspect-square w-full max-w-[220px] items-center justify-center rounded-full sm:max-w-[300px] lg:max-w-[380px] ${dark ? 'bg-white/5' : 'bg-[radial-gradient(circle,#f8fafc_55%,#e2e8f0_100%)]'}`}
         >
-          {!baking && <PizzaArt config={config} size={360} className="h-auto w-[94%]" animate raw={guided} stage={guided ? step : 9} />}
+          <PizzaArt config={config} size={360} className="h-auto w-[94%]" animate raw={guided} stage={guided ? step : 9} />
           {target && (
             <svg viewBox="-50 -50 100 100" className="pointer-events-none absolute inset-0 h-full w-full" aria-hidden>
               <path
@@ -357,9 +356,8 @@ export function Builder({ start, out = [], onAdd, addLabel = 'Add to order', dar
               {target ? `Drop on ${SIDE_WORDS[target]}` : 'Drop it on the pie'}
             </span>
           )}
-          {baking && <Oven config={baking.config} onDone={() => { const l = baking; setBaking(null); setQty(1); onAdd(l); }} />}
         </div>
-        <p key={caption.n} className={`pz-caption mt-2 min-h-[1.25rem] text-center text-sm font-semibold ${dark ? 'text-emerald-300' : 'text-emerald-700'}`} aria-live="polite">{baking ? 'In the oven…' : caption.text}</p>
+        <p key={caption.n} className={`pz-caption mt-2 min-h-[1.25rem] text-center text-sm font-semibold ${dark ? 'text-emerald-300' : 'text-emerald-700'}`} aria-live="polite">{caption.text}</p>
         {guided && <div className="mt-3 hidden lg:block">{summary}</div>}
       </div>
 
@@ -391,7 +389,7 @@ export function Builder({ start, out = [], onAdd, addLabel = 'Add to order', dar
                 : <span />}
               {step < STEPS.length - 1
                 ? <button onClick={() => setStep(step + 1)} className="flex items-center gap-1 rounded-full bg-ink-900 px-5 py-2.5 text-sm font-bold text-white hover:bg-ink-800">Next: {STEPS[step + 1].label} <ChevronRight size={16} /></button>
-                : <span className={`text-right text-xs ${muted}`}>All set? Put it in the oven and it goes in your order.</span>}
+                : <span className={`text-right text-xs ${muted}`}>All set? Add it to your order. It bakes once you pay.</span>}
             </div>
             <div className="lg:hidden">{summary}</div>
           </>
@@ -421,10 +419,10 @@ export function Builder({ start, out = [], onAdd, addLabel = 'Add to order', dar
 }
 
 /**
- * The deck oven: the pie slides in, bakes while the shop's real bake time counts down fast,
- * and comes out browned, steaming and cut before it goes in the order. About five seconds in all.
+ * The deck oven, after checkout: every pizza in the order slides in together, bakes while the shop's
+ * real bake time counts down fast, and comes out browned, steaming and cut. About five seconds in all.
  */
-function Oven({ config, onDone }: { config: PizzaConfig; onDone: () => void }) {
+export function Oven({ configs, onDone }: { configs: PizzaConfig[]; onDone: () => void }) {
   const [phase, setPhase] = useState<'ready' | 'in' | 'bake' | 'out'>('ready');
   const [left, setLeft] = useState(PIZZA_SHOP.bakeMinutes * 60);
   const done = useRef(onDone);
@@ -434,7 +432,7 @@ function Oven({ config, onDone }: { config: PizzaConfig; onDone: () => void }) {
     const t = [
       setTimeout(() => setPhase('bake'), 700),
       setTimeout(() => setPhase('out'), 2500),
-      setTimeout(() => done.current(), 5000),
+      setTimeout(() => done.current(), 5200),
     ];
     return () => { cancelAnimationFrame(raf); t.forEach(clearTimeout); };
   }, []);
@@ -445,15 +443,21 @@ function Oven({ config, onDone }: { config: PizzaConfig; onDone: () => void }) {
     const id = setInterval(() => setLeft(Math.max(0, Math.round(total * (1 - (performance.now() - began) / 1700)))), 50);
     return () => clearInterval(id);
   }, [phase]);
+  const shown = configs.slice(0, 6);
+  const n = configs.length;
   const inside = phase === 'in' || phase === 'bake';
   const pieStyle = phase === 'ready'
     ? { transform: 'translateY(75%) scale(0.9)', opacity: 0 }
-    : inside ? { transform: 'translateY(14%) scale(0.56)', opacity: 1 } : { transform: 'translateY(0) scale(0.92)', opacity: 1 };
-  const notes = config.notes ?? [];
-  const cutWord = notes.includes('Uncut') ? 'left uncut' : config.crust === 'pan' || notes.includes('Square cut') ? 'cut in squares' : `cut in ${SIZES.find((s) => s.id === config.size)?.slices} slices`;
-  const label = phase === 'out' ? `Fresh out of the oven, ${cutWord}. Added to your order` : phase === 'bake' ? `Baking · ${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')} left` : `Into the ${550}° deck oven`;
+    : inside ? { transform: 'translateY(14%) scale(0.56)', opacity: 1 } : { transform: 'translateY(2%) scale(0.92)', opacity: 1 };
+  const notes = configs[0]?.notes ?? [];
+  const cutWord = notes.includes('Uncut') ? 'left uncut' : configs[0]?.crust === 'pan' || notes.includes('Square cut') ? 'cut in squares' : `cut in ${SIZES.find((s) => s.id === configs[0]?.size)?.slices} slices`;
+  const label = phase === 'out'
+    ? (n > 1 ? `${n} pizzas fresh out of the oven` : `Fresh out of the oven, ${cutWord}`)
+    : phase === 'bake' ? `Baking · ${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')} left`
+    : n > 1 ? `Paid. All ${n} pizzas into the 550° deck oven` : 'Paid. Into the 550° deck oven';
+  const width = shown.length === 1 ? '94%' : shown.length <= 4 ? '47%' : '32%';
   return (
-    <div className="absolute inset-0 overflow-hidden rounded-[2rem]" role="status" aria-label={label}>
+    <div className="relative mx-auto aspect-square w-full max-w-[420px] overflow-hidden rounded-[2rem]" role="status" aria-label={label}>
       {/* Brick oven front with a glowing mouth. */}
       <div className="absolute inset-0 transition-opacity duration-500" style={{ opacity: phase === 'out' ? 0.25 : 1, background: 'repeating-linear-gradient(0deg,#5a3426 0 14px,#3d2219 14px 16px),#5a3426' }} />
       <div className="absolute inset-x-[9%] bottom-[10%] top-[24%] overflow-hidden rounded-t-full bg-[#1c0d07] transition-opacity duration-500" style={{ opacity: phase === 'out' ? 0 : 1 }}>
@@ -462,9 +466,13 @@ function Oven({ config, onDone }: { config: PizzaConfig; onDone: () => void }) {
           {[0, 1, 2, 3, 4, 5, 6].map((i) => <span key={i} className="pz-flame block w-4 rounded-t-full bg-gradient-to-t from-orange-500 to-yellow-300" style={{ height: 14 + (i % 3) * 8, animationDelay: `${i * 70}ms` }} />)}
         </div>
       </div>
-      <div className="absolute inset-0 flex items-center justify-center transition-all duration-700 ease-out" style={pieStyle}>
-        <PizzaArt config={config} size={360} className="h-auto w-[94%]" raw baked={phase === 'bake' || phase === 'out'} cut={phase === 'out'} />
-        {inside && <div className="pz-glow pointer-events-none absolute inset-[3%] rounded-full bg-orange-500/25 mix-blend-multiply" />}
+      <div className="absolute inset-0 flex flex-wrap content-center items-center justify-center gap-[1%] transition-all duration-700 ease-out" style={pieStyle}>
+        {shown.map((c, i) => (
+          <div key={i} className="relative" style={{ width }}>
+            <PizzaArt config={c} size={360} className="h-auto w-full" raw baked={phase === 'bake' || phase === 'out'} cut={phase === 'out'} />
+            {inside && <div className="pz-glow pointer-events-none absolute inset-[3%] rounded-full bg-orange-500/25 mix-blend-multiply" />}
+          </div>
+        ))}
       </div>
       {phase === 'out' && (
         <div className="pointer-events-none absolute inset-x-0 top-[18%] flex justify-center gap-8">
@@ -482,4 +490,3 @@ function Oven({ config, onDone }: { config: PizzaConfig; onDone: () => void }) {
     </div>
   );
 }
-

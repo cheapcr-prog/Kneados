@@ -1,0 +1,22 @@
+{
+  "name": "KneadOS",
+  "short_name": "KneadOS",
+  "description": "The operating system for donut shops and bakeries. Demo shop on example data.",
+  "id": "/demo/register",
+  "start_url": "/demo/register",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0b1220",
+  "theme_color": "#0b1220",
+  "icons": [
+    { "src": "/app/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/app/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/app/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Register", "url": "/demo/register" },
+    { "name": "Kitchen", "url": "/demo/kitchen" },
+    { "name": "Owner", "url": "/demo/owner" }
+  ]
+}

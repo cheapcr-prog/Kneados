@@ -19,8 +19,11 @@ import type { OrderLine } from '../data/types';
 import { PUNCHES_PER_REWARD } from '../lib/rewards';
 import { cardCode } from '../lib/wallet';
 import { applyPrices, type LivePrice } from '../lib/smartpricing';
+import { attachTopping, clampToppings, cycleTopping, detachTopping, toppingLines, toppingTotals, type ToppingLine, type Toppings } from '../lib/toppings';
 import { suggestOffers, type Offer } from '../lib/upsell';
 
+const ADDONS = MENU.filter((m) => m.addon);
+const BLENDED = MENU.filter((m) => m.category === 'Smoothies & boba' && !m.addon);
 const CATEGORIES: Category[] = ['Classics', 'Filled', 'Specialty', 'Drinks', 'Smoothies & boba'];
 
 /** Pickup slots every 15 minutes, starting 20 minutes from now so the counter has time to pack. */
@@ -42,7 +45,11 @@ function pickupSlots(dayOffset: number): Date[] {
 export function Shop() {
   const demo = useDemo();
   const prices = usePricing();
-  const [cart, setCart] = useState<Record<string, number>>({});
+  /** Everything in the bag and cup holder except drink toppings, which are kept per drink. */
+  const [plain, setCart] = useState<Record<string, number>>({});
+  const [picked, setToppings] = useState<Toppings>({});
+  const tops = useMemo(() => clampToppings(picked, plain), [picked, plain]);
+  const cart = useMemo(() => ({ ...plain, ...toppingTotals(tops) }), [plain, tops]);
   const [open, setOpen] = useState(false);
   const [placed, setPlaced] = useState<Order | null>(null);
   const events = useEvents();
@@ -85,6 +92,12 @@ export function Shop() {
   const t = totals(order.lines, prices.byId);
   /** Taking one away comes out of the bag first, then out of the box being filled. */
   const add = (id: string, n: number) => {
+    // A topping always goes into a drink: the first blended drink with a cup that does not have it yet.
+    if (MENU_BY_ID[id]?.addon) {
+      const drinks = BLENDED.filter((m) => (plain[m.id] ?? 0) > 0).map((m): [string, number] => [m.id, plain[m.id]]);
+      setToppings(n > 0 ? attachTopping(tops, id, drinks) : detachTopping(tops, id));
+      return;
+    }
     if (n < 0 && (cart[id] ?? 0) === 0 && box.removeOne(id)) return;
     setCart((c) => ({ ...c, [id]: Math.max(0, (c[id] ?? 0) + n) }));
   };
@@ -167,9 +180,11 @@ export function Shop() {
         {CATEGORIES.map((cat) => (
           <section key={cat} className="mb-10">
             <h2 className="font-display text-2xl font-bold tracking-tight text-slate-900">{cat}</h2>
+            {cat === 'Smoothies & boba' && <p className="mt-1 text-sm text-slate-600">Add a smoothie, then pick what goes in it: {ADDONS.map((a) => `${a.name.replace(/^Add /, '').toLowerCase()} ${money(a.price)}`).join(', ')}.</p>}
             <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {MENU.filter((m) => m.category === cat).map((item) => (
-                <MenuCard key={item.id} item={item} live={prices.live[item.id]} qty={cart[item.id] ?? 0} soldOut={soldOut(item.id)} add={add} box={box} boxOpen={boxOpen} />
+              {MENU.filter((m) => m.category === cat && !m.addon).map((item) => (
+                <MenuCard key={item.id} item={item} live={prices.live[item.id]} qty={cart[item.id] ?? 0} soldOut={soldOut(item.id)} add={add} box={box} boxOpen={boxOpen}
+                  tops={cat === 'Smoothies & boba' ? tops[item.id] ?? {} : undefined} onTopping={(addon) => setToppings(cycleTopping(tops, item.id, addon, plain[item.id] ?? 0))} toppingSoldOut={soldOut} />
               ))}
             </div>
           </section>
@@ -192,6 +207,8 @@ export function Shop() {
         closedBoxes={boxes.length}
         onAnotherBox={() => { setBoxes((b) => [...b, box.filled]); box.clear(); }}
         cart={cart}
+        toppings={toppingLines(tops)}
+        removeTopping={(drink, addon) => setToppings(detachTopping(tops, addon, drink))}
         add={add}
         count={count}
         total={t.total + mt.total}
@@ -203,11 +220,12 @@ export function Shop() {
           loose={order.loose}
           boxes={order.boxes}
           add={add}
+          toppings={toppingLines(tops)}
           merch={mLines}
           addMerch={addMerch}
           removeBox={(i) => (i < boxes.length ? setBoxes((b) => b.filter((_, k) => k !== i)) : box.clear())}
           onClose={() => setOpen(false)}
-          onPlaced={(o) => { setPlaced(o); setCart({}); setMerchCart({}); setBoxes([]); box.clear(); setBoxOpen(false); setOpen(false); }}
+          onPlaced={(o) => { setPlaced(o); setCart({}); setToppings({}); setMerchCart({}); setBoxes([]); box.clear(); setBoxOpen(false); setOpen(false); }}
         />
       )}
       {placed && <Confirmation order={placed} onClose={() => setPlaced(null)} />}
@@ -216,7 +234,7 @@ export function Shop() {
 }
 
 /** The picture is the handle: drag it into the box, the bag or the cup holder. */
-function MenuCard({ item, live, qty, soldOut, add, box, boxOpen }: { item: MenuItem; live?: LivePrice; qty: number; soldOut: boolean; add: (id: string, n: number) => void; box: Box; boxOpen: boolean }) {
+function MenuCard({ item, live, qty, soldOut, add, box, boxOpen, tops, onTopping, toppingSoldOut }: { item: MenuItem; live?: LivePrice; qty: number; soldOut: boolean; add: (id: string, n: number) => void; box: Box; boxOpen: boolean; tops?: Record<string, number>; onTopping?: (addon: string) => void; toppingSoldOut?: (id: string) => boolean }) {
   const boxing = boxOpen && isBoxable(item);
   const extra = boxUpcharge(item);
   return (
@@ -271,12 +289,26 @@ function MenuCard({ item, live, qty, soldOut, add, box, boxOpen }: { item: MenuI
             </button>
           )}
         </div>
+        {tops && qty > 0 && (
+          <div className="mt-2 flex flex-wrap gap-1">
+            {ADDONS.filter((a) => !toppingSoldOut?.(a.id)).map((a) => {
+              const n = tops[a.id] ?? 0;
+              const label = a.name.replace(/^Add /, '');
+              return (
+                <button key={a.id} type="button" onClick={() => onTopping?.(a.id)} aria-pressed={n > 0} aria-label={n === 0 ? `Add ${label} to ${item.name}` : `${label} in ${n} of ${qty} ${item.name}. Tap to change.`} className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${n > 0 ? 'bg-ink-900 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}>
+                  {n === 0 ? `+ ${label} ${money(a.price)}` : qty > 1 ? `${label} in ${n} of ${qty}` : `✓ ${label}`}
+                </button>
+              );
+            })}
+          </div>
+        )}
       </div>
     </div>
   );
 }
 
-function Checkout({ loose: cartLoose, boxes, add, merch, addMerch, removeBox, onClose, onPlaced }: {
+function Checkout({ loose: cartLoose, boxes, add, toppings, merch, addMerch, removeBox, onClose, onPlaced }: {
+  toppings: ToppingLine[];
   merch: MerchLine[];
   addMerch: (key: string, n: number) => void;
   loose: OrderLine[];
@@ -327,6 +359,7 @@ function Checkout({ loose: cartLoose, boxes, add, merch, addMerch, removeBox, on
       subtotal: t.subtotal, tax: t.tax, tip: 0, total: t.total, payment: 'online', status: 'new',
       ...(boxes.length ? { boxes } : {}),
       ...(merch.length ? { merch } : {}),
+      ...(toppings.length ? { toppings } : {}),
       ...(fund ? { fundraiser: fund.code } : {}),
     });
     if (merch.length) shelf.sell(merch);
@@ -367,6 +400,7 @@ function Checkout({ loose: cartLoose, boxes, add, merch, addMerch, removeBox, on
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-semibold">{item.name}</p>
                     {item.dozenPrice && l.qty >= 12 && <p className="text-xs text-box-600">Dozen price applied</p>}
+                    {item.addon && <p className="text-xs text-slate-500">In {toppings.filter((t) => t.addon === item.id).map((t) => `${t.qty} ${MENU_BY_ID[t.drink].name}`).join(', ')}</p>}
                   </div>
                   <div className="flex items-center gap-1">
                     <button aria-label="Less" onClick={() => add(l.itemId, -1)} className="flex h-7 w-7 items-center justify-center rounded-full border border-slate-200"><Minus size={13} /></button>

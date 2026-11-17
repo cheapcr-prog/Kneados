@@ -43,6 +43,11 @@ describe('only Twilio may open a call', () => {
     expect(xml).toContain('wss://kneados.app/api/voice/ws');
     expect(xml).toContain('Slice &amp; Co.');
     expect(xml).toContain('<Parameter name="t" value="tick"/>');
+    // A stray noise must not cut the assistant off, and a pause mid-sentence must not end the caller's turn.
+    expect(xml).toContain('interruptible="speech"');
+    expect(xml).toContain('interruptSensitivity="low"');
+    expect(xml).toContain('turnDetection="true"');
+    expect(xml).toContain('Pineapple');
     expect(await doneTwiml('{"reason":"transfer"}').text()).toContain('manager');
     expect(await doneTwiml(undefined).text()).toContain('<Hangup/>');
   });

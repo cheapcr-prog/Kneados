@@ -5,7 +5,7 @@
  */
 import { DEFAULT_FRAUD } from '../src/lib/fraud';
 import type { Address } from '../src/pizza/data';
-import { PIZZA_SHOP, SPECIALTIES, SIDES } from '../src/pizza/data';
+import { PIZZA_SHOP, SPECIALTIES, SIDES, SIZES, TOPPINGS } from '../src/pizza/data';
 import { quoteTime, upsells } from '../src/pizza/logic';
 import {
   EMPTY_ORDER, buildLines, greeting, needsLookup, rememberAddress, settle, ticketFor, turnContext,
@@ -69,7 +69,15 @@ const xml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replac
 export const twiml = (inner: string) => new Response(`<?xml version="1.0" encoding="UTF-8"?><Response>${inner}</Response>`, { headers: { 'content-type': 'text/xml; charset=utf-8', 'cache-control': 'no-store' } });
 
 /** Words the speech recognizer should expect: the menu. */
-const HINTS = [...SPECIALTIES.map((s) => s.name), ...SIDES.map((s) => s.name), 'pepperoni', 'jalapeño', 'pickup', 'delivery', 'Detroit', 'gluten free'].map((h) => h.replace(/[,"]/g, '')).slice(0, 60).join(', ');
+const HINTS = [...new Set([...TOPPINGS.map((t) => t.name), ...SIZES.map((s) => s.label), ...SPECIALTIES.map((s) => s.name), ...SIDES.map((s) => s.name), 'pepperoni', 'pineapple', 'jalapeño', 'pickup', 'delivery', 'Detroit', 'gluten free'])].map((h) => h.replace(/[,"]/g, '')).slice(0, 100).join(', ');
+
+/**
+ * How the line listens. Elias's first real call (2026-11-16): a small noise cut the assistant off, and a pause
+ * mid-sentence ("a large... pepperoni pizza with pineapple") was taken as the end of what he was saying.
+ * So: only real speech interrupts, at low sensitivity; "uh huh" and our own echo do not count; and the
+ * caller's turn ends when the recognizer judges they are done, not at the first short silence.
+ */
+const LISTENING = 'interruptible="speech" welcomeGreetingInterruptible="speech" interruptSensitivity="low" ignoreBackchannel="true" echoPromptFiltering="true" turnDetection="true" eotThreshold="0.8" speechTimeout="1500"';
 
 /** A natural voice for the few lines Twilio reads itself. Without it Twilio falls back to its old robot voice. */
 export const SAY_VOICE = 'Polly.Joanna-Generative';
@@ -81,7 +89,7 @@ const TALK_VOICE = 'UgBBYS2sOqTuMpoF3BR0';
 export function connectTwiml(host: string, hello: string, ticket: string): Response {
   return twiml(
     `<Connect action="https://${host}/api/voice/done">`
-    + `<ConversationRelay url="wss://${host}/api/voice/ws" welcomeGreeting="${xml(hello)}" language="en-US" ttsProvider="ElevenLabs" voice="${TALK_VOICE}" interruptible="any" hints="${xml(HINTS)}">`
+    + `<ConversationRelay url="wss://${host}/api/voice/ws" welcomeGreeting="${xml(hello)}" language="en-US" ttsProvider="ElevenLabs" voice="${TALK_VOICE}" ${LISTENING} hints="${xml(HINTS)}">`
     + `<Parameter name="t" value="${xml(ticket)}"/>`
     + '</ConversationRelay></Connect>',
   );

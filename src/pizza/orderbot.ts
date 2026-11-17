@@ -640,7 +640,9 @@ export function turnContext(surface: Surface, caller: Caller, order: BotOrder, t
 /** The first thing the AI says. Written here, not by Claude, so the phone is answered the moment it rings. */
 export function greeting(caller: Caller, surface: Surface): string {
   // The shop's name ends in a period ("Co."), so a sentence that ends with it needs no second one.
-  const thanks = `Thanks for calling ${PIZZA_SHOP.name}${PIZZA_SHOP.name.endsWith('.') ? '' : '.'}`;
+  // Out loud the shop is "Shoreline Slice": nobody says the "Co." on the phone, and a voice reads it badly.
+  const spoken = PIZZA_SHOP.name.replace(/,? Co\.?$/, '');
+  const hey = `Hey, thanks for calling ${spoken}!`;
   const shopIs = `It's ${PIZZA_SHOP.name}${PIZZA_SHOP.name.endsWith('.') ? '' : '.'}`;
   const first = caller.name?.split(' ')[0];
   const usual = caller.lastLines?.length ? caller.lastLines.map(lineText).join(' and ').replace(/ \([^)]*\)/g, '') : '';
@@ -648,9 +650,9 @@ export function greeting(caller: Caller, surface: Surface): string {
     if (caller.known && first && usual) return `Hi ${first}! ${shopIs} Want your usual, ${usual}? Reply YES, or tell me what you'd like.`;
     return `Hi! ${shopIs} What can I get started for you? You can text your order like you'd say it, e.g. "large pepperoni, half mushroom, pickup".`;
   }
-  if (!caller.phone) return `Thanks for calling ${PIZZA_SHOP.name}, this is the ordering assistant. What can I get for you?`;
-  if (caller.known && first && usual) return `${thanks} Hi ${first}! Want your usual ${usual}${caller.lastFulfillment === 'delivery' && caller.address ? `, delivered to ${caller.address}` : ''}?`;
-  return `Thanks for calling ${PIZZA_SHOP.name}, this is the ordering assistant. Is this for pickup or delivery?`;
+  if (!caller.phone) return `${hey} I'm the shop's AI assistant. What can I get started for you?`;
+  if (caller.known && first && usual) return `Hey ${first}, thanks for calling ${spoken}! Want your usual, ${usual}${caller.lastFulfillment === 'delivery' && caller.address ? `, delivered to ${caller.address}` : ''}?`;
+  return `${hey} I'm the shop's AI assistant. Is this for pickup or delivery?`;
 }
 
 /** A blank pizza item, for code that builds orders by hand (the sample calls). */

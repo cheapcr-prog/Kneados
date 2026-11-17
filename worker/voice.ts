@@ -71,10 +71,17 @@ export const twiml = (inner: string) => new Response(`<?xml version="1.0" encodi
 /** Words the speech recognizer should expect: the menu. */
 const HINTS = [...SPECIALTIES.map((s) => s.name), ...SIDES.map((s) => s.name), 'pepperoni', 'jalapeño', 'pickup', 'delivery', 'Detroit', 'gluten free'].map((h) => h.replace(/[,"]/g, '')).slice(0, 60).join(', ');
 
+/** A natural voice for the few lines Twilio reads itself. Without it Twilio falls back to its old robot voice. */
+export const SAY_VOICE = 'Polly.Joanna-Generative';
+export const say = (text: string) => `<Say voice="${SAY_VOICE}" language="en-US">${xml(text)}</Say>`;
+
+/** The conversation's voice: ElevenLabs, which ConversationRelay includes at no extra charge. */
+const TALK_VOICE = 'UgBBYS2sOqTuMpoF3BR0';
+
 export function connectTwiml(host: string, hello: string, ticket: string): Response {
   return twiml(
     `<Connect action="https://${host}/api/voice/done">`
-    + `<ConversationRelay url="wss://${host}/api/voice/ws" welcomeGreeting="${xml(hello)}" language="en-US" interruptible="any" hints="${xml(HINTS)}">`
+    + `<ConversationRelay url="wss://${host}/api/voice/ws" welcomeGreeting="${xml(hello)}" language="en-US" ttsProvider="ElevenLabs" voice="${TALK_VOICE}" interruptible="any" hints="${xml(HINTS)}">`
     + `<Parameter name="t" value="${xml(ticket)}"/>`
     + '</ConversationRelay></Connect>',
   );
@@ -84,7 +91,7 @@ export function connectTwiml(host: string, hello: string, ticket: string): Respo
 export function doneTwiml(handoff: string | undefined): Response {
   let reason = '';
   try { reason = (JSON.parse(handoff ?? '{}') as { reason?: string }).reason ?? ''; } catch { /* not ours */ }
-  if (reason === 'transfer') return twiml('<Say>In a live shop this call would now ring the manager on duty. This is a demo line, so the call ends here. Goodbye.</Say><Hangup/>');
+  if (reason === 'transfer') return twiml(`${say('In a live shop this call would now ring the manager on duty. This is a demo line, so the call ends here. Bye!')}<Hangup/>`);
   return twiml('<Hangup/>');
 }
 
@@ -217,4 +224,4 @@ export class VoiceSession {
   }
 }
 
-export const NOT_SET_UP = `Thanks for calling ${PIZZA_SHOP.name}${PIZZA_SHOP.name.endsWith('.') ? '' : '.'} Our phone ordering line is not set up yet. Please try again later.`;
+export const NOT_SET_UP = `Hey, thanks for calling ${PIZZA_SHOP.name.replace(/,? Co\.?$/, '')}! Our phone ordering isn't switched on just yet. Please try us again soon.`;

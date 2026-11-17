@@ -7,6 +7,7 @@ import { DEFAULT_FRAUD } from '../src/lib/fraud';
 import type { Address } from '../src/pizza/data';
 import { PIZZA_SHOP, SPECIALTIES, SIDES, SIZES, TOPPINGS } from '../src/pizza/data';
 import { quoteTime, upsells } from '../src/pizza/logic';
+import { streetGuesses } from '../src/pizza/streets';
 import {
   EMPTY_ORDER, buildLines, greeting, needsLookup, rememberAddress, settle, ticketFor, turnContext,
   type BotItem, type BotOrder, type BotTurn, type Caller, type ShopNow, type TranscriptLine,
@@ -170,7 +171,7 @@ export interface Line {
 
 export interface VoiceDeps {
   /** A private record of the call for the shop's own logs: what was heard, what was said, how long a reply took. */
-  log?: (entry: { event: 'heard' | 'said' | 'thought' | 'no_answer' | 'filler' | 'started_over'; text: string; ms?: number }) => void;
+  log?: (entry: { event: 'heard' | 'said' | 'thought' | 'no_answer' | 'filler' | 'started_over' | 'address_fixed'; text: string; ms?: number }) => void;
   /** How long the caller hears nothing before a short "one sec". Tests set it; live it is FILLER_AFTER_MS. */
   fillerAfterMs?: number;
   /** One turn of the order taker. Null when the model could not answer. */
@@ -281,6 +282,22 @@ export class VoiceSession {
     if (where && needsLookup(where)) {
       const found = await this.deps.lookUp(where);
       if (found !== undefined) rememberAddress(where, found);
+      // No such address: the street may have been misheard ("Eximino" for Ximeno). Check the real streets that
+      // sound like it. The address file still has to find the house, and the caller hears the corrected address.
+      if (found === null) {
+        const guesses = streetGuesses(where);
+        const checked = await Promise.all(guesses.map((g) => this.deps.lookUp(g.address).catch(() => undefined)));
+        const hit = checked.findIndex((a) => a);
+        const fixed = checked[hit];
+        if (fixed) {
+          const { heard, street } = guesses[hit];
+          rememberAddress(fixed.line, fixed);
+          const mention = new RegExp(heard.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s+'), 'gi');
+          const said = turn.say.replace(mention, street);
+          turn = { ...turn, order: { ...turn.order, address: fixed.line }, say: said.includes(street) ? said : `I have that as ${fixed.line}. ${said}` };
+          this.deps.log?.({ event: 'address_fixed', text: `${heard} -> ${street}` });
+        }
+      }
     }
 
     const done = settle(turn, this.order, this.caller, LINE_SHOP, 'call');

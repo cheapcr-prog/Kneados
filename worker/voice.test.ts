@@ -215,3 +215,24 @@ describe('words the voice reads badly (real call, 2026-11-16)', () => {
     expect(forSpeech('ready in 15 min')).toBe('ready in 15 minutes');
   });
 });
+
+describe('a street name heard wrong (real call, 2026-11-16: "Eximino" for Ximeno)', () => {
+  it('finds the real street that sounds like it and tells the caller', async () => {
+    const c = call([{ say: 'Got it, 1746 Eximino Avenue. How would you like to pay?', order: order({ fulfillment: 'delivery', address: '1746 Eximino Avenue' }), action: 'continue' }]);
+    const asked: string[] = [];
+    c.deps.lookUp = async (said) => { asked.push(said); return /ximeno/i.test(said) && !/eximino/i.test(said) ? { line: '1746 Ximeno Ave', x: 0.8, y: 0.4 } : null; };
+    await c.session.heard('Deliver it to 1746 Ximeno Avenue.');
+    expect(asked[0]).toBe('1746 Eximino Avenue');
+    expect(asked).toContain('1746 Ximeno Avenue');
+    expect(c.session.order.address).toBe('1746 Ximeno Ave');
+    expect(c.said[0]).toContain('Ximeno');
+    expect(c.said[0]).not.toContain('Eximino');
+    expect(c.said[0]).not.toContain("couldn't find");
+  });
+
+  it('still says it cannot find the address when no real street has that house', async () => {
+    const c = call([{ say: 'Got it. How would you like to pay?', order: order({ fulfillment: 'delivery', address: '1746 Eximino Avenue' }), action: 'continue' }]);
+    await c.session.heard('1746 Eximino Avenue.');
+    expect(c.said[0]).toContain("couldn't find");
+  });
+});

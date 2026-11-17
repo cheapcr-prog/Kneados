@@ -282,3 +282,31 @@ describe('the phone line remembers the latest order', () => {
     expect(customer.last).toEqual({ number: FIRST_PHONE_NUMBER, at, minutes: 15 });
   });
 });
+
+describe('wait times count the phone orders already being made (Elias, 2026-11-16)', () => {
+  const now = Date.UTC(2026, 10, 16, 20, 0);
+  const pies = (qty: number) => order({ items: [item({ kind: 'pizza', specialty: 'pepperoni', size: 'L', qty })], fulfillment: 'pickup' });
+  const placed = (minutesAgo: number, minutes: number, qty: number) => ({ at: new Date(now - minutesAgo * 60_000).toISOString(), minutes, order: pies(qty) });
+
+  it('counts pizzas still waiting and pizzas baking, and drops orders that are ready', async () => {
+    const { kitchenLoad } = await import('./voice');
+    expect(kitchenLoad([placed(1, 20, 4), placed(10, 15, 2), placed(30, 15, 9)], now)).toEqual({ ahead: 4, inOven: 2 });
+    expect(kitchenLoad([{ at: new Date(now).toISOString(), minutes: 15, order: order({ items: [item({ kind: 'side', side: 'caesar' })] }) }], now)).toEqual({ ahead: 0, inOven: 0 });
+  });
+
+  it('quotes a longer wait when the kitchen is busy', async () => {
+    const { lineShop } = await import('./voice');
+    const quiet = lineShop().quote(1);
+    const busy = lineShop({ ahead: 12, inOven: 6 }).quote(1);
+    expect(quiet).toBe(15);
+    expect(busy).toBeGreaterThan(quiet);
+  });
+
+  it('the line reports its load when the phone rings', async () => {
+    const store = new Map<string, unknown>();
+    const line = new PhoneLine({ storage: { get: async <T,>(k: string) => store.get(k) as T | undefined, put: async (k, v) => { store.set(k, v); } } });
+    await line.fetch(new Request('https://line/place', { method: 'POST', body: JSON.stringify({ order: { at: new Date().toISOString(), minutes: 20, last4: '0142', order: pies(3), transcript: [] }, phone: '5625550142' }) }));
+    const { busy } = (await (await line.fetch(new Request('https://line/ring?from=5625550142'))).json()) as { busy: { ahead: number; inOven: number } };
+    expect(busy).toEqual({ ahead: 3, inOven: 0 });
+  });
+});

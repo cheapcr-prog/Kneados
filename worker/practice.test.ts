@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { item, type BotOrder, type BotTurn } from '../src/pizza/orderbot';
+import { saveSpend } from './index';
 import { PRACTICE_CALLS, PRACTICE_EXTRA_TURNS, houseRules, ordinaryAnswer, report, runPractice, toppingsOn, type PracticeResult } from './practice';
 
 const order = (over: Partial<BotOrder>): BotOrder => ({ items: [], fulfillment: '', name: '', address: '', payment: '', note: '', ...over });
@@ -61,5 +62,17 @@ describe('practice calls', () => {
     expect(ordinaryAnswer('What name should I put it under?')).toBe('Elias.');
     expect(ordinaryAnswer('Anything else?')).toBe("No, that's it.");
     expect(ordinaryAnswer('Is that right?')).toBe('Yes.');
+  });
+});
+
+describe('recording what was spent (two calls answering at once)', () => {
+  it('tries again when the store refuses a write, and never throws', async () => {
+    let tries = 0;
+    const saved: string[] = [];
+    const kv = { get: async () => null, put: async (_k: string, v: string) => { if (++tries === 1) throw new Error('KV PUT failed: 429 Too Many Requests'); saved.push(v); } };
+    await saveSpend(kv as never, 'spend:2026-11-16', '42', 1);
+    expect(saved).toEqual(['42']);
+    const never = { get: async () => null, put: async () => { throw new Error('429'); } };
+    await expect(saveSpend(never as never, 'spend:2026-11-16', '42', 1)).resolves.toBeUndefined();
   });
 });

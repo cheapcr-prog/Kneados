@@ -3,7 +3,7 @@
  * make line the very next second: today's phone orders, the order number counter, and the callers who have
  * ordered before (so a regular is greeted by name and offered the usual).
  */
-import type { PhoneOrder, SavedCustomer } from './voice';
+import { kitchenLoad, type PhoneOrder, type SavedCustomer } from './voice';
 
 interface Storage {
   get<T>(key: string): Promise<T | undefined>;
@@ -30,7 +30,8 @@ export class PhoneLine {
     if (url.pathname === '/ring') {
       await store.put('lastCallAt', new Date().toISOString());
       const phone = url.searchParams.get('from') ?? '';
-      return reply({ customer: phone ? (await store.get<SavedCustomer>(`customer:${phone}`)) ?? null : null });
+      const busy = kitchenLoad((await store.get<PhoneOrder[]>('orders')) ?? [], Date.now());
+      return reply({ customer: phone ? (await store.get<SavedCustomer>(`customer:${phone}`)) ?? null : null, busy });
     }
     if (url.pathname === '/place' && request.method === 'POST') {
       const { order, phone } = (await request.json()) as { order: Omit<PhoneOrder, 'id' | 'number'>; phone: string };

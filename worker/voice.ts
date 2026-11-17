@@ -93,10 +93,32 @@ export const say = (text: string) => `<Say voice="${SAY_VOICE}" language="en-US"
 // so the accent is real. The plain American voice it replaced was 'UgBBYS2sOqTuMpoF3BR0'.
 const TALK_VOICE = 'uScy1bXtKz8vPzfdFsFw';
 
+/**
+ * Menu shorthand a voice reads badly. On a real call (2026-11-16) the Italian voice spelled out "BBQ" letter by letter,
+ * so anything spoken is rewritten into plain words first. The written order and the transcript keep the menu's spelling.
+ */
+const SPOKEN: [RegExp, string][] = [
+  [/\bB\.?B\.?Q\b\.?/gi, 'barbecue'],
+  [/\bbar-?b-?q(ue)?\b/gi, 'barbecue'],
+  [/\bbarbeque\b/gi, 'barbecue'],
+  [/\bjalape[nñ]os?\b/gi, 'jalapeños'],
+  [/\b2[- ]?(liter|litre|L)\b/g, 'two liter'],
+  [/\s*\((\d+)\)/g, ', $1 piece'],
+  [/\s*&\s*/g, ' and '],
+  [/\bDouble Pep\b/gi, 'Double Pepperoni'],
+  [/\bw\//gi, 'with '],
+  [/\bapprox\.?\s/gi, 'about '],
+  [/\b(\d+)\s?mins?\b/gi, '$1 minutes'],
+  [/\b(\d+)\s?(in|")(?=[\s,.]|$)/g, '$1 inch'],
+];
+export function forSpeech(text: string): string {
+  return SPOKEN.reduce((t, [from, to]) => t.replace(from, to), text);
+}
+
 export function connectTwiml(host: string, hello: string, ticket: string): Response {
   return twiml(
     `<Connect action="https://${host}/api/voice/done">`
-    + `<ConversationRelay url="wss://${host}/api/voice/ws" welcomeGreeting="${xml(hello)}" language="en-US" ttsProvider="ElevenLabs" voice="${TALK_VOICE}" ${LISTENING} hints="${xml(HINTS)}">`
+    + `<ConversationRelay url="wss://${host}/api/voice/ws" welcomeGreeting="${xml(forSpeech(hello))}" language="en-US" ttsProvider="ElevenLabs" voice="${TALK_VOICE}" ${LISTENING} hints="${xml(HINTS)}">`
     + `<Parameter name="t" value="${xml(ticket)}"/>`
     + '</ConversationRelay></Connect>',
   );
@@ -208,7 +230,7 @@ export class VoiceSession {
   private speak(text: string) {
     this.transcript.push({ who: 'ai', text });
     this.deps.log?.({ event: 'said', text });
-    this.deps.say(text);
+    this.deps.say(forSpeech(text));
   }
 
   /** Everything waiting to be answered becomes one line of the conversation. */

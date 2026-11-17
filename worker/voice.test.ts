@@ -41,7 +41,7 @@ describe('only Twilio may open a call', () => {
   it('tells Twilio to greet and connect, and escapes what it says', async () => {
     const xml = await connectTwiml('kneados.app', 'Thanks for calling "Slice & Co."', 'tick').text();
     expect(xml).toContain('wss://kneados.app/api/voice/ws');
-    expect(xml).toContain('Slice &amp; Co.');
+    expect(xml).toContain('&quot;Slice and Co.&quot;');
     expect(xml).toContain('<Parameter name="t" value="tick"/>');
     // A stray noise must not cut the assistant off, and a pause mid-sentence must not end the caller's turn.
     expect(xml).toContain('interruptible="speech"');
@@ -200,5 +200,18 @@ describe("the line's memory", () => {
     expect(ring.customer).toMatchObject({ name: 'Elias', orders: 2, fulfillment: 'pickup' });
     const stranger = (await (await line.fetch(new Request('https://line/ring?from=5625550000'))).json()) as { customer: null };
     expect(stranger.customer).toBeNull();
+  });
+});
+
+describe('words the voice reads badly (real call, 2026-11-16)', () => {
+  it('says barbecue instead of spelling out BBQ', async () => {
+    const { forSpeech } = await import('./voice');
+    expect(forSpeech('one BBQ chicken and BBQ Wings (10)')).toBe('one barbecue chicken and barbecue Wings, 10 piece');
+    expect(forSpeech('bbq sauce, Bar-B-Q, barbeque')).toBe('barbecue sauce, barbecue, barbecue');
+  });
+  it('says other menu shorthand as words and leaves prices alone', async () => {
+    const { forSpeech } = await import('./voice');
+    expect(forSpeech('a 2 liter diet cola, Sausage & Mushroom, jalapenos, $33.62')).toBe('a two liter diet cola, Sausage and Mushroom, jalapeños, $33.62');
+    expect(forSpeech('ready in 15 min')).toBe('ready in 15 minutes');
   });
 });

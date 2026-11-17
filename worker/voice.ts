@@ -139,10 +139,32 @@ export function doneTwiml(handoff: string | undefined): Response {
  * The phone line has no browser, so it quotes from the oven and drive times with an empty make line,
  * uses the shop's default fraud settings, and cannot text a pay link until the number's texting is registered.
  */
-export const LINE_SHOP: ShopNow = {
-  quote: (pies, zone) => quoteTime([], pies, { zone, cooks: 2, driversFreeInMin: 0 }).minutes,
-  out: [], open: true, fraud: DEFAULT_FRAUD, payLinks: false,
-};
+/** Pizzas from earlier phone orders that are still waiting to be made, or baking, right now. */
+export interface KitchenLoad { ahead: number; inOven: number }
+
+/**
+ * What the phone line knows about the kitchen: the phone orders it took that are not ready yet. An order counts as
+ * baking for its last minutes before the promised time, and as waiting on the make line before that. Counter and
+ * online orders are not seen here until the make line itself lives on the server.
+ */
+export function kitchenLoad(orders: readonly Pick<PhoneOrder, 'at' | 'minutes' | 'order'>[], now: number): KitchenLoad {
+  const load = { ahead: 0, inOven: 0 };
+  for (const o of orders) {
+    const readyAt = Date.parse(o.at) + o.minutes * 60_000;
+    const pies = o.order.items.filter((i) => i.kind === 'pizza').reduce((n, i) => n + Math.max(1, i.qty), 0);
+    if (!pies || !(now < readyAt)) continue;
+    if (now < readyAt - (PIZZA_SHOP.bakeMinutes + 2) * 60_000) load.ahead += pies; else load.inOven += pies;
+  }
+  return load;
+}
+
+export function lineShop(busy: KitchenLoad = { ahead: 0, inOven: 0 }): ShopNow {
+  return {
+    quote: (pies, zone) => quoteTime([], pies, { zone, cooks: 2, driversFreeInMin: 0, piesAhead: busy.ahead, piesInOven: busy.inOven }).minutes,
+    out: [], open: true, fraud: DEFAULT_FRAUD, payLinks: false,
+  };
+}
+export const LINE_SHOP: ShopNow = lineShop();
 
 /** What the shop remembers about a number that has ordered on this line before. */
 export interface SavedCustomer {
@@ -183,6 +205,8 @@ export interface VoiceDeps {
   log?: (entry: { event: 'heard' | 'said' | 'thought' | 'no_answer' | 'filler' | 'started_over' | 'address_fixed'; text: string; ms?: number }) => void;
   /** How long the caller hears nothing before a short "one sec". Tests set it; live it is FILLER_AFTER_MS. */
   fillerAfterMs?: number;
+  /** Phone orders still being made when this call came in, so the wait quoted is honest. */
+  busy?: KitchenLoad;
   /** One turn of the order taker. Null when the model could not answer. */
   model: (user: string) => Promise<BotTurn | null>;
   /** Real address lookup. Null: no such address. Undefined: the lookup failed. */
@@ -218,8 +242,10 @@ export class VoiceSession {
   /** Things the caller said that have not been answered yet. Said in a row, they are answered as one. */
   private pending: string[] = [];
   private queue: Promise<void> = Promise.resolve();
+  private shop: ShopNow;
 
   constructor(readonly caller: Caller, private deps: VoiceDeps) {
+    this.shop = lineShop(deps.busy);
     this.transcript = [{ who: 'ai', text: greeting(caller, 'call', deps.now?.() ?? Date.now()) }];
   }
 
@@ -263,11 +289,11 @@ export class VoiceSession {
       return this.speak(`${recentStatus(this.caller.recent, this.deps.now?.() ?? Date.now())} Is there anything else I can help you with?`);
     }
 
-    const before = ticketFor(this.order, this.caller, LINE_SHOP);
+    const before = ticketFor(this.order, this.caller, this.shop);
     // Once the caller has said that is everything, nothing more is suggested.
     const wrappingUp = this.transcript.some((l) => l.who === 'customer' && DONE_ORDERING.test(l.text));
     const suggestions = wrappingUp ? [] : upsells(before.lines, []).slice(0, 2).map((u) => `${u.title}. ${u.why}.`);
-    const context = turnContext('call', this.caller, this.order, before, LINE_SHOP, suggestions, new Date(this.deps.now?.() ?? Date.now()));
+    const context = turnContext('call', this.caller, this.order, before, this.shop, suggestions, new Date(this.deps.now?.() ?? Date.now()));
     let turn: BotTurn | null = null;
     // If the caller says more while we are working out a reply, that reply is stale: start over with all of it.
     for (let attempt = 0; attempt < 3; attempt++) {
@@ -315,7 +341,7 @@ export class VoiceSession {
       }
     }
 
-    const done = settle(turn, this.order, this.caller, LINE_SHOP, 'call');
+    const done = settle(turn, this.order, this.caller, this.shop, 'call');
     this.order = done.order;
     if (done.outcome === 'continue') return this.speak(done.say);
     if (done.outcome === 'transfer') return this.finish(done.say, 'transfer');

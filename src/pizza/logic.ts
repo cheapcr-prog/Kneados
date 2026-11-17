@@ -579,10 +579,10 @@ export interface Quote { minutes: number; parts: { label: string; minutes: numbe
  * How long until a new order is ready or at the door, from what is on the make line right now.
  * Two cooks share the make line; the oven takes `ovenSlots` pies at a time.
  */
-export function quoteTime(active: PizzaOrder[], newPies: number, opts: { zone?: Zone['id']; cooks?: number; driversFreeInMin?: number }): Quote {
+export function quoteTime(active: PizzaOrder[], newPies: number, opts: { zone?: Zone['id']; cooks?: number; driversFreeInMin?: number; /** Pies already waiting or baking that are not in `active` (the phone line counts its own). */ piesAhead?: number; piesInOven?: number }): Quote {
   const cooks = Math.max(1, opts.cooks ?? 2);
-  const ahead = active.filter((o) => o.status === 'new' && !o.scheduled).reduce((a, o) => a + piesIn(o), 0);
-  const inOven = active.filter((o) => o.status === 'oven').reduce((a, o) => a + piesIn(o), 0);
+  const ahead = active.filter((o) => o.status === 'new' && !o.scheduled).reduce((a, o) => a + piesIn(o), 0) + Math.max(0, opts.piesAhead ?? 0);
+  const inOven = active.filter((o) => o.status === 'oven').reduce((a, o) => a + piesIn(o), 0) + Math.max(0, opts.piesInOven ?? 0);
   const make = Math.ceil(((ahead + Math.max(1, newPies)) * PIZZA_SHOP.makeMinutes) / cooks);
   const ovenWait = Math.max(0, Math.ceil((inOven + ahead + newPies - PIZZA_SHOP.ovenSlots) / PIZZA_SHOP.ovenSlots)) * Math.ceil(PIZZA_SHOP.bakeMinutes / 2);
   const parts = [

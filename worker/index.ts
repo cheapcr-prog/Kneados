@@ -6,7 +6,7 @@ import { parseTurn, type BotTurn } from '../src/pizza/orderbot';
 import { GEOCODE_PER_VISITOR } from '../src/pizza/geocode';
 import { censusLookUp, findAddress, parseGeocodeBody, type GeocodeReply, type LookUp } from './geocode';
 import { PhoneLine, type LineNamespace } from './line';
-import { NOT_SET_UP, say, VoiceSession, callTicket, callerFrom, connectTwiml, doneTwiml, fromTwilio, readTicket, tenDigits, twiml, type SavedCustomer } from './voice';
+import { NOT_SET_UP, say, VoiceSession, callTicket, callerFrom, connectTwiml, doneTwiml, fromTwilio, readTicket, tenDigits, twiml, type KitchenLoad, type SavedCustomer } from './voice';
 import { geocodeQuery } from '../src/pizza/geocode';
 import { PRACTICE_CALLS, report, runPractice } from './practice';
 import { greeting } from '../src/pizza/orderbot';
@@ -84,6 +84,20 @@ export function sameOrigin(request: Request): boolean {
 
 const DAY = 60 * 60 * 24;
 
+/**
+ * Writes down what was spent. The store refuses a second write to the same key within a second, which happens when
+ * two calls answer at once (found by the practice calls, 2026-11-16). A refused write is tried once more, and it
+ * never throws: an answer that was already paid for must still reach the customer.
+ */
+export async function saveSpend(usage: KV, key: string, value: string, retryAfterMs = 1200): Promise<void> {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try { await usage.put(key, value, { expirationTtl: 40 * DAY }); return; } catch (error) {
+      if (attempt === 1) { console.error('Could not record spending', String(error).slice(0, 200)); return; }
+      await new Promise((done) => setTimeout(done, retryAfterMs));
+    }
+  }
+}
+
 export async function handleAsk(request: Request, env: Env, call: CallModel = callClaude, now = new Date()): Promise<Response> {
   const ready = !!env.ANTHROPIC_API_KEY && !!env.USAGE;
   if (request.method === 'GET') return json({ ready });
@@ -114,7 +128,7 @@ export async function handleAsk(request: Request, env: Env, call: CallModel = ca
   }
   // Read the count again so two questions at once do not lose each other's spending.
   const latest = Number((await usage.get(spendKey)) ?? 0) || 0;
-  await usage.put(spendKey, String(latest + costMicros(result.usage)), { expirationTtl: 40 * DAY });
+  await saveSpend(usage, spendKey, String(latest + costMicros(result.usage)));
 
   if (result.stop_reason === 'refusal') return json({ error: 'refused' }, 200);
   const text = result.content.find((b) => b.type === 'text')?.text;
@@ -165,7 +179,7 @@ export async function handleDraft(request: Request, env: Env, call: CallModel = 
     return json({ error: 'busy' }, 502);
   }
   const latest = Number((await usage.get(spendKey)) ?? 0) || 0;
-  await usage.put(spendKey, String(latest + costMicros(result.usage, DRAFT_MODEL)), { expirationTtl: 40 * DAY });
+  await saveSpend(usage, spendKey, String(latest + costMicros(result.usage, DRAFT_MODEL)));
   if (result.stop_reason === 'refusal') return json({ error: 'refused' }, 200);
   const raw = result.content.find((b) => b.type === 'text')?.text;
   if (body.kind === 'postcard') {
@@ -248,7 +262,7 @@ export async function handleOrder(request: Request, env: Env, call: CallModel = 
     return json({ error: 'busy' }, 502);
   }
   const latest = Number((await usage.get(spendKey)) ?? 0) || 0;
-  await usage.put(spendKey, String(latest + costMicros(result.usage, ORDER_MODEL)), { expirationTtl: 40 * DAY });
+  await saveSpend(usage, spendKey, String(latest + costMicros(result.usage, ORDER_MODEL)));
   if (result.stop_reason === 'refusal') return json({ error: 'refused' }, 200);
   const text = result.content.find((b) => b.type === 'text')?.text;
   const turn = text ? parseTurn(text) : null;
@@ -436,7 +450,8 @@ function voiceModel(env: Env, call: CallModel, fast: CallModel | null) {
     const ask = async (which: CallModel, name: string) => {
       const result = await which(env.ANTHROPIC_API_KEY!, user);
       spentNow += costMicros(result.usage, name);
-      await usage.put(spendKey, String(spentNow), { expirationTtl: 40 * DAY });
+      // Not waited for: the caller is on the line, and the answer does not depend on the bookkeeping.
+      void saveSpend(usage, spendKey, String(spentNow));
       if (result.stop_reason === 'refusal') return null;
       const text = result.content.find((b) => b.type === 'text')?.text;
       return text ? parseTurn(text) : null;
@@ -480,11 +495,12 @@ export function handleVoiceSocket(request: Request, env: Env, call: CallModel = 
       void readTicket(env.TWILIO_AUTH_TOKEN!, message.customParameters?.t).then(async (ticket) => {
         if (!ticket) { console.log(JSON.stringify({ voice: 'bad_ticket' })); socket.close(1008, 'not a call we answered'); return; }
         const line = lineFor(env, ticket.to);
-        const { customer } = (await (await line.fetch(`https://line/ring?from=${ticket.from}`)).json()) as { customer: SavedCustomer | null };
+        const { customer, busy } = (await (await line.fetch(`https://line/ring?from=${ticket.from}`)).json()) as { customer: SavedCustomer | null; busy?: KitchenLoad };
         const call4 = ticket.from.slice(-4);
         console.log(JSON.stringify({ voice: 'call_started', caller: call4, known: Boolean(customer) }));
         session = new VoiceSession(callerFrom(ticket.from, customer), {
           model,
+          busy,
           log: (entry) => console.log(JSON.stringify({ voice: entry.event, caller: call4, ...entry })),
           lookUp: async (said) => { try { return await findAddress(geocodeQuery(said) || said); } catch { return undefined; } },
           line: {
@@ -525,7 +541,7 @@ export async function handlePractice(request: Request, env: Env, call: CallModel
   const countKey = `practice:${budgetDay(now)}`;
   const ran = Number((await env.USAGE.get(countKey)) ?? 0) || 0;
   if (ran >= PRACTICE_CALLS_PER_DAY) return json({ error: 'limit' }, 429);
-  await env.USAGE.put(countKey, String(ran + 1), { expirationTtl: 2 * DAY });
+  try { await env.USAGE.put(countKey, String(ran + 1), { expirationTtl: 2 * DAY }); } catch { /* several practice calls started at once: the count is a guard, not a bill */ }
   const result = await runPractice(script, voiceModel(env, call, fast), async (said) => { try { return await findAddress(geocodeQuery(said) || said, lookUp); } catch { return undefined; } });
   return plain(report(script, result));
 }

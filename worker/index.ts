@@ -1,5 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
-import { DRAFTS_PER_VISITOR, DRAFT_MAX_TOKENS, DRAFT_MODEL, DRAFT_SCHEMA, DRAFT_SYSTEM, draftMessage, parseDraft, parseDraftBody } from './draft';
+import { DRAFTS_PER_VISITOR, DRAFT_MAX_TOKENS, DRAFT_MODEL, DRAFT_SCHEMA, DRAFT_SYSTEM, POSTCARD_SCHEMA, POSTCARD_SYSTEM, draftMessage, parseDraft, parseDraftBody, parsePostcard } from './draft';
 import { DEFAULT_REVIEW_MONTHLY_CAP_CENTS, REVIEW_LOCK_SECONDS, REVIEW_MAX_BODY_BYTES, REVIEW_MAX_TOKENS, REVIEW_MODEL, REVIEW_RESERVE_MICROS, REVIEW_SCHEMA, REVIEW_SYSTEM, budgetMonth, parseReview, parseReviewBody, reviewBlock, reviewMessage, type ReviewError, type ReviewEvent, type ReviewStatus, type SavedReview } from './review';
 import { ORDER_MAX_BODY_BYTES, ORDER_MAX_TOKENS, ORDER_MODEL, ORDER_SYSTEM, ORDER_TURNS_PER_VISITOR, TURN_SCHEMA, orderMessage, parseOrderBody } from './order';
 import { parseTurn, type BotTurn } from '../src/pizza/orderbot';
@@ -124,13 +124,13 @@ export async function handleAsk(request: Request, env: Env, call: CallModel = ca
 }
 
 /** Rewrites one customer text. Swapped for a stand-in by the tests. */
-const callDraft: CallModel = async (apiKey, user) => {
+const callDraft: CallModel = async (apiKey, user, system = DRAFT_SYSTEM) => {
   const client = new Anthropic({ apiKey, maxRetries: 1, timeout: 20_000 });
   return client.messages.create({
     model: DRAFT_MODEL,
     max_tokens: DRAFT_MAX_TOKENS,
-    system: DRAFT_SYSTEM,
-    output_config: { effort: 'low', format: { type: 'json_schema', schema: DRAFT_SCHEMA } },
+    system,
+    output_config: { effort: 'low', format: { type: 'json_schema', schema: system === POSTCARD_SYSTEM ? POSTCARD_SCHEMA : DRAFT_SCHEMA } },
     messages: [{ role: 'user', content: user }],
   });
 };
@@ -157,7 +157,7 @@ export async function handleDraft(request: Request, env: Env, call: CallModel = 
 
   let result: ModelResult;
   try {
-    result = await call(env.ANTHROPIC_API_KEY!, draftMessage(body));
+    result = await call(env.ANTHROPIC_API_KEY!, draftMessage(body), body.kind === 'postcard' ? POSTCARD_SYSTEM : DRAFT_SYSTEM);
   } catch (error) {
     if (error instanceof Anthropic.APIError) console.error('Draft request failed', error.status, error.message);
     else console.error('Draft request failed', error);
@@ -167,6 +167,10 @@ export async function handleDraft(request: Request, env: Env, call: CallModel = 
   await usage.put(spendKey, String(latest + costMicros(result.usage, DRAFT_MODEL)), { expirationTtl: 40 * DAY });
   if (result.stop_reason === 'refusal') return json({ error: 'refused' }, 200);
   const raw = result.content.find((b) => b.type === 'text')?.text;
+  if (body.kind === 'postcard') {
+    const card = raw ? parsePostcard(raw, body.current) : null;
+    return card ? json(card) : json({ error: 'busy' }, 502);
+  }
   const text = raw ? parseDraft(raw) : null;
   if (!text) return json({ error: 'busy' }, 502);
   return json({ text });

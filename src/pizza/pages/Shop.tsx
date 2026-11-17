@@ -2,7 +2,8 @@ import { Bike, Check, ChevronRight, Clock, Minus, Plus, ShoppingBag, Sparkles, S
 import { useFraud } from '../../components/Fraud';
 import { DECLINED_DEMO_CARD, GOOD_DEMO_CARD, demoCardOk, failedTries, orderRisk, triesLeft } from '../../lib/fraud';
 import { useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
+import { OFFER_BY_ID, applyOffer, findCode, freeValue } from '../mail';
 import { useTick } from '../../components/Breaks';
 import { formatPhone, money } from '../../lib/money';
 import { ADDRESSES, PIZZA_SHOP, SIDES, SIDE_BY_ID, SIZES, SPECIALTIES, ZONES, type PizzaConfig, type SizeId } from '../data';
@@ -27,6 +28,10 @@ export function PizzaShop() {
   // Once the order is paid, every pizza in it goes into the oven together before the confirmation shows.
   const [baking, setBaking] = useState<{ id: string; number: number; configs: PizzaConfig[] } | null>(null);
   const [toast, setToast] = useState('');
+  // A postcard's QR code opens the shop with its code, so it is already on the order at checkout.
+  const [params] = useSearchParams();
+  const mailParam = params.get('mail') ?? '';
+  const mailHit = mailParam ? findCode(mailParam, state.campaigns, state.today) : undefined;
 
   const add = (l: Line) => {
     setCart((c) => [...c, l]);
@@ -39,6 +44,11 @@ export function PizzaShop() {
 
   return (
     <div className="min-h-full bg-[#fbf7ef] text-slate-900">
+      {mailHit && (
+        <div data-mail-banner className={`px-4 py-2.5 text-center text-sm font-semibold ${mailHit.used || mailHit.expired ? 'bg-amber-100 text-amber-900' : 'bg-emerald-600 text-white'}`}>
+          {mailHit.used ? `Postcard code ${mailHit.campaign.codes[mailHit.key]} was already used. Thanks for coming back!` : mailHit.expired ? `Postcard code ${mailHit.campaign.codes[mailHit.key]} has expired.` : `Thanks for scanning your postcard! ${OFFER_BY_ID[mailHit.campaign.offerId].label}. Code ${mailHit.campaign.codes[mailHit.key]} is already on your order.`}
+        </div>
+      )}
       {/* Shop header */}
       <header className="relative overflow-hidden bg-[#10261c] text-white">
         <img src="/pizza/hero-oven.webp" alt="" className="absolute inset-0 h-full w-full object-cover opacity-40" />
@@ -165,7 +175,7 @@ export function PizzaShop() {
       )}
 
       {open && (
-        <Checkout cart={cart} setCart={setCart} history={history} gameDay={brain.facts.tomorrow.event ?? undefined} onClose={() => setOpen(false)}
+        <Checkout mailCode={mailHit ? mailHit.campaign.codes[mailHit.key] : ''} cart={cart} setCart={setCart} history={history} gameDay={brain.facts.tomorrow.event ?? undefined} onClose={() => setOpen(false)}
           quote={(zone, pies) => quoteTime(state.orders.filter((o) => o.status !== 'done'), pies, { zone, cooks: brain.cooks, driversFreeInMin: brain.freeIn }).minutes}
           onPlace={(o, phone) => {
             const placedO = placeOrder(o, { rewardPhone: phone });
@@ -274,8 +284,8 @@ function PreorderButton({ pack, date, label }: { pack: string; date: string; lab
 
 const longDate = (iso: string) => new Date(`${iso}T12:00:00`).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
 
-function Checkout({ cart, setCart, history, gameDay, onClose, onPlace, quote }: {
-  cart: Line[]; setCart: (f: (c: Line[]) => Line[]) => void; history: ReturnType<typeof usePizza>['history']; gameDay?: string;
+function Checkout({ mailCode = '', cart, setCart, history, gameDay, onClose, onPlace, quote }: {
+  mailCode?: string; cart: Line[]; setCart: (f: (c: Line[]) => Line[]) => void; history: ReturnType<typeof usePizza>['history']; gameDay?: string;
   onClose: () => void; onPlace: (o: Omit<PizzaOrder, 'id' | 'number'>, rewardPhone?: string) => void; quote: (zone: 'A' | 'B' | 'C' | undefined, pies: number) => number;
 }) {
   const [mode, setMode] = useState<'pickup' | 'delivery'>('delivery');
@@ -286,14 +296,20 @@ function Checkout({ cart, setCart, history, gameDay, onClose, onPlace, quote }: 
   const [rewards, setRewards] = useState(true);
   const a = ADDRESSES[addr];
   const zone = mode === 'delivery' ? zoneFor(a) : undefined;
-  const pies = cart.reduce((n, l) => n + (l.kind === 'pizza' ? l.qty : 0), 0);
-  const base = totals(cart, { zone });
+  const { state: shopState } = usePizza();
+  const [code, setCode] = useState(mailCode);
+  const hit = code ? findCode(code, shopState.campaigns, shopState.today) : undefined;
+  const promo = hit && !hit.used && !hit.expired ? applyOffer(hit.campaign.offerId, cart) : undefined;
+  const codeNote = !code ? '' : !hit ? (code.replace(/[^A-Za-z0-9]/g, '').length >= 7 ? 'That code is not one of ours.' : '') : hit.used ? 'That code was already used.' : hit.expired ? 'That code has expired.' : promo?.problem ?? `${OFFER_BY_ID[hit.campaign.offerId].label}. From the "${hit.campaign.name}" postcard.`;
+  const lines = promo && !promo.problem ? [...cart, ...promo.free] : cart;
+  const discountCents = promo && !promo.problem ? promo.discountCents : 0;
+  const pies = lines.reduce((n, l) => n + (l.kind === 'pizza' ? l.qty : 0), 0);
+  const base = totals(lines, { zone, discountCents });
   const tip = Math.round(base.subtotal * tipPct);
-  const t = totals(cart, { zone, tipCents: tip });
+  const t = totals(lines, { zone, tipCents: tip, discountCents });
   const minutes = quote(zone, pies);
   const ups = useMemo(() => upsells(cart, history, gameDay), [cart, history, gameDay]);
   const outOfRange = mode === 'delivery' && !zone;
-  const { state: shopState } = usePizza();
   const fraud = useFraud();
   const [card, setCard] = useState(GOOD_DEMO_CARD);
   const [cardName, setCardName] = useState('');
@@ -314,7 +330,7 @@ function Checkout({ cart, setCart, history, gameDay, onClose, onPlace, quote }: 
     onPlace({
       channel: 'online', fulfillment: mode, createdAt: new Date(now).toISOString(), promisedAt: new Date(now + minutes * MINUTE).toISOString(),
       customer: { name, phone, ...(mode === 'delivery' ? { address: a.line, x: a.x, y: a.y, zone } : {}) },
-      lines: cart, ...t, payment: risk.payInPerson ? (mode === 'delivery' ? 'cash' : 'card') : 'online', status: 'new',
+      lines, ...t, ...(promo && !promo.problem && hit ? { promo: { code: hit.campaign.codes[hit.key], campaignId: hit.campaign.id, discountCents: discountCents || freeValue(promo.free), viaQr: !!mailCode && code === mailCode } } : {}), payment: risk.payInPerson ? (mode === 'delivery' ? 'cash' : 'card') : 'online', status: 'new',
       ...(flagged || bankConfirmed ? { fraud: { flags: risk.flags.map((f) => f.label), idCheck: risk.idCheck, cardName: risk.payInPerson ? undefined : cardName.trim(), bankConfirmed } } : {}),
     }, rewards ? phone : undefined);
   };
@@ -395,7 +411,13 @@ function Checkout({ cart, setCart, history, gameDay, onClose, onPlace, quote }: 
           {[0, 0.15, 0.18, 0.22].map((p) => <button key={p} onClick={() => setTipPct(p)} className={`flex-1 rounded-lg border py-1.5 text-sm font-semibold ${tipPct === p ? 'border-emerald-600 bg-emerald-50 text-emerald-800' : 'border-slate-200'}`}>{p ? `${Math.round(p * 100)}%` : 'None'}</button>)}
         </div>
       </div>
+      <div className="mt-3">
+        <input value={code} onChange={(e) => setCode(e.target.value.toUpperCase().slice(0, 12))} placeholder="Postcard or promo code" aria-label="Postcard or promo code" className="tabular w-full rounded-lg border border-slate-200 px-3 py-2 text-sm uppercase" />
+        {codeNote && <p data-promo-note className={`mt-1 text-xs ${promo && !promo.problem ? 'font-semibold text-emerald-700' : 'text-rose-600'}`}>{promo && !promo.problem && <Check size={12} className="mr-1 inline" />}{codeNote}</p>}
+        {promo && !promo.problem && promo.free.map((l, i) => <p key={i} className="mt-1 flex justify-between text-sm text-emerald-800"><span>{l.kind === 'pizza' ? pizzaTitle(l as PizzaLine) : SIDE_BY_ID[l.sideId].name} (free with your code)</span><span className="tabular">$0.00</span></p>)}
+      </div>
       <dl className="tabular mt-4 space-y-1 border-t border-slate-100 pt-3 text-sm">
+        {discountCents > 0 && <div className="flex justify-between text-emerald-700"><dt>Postcard code</dt><dd>−{money(discountCents)}</dd></div>}
         <div className="flex justify-between"><dt>Subtotal</dt><dd>{money(t.subtotal)}</dd></div>
         {t.deliveryFee > 0 && <div className="flex justify-between"><dt>Delivery fee</dt><dd>{money(t.deliveryFee)}</dd></div>}
         <div className="flex justify-between"><dt>Tax</dt><dd>{money(t.tax)}</dd></div>

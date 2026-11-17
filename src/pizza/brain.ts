@@ -9,8 +9,9 @@ import { DRIVERS, PIZZA_SHIFTS, PIZZA_SHOP, PIZZA_STAFF_BY_ID, SIZES, SPECIALTY_
 import { APP_FEE_SHARE, MINUTE, doughPlan, draftOrders, lateBy, menuMargins, planRuns, piesIn, pnl, quoteTime, stockPlan, unitCost, type DraftPO, type PizzaOrder, type RunPlan, type StockLine } from './logic';
 import type { PizzaDemo } from './store';
 import { invoiceState } from '../lib/channels';
+import { estimate, mailingList, namedAudience, results, tracking } from './mail';
 
-export type PizzaArea = 'Money' | 'Make line' | 'Delivery' | 'Dough' | 'Stock' | 'Team' | 'Menu' | 'Customers' | 'Game day' | 'Waste' | 'Sales channels';
+export type PizzaArea = 'Money' | 'Make line' | 'Delivery' | 'Dough' | 'Stock' | 'Team' | 'Menu' | 'Customers' | 'Game day' | 'Waste' | 'Sales channels' | 'Marketing';
 
 export interface PizzaDecision {
   id: string;
@@ -21,9 +22,9 @@ export interface PizzaDecision {
   action: string;
   then: string;
   impactCents?: number;
-  per?: 'today' | 'a month';
+  per?: 'today' | 'a month' | 'this mailing';
   /** What approving does in the demo. */
-  kind: 'call' | 'dispatch' | 'dough' | 'po' | 'driver' | 'campaign' | 'price' | 'note' | 'invoice';
+  kind: 'call' | 'dispatch' | 'dough' | 'po' | 'driver' | 'campaign' | 'price' | 'note' | 'invoice' | 'mail';
   payload?: { runIndex?: number; supplier?: string; phones?: string[]; invoiceId?: string };
 }
 
@@ -100,6 +101,17 @@ export function usePizzaBrain(demo: PizzaDemo, nowMs: number) {
         bestSellers: Object.entries(last30.reduce<Record<string, number>>((a, h) => { for (const [k, n] of Object.entries(h.bySpecialty)) a[k] = (a[k] ?? 0) + n; return a; }, {})).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([id, n]) => ({ name: id === 'byo' ? 'Build your own' : SPECIALTY_BY_ID[id].name, pizzas: n })),
       },
       menuFoodCost: margins.filter((m) => m.size === 'L').map((m) => ({ pizza: `Large ${m.name}`, priceCents: m.priceCents, foodCostCents: m.costCents, costShare: Math.round(m.costShare * 1000) / 1000 })),
+      postcards: (() => {
+        const foodShare = Math.round(money30.foodShare * 1000) / 1000;
+        const list = mailingList(state.today);
+        const recentIds = new Set(state.campaigns.filter((c) => c.sentOn > addDays(state.today, -30)).flatMap((c) => c.recipients));
+        const lapsedToMail = namedAudience('lapsed', list, state.today, recentIds).length;
+        const next = estimate({ audience: 'lapsed', pieces: lapsedToMail, size: '4x6', mailClass: 'first', offerId: 'knots', avgTicketCents: Math.round(money30.revenue / Math.max(1, orders30)), foodShare, history: state.campaigns.filter((c) => c.sentOn <= addDays(state.today, -21)) });
+        return {
+          mailings: state.campaigns.map((c) => { const r = results(c, foodShare); return { name: c.name, audience: c.audience, sentOn: c.sentOn, cards: c.pieces, costCents: c.totalCents, ordersWithCode: r.redeemed, responseRate: Math.round(r.rate * 1000) / 1000, salesCents: r.salesCents, profitAfterMailCents: r.profitCents, newCustomers: r.newCustomers, orderedAgainSince: r.orderedAgain, status: tracking(c, state.today).status }; }),
+          nextSuggested: { audience: 'customers who stopped ordering (45 days to a year)', cards: lapsedToMail, costCents: next.costCents, expectedOrders: next.expected, expectedProfitCents: next.netCents, responseRateUsed: Math.round(next.responseRate * 1000) / 1000 },
+        };
+      })(),
       rewards: { members: state.members.length, lapsed30Days: lapsed.length, rewardsWaiting: state.members.reduce((a, m) => a + m.rewards, 0) },
       companyInvoices: state.invoices.map((i) => ({ number: i.number, company: i.company, po: i.po ?? null, forWhat: i.memo, deliveredOn: i.serviceDate, due: i.due, totalCents: i.totalCents, status: invoiceState(i, state.today), paidOn: i.paidOn ?? null, remindersSent: i.reminders.length })),
       // Orders the AI took tonight on calls and by text, so the owner can ask how it is doing.
@@ -118,7 +130,7 @@ function fireSoon(o: PizzaOrder, now: number) {
 const dayDiff = (a: string, b: string) => Math.round((new Date(b).getTime() - new Date(a).getTime()) / 86_400_000);
 
 interface DecideIn {
-  facts: { tomorrow: { dayName: string; event: string | null; deliveries: number }; last30Days: { deliveryAppFeesCents: number; deliveryAppOrders: number; orders: number } };
+  facts: { tomorrow: { dayName: string; event: string | null; deliveries: number }; last30Days: { deliveryAppFeesCents: number; deliveryAppOrders: number; orders: number }; postcards: { nextSuggested: { cards: number; costCents: number; expectedOrders: number; expectedProfitCents: number; responseRateUsed: number } } };
   late: { o: PizzaOrder; by: number }[];
   runs: RunPlan[];
   dough: ReturnType<typeof doughPlan>;
@@ -202,6 +214,10 @@ function decide(d: DecideIn): PizzaDecision[] {
       action: 'Send the reminder', then: `${inv.email} gets a past-due email with the pay link. If it is still open in a week, call ${inv.contact}.`,
     });
   }
+  const pc = d.facts.postcards.nextSuggested;
+  if (pc.cards >= 30 && pc.expectedProfitCents > 0 && !d.state.campaigns.some((c) => c.audience === 'lapsed' && c.sentOn > addDays(d.state.today, -30))) {
+    out.push({ id: 'postcards-lapsed', area: 'Marketing', urgency: 'week', kind: 'mail', title: `Mail postcards to ${pc.cards} customers who stopped ordering`, why: `${pc.cards} past delivery customers have not ordered in 45 days or more. Cards cost ${moneyShort(pc.costCents)} through Lob; at ${Math.round(pc.responseRateUsed * 1000) / 10}% coming back (your last mailing to this group), that is about ${pc.expectedOrders} orders and ${moneyShort(pc.expectedProfitCents)} profit after the mail.`, impactCents: pc.expectedProfitCents, per: 'this mailing', action: 'Plan the mailing', then: 'Opens Postcards with the list, offer, photo and words filled in. Nothing mails until you approve the cost.' });
+  }
   if (d.lapsed.length) {
     out.push({ id: 'winback', area: 'Customers', urgency: 'week', kind: 'campaign', payload: { phones: d.lapsed }, title: `Text ${d.lapsed.length} Dough Rewards members who stopped ordering`, why: `They have not ordered in 30 days or more. A free garlic bread with their next pizza costs about $1.40 in food.`, action: 'Send the texts', then: 'Each gets a text with a one-time code, good for two weeks.' });
   }
@@ -235,6 +251,12 @@ export function ruleAnswer(q: string, f: ReturnType<typeof usePizzaBrain>['facts
     if (!open.length) return say('Every company invoice is paid.');
     return say(`${open.length} company invoice${open.length === 1 ? ' is' : 's are'} unpaid, ${money(total)} in all. ${late.length ? `${late.map((i) => `${i.company} owes ${money(i.totalCents)} on invoice ${i.number}, due ${i.due}`).join('; ')}. That one is past due, so send a reminder today.` : 'None are past due yet.'}`, pick(['Money']));
   }
+  if (/postcard|mail|flyer|marketing|eddm|lob\b/.test(s)) {
+    const m = f.postcards.mailings;
+    const n = f.postcards.nextSuggested;
+    const lines = m.map((c) => `"${c.name}": ${c.cards} cards for ${money(c.costCents)}, ${c.ordersWithCode} orders with the code (${Math.round(c.responseRate * 1000) / 10}%), ${money(c.salesCents)} in sales, ${money(c.profitAfterMailCents)} profit after the mail${c.newCustomers ? `, ${c.newCustomers} new customers` : ''}`);
+    return say(`${lines.join('. ')}. Next: ${n.cards} customers who stopped ordering could get a card for ${money(n.costCents)}, about ${n.expectedOrders} orders expected.`, pick(['Marketing']));
+  }
   if (/dough|ball|flour|mix/.test(s)) {
     const b = f.doughTonight.ballsToMake;
     return say(`Make ${b.S} small, ${b.M} medium and ${b.L} large dough balls tonight for ${f.doughTonight.forDay}. That is ${f.doughTonight.flourLb} lb of flour in ${f.doughTonight.mixerBatches} mixer batches. ${f.doughTonight.reasons[0]}.`, pick(['Dough']));
@@ -258,7 +280,7 @@ export function ruleAnswer(q: string, f: ReturnType<typeof usePizzaBrain>['facts
   return say(top.length ? `First: ${top[0].title.toLowerCase()}. ${top[0].why}` : 'Everything is on track right now.', top);
 }
 
-export const PIZZA_SUGGESTED = ['What should I do first?', 'How much dough tonight?', 'Are deliveries running late?', 'What needs ordering?', 'Where am I losing money?', 'Are we ready for game day?', 'Which companies owe us money?'];
+export const PIZZA_SUGGESTED = ['What should I do first?', 'How much dough tonight?', 'Are deliveries running late?', 'What needs ordering?', 'Where am I losing money?', 'Are we ready for game day?', 'Which companies owe us money?', 'Did the postcards pay off?'];
 export type PizzaBrain = ReturnType<typeof usePizzaBrain>;
 export { SPECIALTY_BY_ID };
 export type { SizeId };

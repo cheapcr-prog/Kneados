@@ -61,6 +61,8 @@ export interface PizzaOrder {
   doneAt?: string;
   driverId?: string;
   rewardRedeemed?: boolean;
+  /** A postcard code used on this order. */
+  promo?: { code: string; campaignId: string; discountCents: number; viaQr?: boolean };
   note?: string;
   /** Set when the AI took this order on a call or by text. The conversation is kept so the owner can read it back. */
   ai?: { surface: 'call' | 'text'; transcript: { who: 'customer' | 'ai' | 'shop'; text: string }[] };

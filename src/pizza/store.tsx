@@ -7,6 +7,7 @@ import {
   MINUTE, PACKS, buildPizzaHistory, invoiceFor, type PizzaInvoice, configFor, packLines, pizzaPrice, pizzaRewardText, pizzaUsage, preorderPies, forecastDay, rng, totals, zoneFor,
   DEPOSIT_SHARE, type Channel, type DriverState, type Line, type OrderStatus, type PizzaDay, type PizzaOrder,
 } from './logic';
+import { mailingList, seedCampaigns, type MailCampaign } from './mail';
 import { PHONE_POLL_MS, fetchFeed, markSeen, saveLine, savedLine, seenOrders, ticketFromPhone } from './phoneLine';
 
 const KEY = 'kneados-pizza-v1';
@@ -36,7 +37,13 @@ export interface PizzaState {
   /** Catering orders billed to a company on net terms. */
   invoices: PizzaInvoice[];
   nextInvoice: number;
+  /** Postcard mailings, newest first, with the orders their codes brought in. */
+  campaigns: MailCampaign[];
 }
+
+/** Average ticket the seeded mailings were planned with, close to the generated history's. */
+const SEED_TICKET_CENTS = 3400;
+const seedMail = (today: string) => seedCampaigns(today, mailingList(today), SEED_TICKET_CENTS);
 
 /** Company invoices: the upcoming office lunch is open, one from last month is paid and one is past due. */
 function seedInvoices(today: string, orders: PizzaOrder[]): PizzaInvoice[] {
@@ -152,7 +159,7 @@ function fresh(now = Date.now()): PizzaState {
     today, orders, nextNumber: 2201, drivers, members: seedMembers(today), texts: [], onHand, pos: [],
     doughMade: { S: 0, M: 0, L: 0 }, out: [], rain: false,
     earlier: { orders: 41 + Math.floor(r() * 8), salesCents: 142000 + Math.floor(r() * 18000), tipsCents: 15600 },
-    invoices: seedInvoices(today, orders), nextInvoice: 1050,
+    invoices: seedInvoices(today, orders), nextInvoice: 1050, campaigns: seedMail(today),
   };
 }
 
@@ -187,7 +194,8 @@ function load(): PizzaState {
       const s = JSON.parse(raw) as PizzaState;
       if (s.today === isoDate(new Date()) && Array.isArray(s.orders)) {
         const seen = Number(localStorage.getItem(SEEN)) || 0;
-        const kept = Array.isArray(s.invoices) ? s : { ...s, invoices: seedInvoices(s.today, s.orders), nextInvoice: 1050 };
+        const withInvoices = Array.isArray(s.invoices) ? s : { ...s, invoices: seedInvoices(s.today, s.orders), nextInvoice: 1050 };
+        const kept = Array.isArray(withInvoices.campaigns) ? withInvoices : { ...withInvoices, campaigns: seedMail(s.today) };
         // No last-seen time means an older save with stale clocks: start a fresh shift.
         return seen ? resume(kept, Date.now() - seen) : fresh();
       }
@@ -234,8 +242,16 @@ function usePizzaStore() {
         members = existing ? members.map((m) => (m.phone === phone ? member : m)) : [member, ...members];
         if (earnedReward) texts.push(...text(phone, pizzaRewardText(PIZZA_SHOP.name), 'reward'));
       }
+      // A postcard code on the order: count it against the mailing it came from.
+      const campaigns = order.promo ? s.campaigns.map((c) => (c.id !== order.promo!.campaignId ? c : {
+        ...c, redemptions: [...c.redemptions, {
+          code: order.promo!.code, orderNumber: order.number, date: s.today, name: order.customer.name || 'Guest', subtotalCents: order.subtotal, discountCents: order.promo!.discountCents,
+          channel: order.channel === 'online' ? (order.promo!.viaQr ? 'Website (QR code)' : 'Website (typed code)') : order.channel === 'phone' ? 'Phone' : 'Counter',
+          newCustomer: c.audience !== 'lapsed' && !s.members.some((m) => m.phone === order.customer.phone) && !s.orders.some((x) => x.customer.phone && x.customer.phone === order.customer.phone), live: true,
+        }],
+      })) : s.campaigns;
       return {
-        ...s, orders: [...s.orders, order], nextNumber: opts.number ? s.nextNumber : s.nextNumber + 1, texts: [...texts, ...s.texts], members,
+        ...s, campaigns, orders: [...s.orders, order], nextNumber: opts.number ? s.nextNumber : s.nextNumber + 1, texts: [...texts, ...s.texts], members,
         invoices: invoice ? [invoice, ...s.invoices] : s.invoices, nextInvoice: invoice ? s.nextInvoice + 1 : s.nextInvoice,
       };
     });
@@ -357,6 +373,7 @@ function usePizzaStore() {
     return () => { stop = true; clearInterval(id); };
   }, [phoneLine, placeOrder]);
 
+  const sendCampaign = useCallback((c: MailCampaign) => setState((s) => ({ ...s, campaigns: [c, ...s.campaigns] })), []);
   const addTexts = useCallback((list: Text[]) => setState((s) => ({ ...s, texts: [...list, ...s.texts] })), []);
   const setMembers = useCallback((members: RewardsMember[]) => setState((s) => ({ ...s, members })), []);
   const setRain = useCallback((rain: boolean) => setState((s) => (s.rain === rain ? s : { ...s, rain })), []);
@@ -365,7 +382,7 @@ function usePizzaStore() {
   const tomorrow = addDays(state.today, 1);
   const forecastFor = useCallback((date: string) => forecastDay(history, date, { rain: date === tomorrow ? state.rain : false, preorderPies: preorderPies(state.orders, date) }), [history, tomorrow, state.rain, state.orders]);
 
-  return { state, history, tomorrow, forecastFor, phoneLine, lastCallAt, setPhoneLine, placeOrder, setStatus, dispatch, driverBack, setDriverOn, sendPO, receivePO, bumpDough, toggleOut, addTexts, setMembers, setRain, reset, payInvoice, remindInvoice };
+  return { state, history, tomorrow, forecastFor, phoneLine, lastCallAt, setPhoneLine, placeOrder, setStatus, dispatch, driverBack, setDriverOn, sendPO, receivePO, bumpDough, toggleOut, addTexts, setMembers, setRain, reset, payInvoice, remindInvoice, sendCampaign };
 }
 
 export type PizzaDemo = ReturnType<typeof usePizzaStore>;

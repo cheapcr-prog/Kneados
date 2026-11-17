@@ -1,6 +1,6 @@
-import { BarChart3, Bike, Check, ChefHat, ClipboardCheck, Gift, LayoutDashboard, MessageCircle, Package, Pizza, Send, Sparkles, Trophy, Users } from 'lucide-react';
+import { BarChart3, Bike, Mail, Check, ChefHat, ClipboardCheck, Gift, LayoutDashboard, MessageCircle, Package, Pizza, Send, Sparkles, Trophy, Users } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { NavLink, Route, Routes } from 'react-router-dom';
+import { NavLink, Route, Routes, useNavigate } from 'react-router-dom';
 import { FALLBACK_NOTE, useClaudeReady, type AskFailure } from '../../components/Ask';
 import { useTick } from '../../components/Breaks';
 import { Brain, Pill } from '../../pages/owner/ui';
@@ -10,6 +10,7 @@ import { useShopState } from '../../data/local';
 import { PIZZA_SHOP } from '../data';
 import { PIZZA_SUGGESTED, briefingLines, ruleAnswer, sortDecisions, usePizzaBrain, type PizzaBrain, type PizzaDecision } from '../brain';
 import { usePizza } from '../store';
+import { MarketingPage } from './Marketing';
 import { DeliveryPage, DoughPage, GameDayPage, HealthPage, MenuPage, MoneyPage, PeoplePage, StockPage, TeamPage } from './OwnerPages';
 
 const NAV = [
@@ -22,6 +23,7 @@ const NAV = [
   { to: 'money', label: 'Money', icon: BarChart3 },
   { to: 'team', label: 'Team & tips', icon: Users },
   { to: 'customers', label: 'Rewards & texts', icon: Gift },
+  { to: 'marketing', label: 'Postcards', icon: Mail },
   { to: 'health', label: 'Health & safety', icon: ClipboardCheck },
 ];
 
@@ -50,6 +52,7 @@ export function PizzaOwner() {
           <Route path="money" element={<MoneyPage brain={brain} />} />
           <Route path="team" element={<TeamPage />} />
           <Route path="customers" element={<PeoplePage brain={brain} />} />
+          <Route path="marketing" element={<MarketingPage brain={brain} />} />
           <Route path="health" element={<HealthPage />} />
         </Routes>
       </main>
@@ -81,7 +84,9 @@ function Briefing({ brain }: { brain: PizzaBrain }) {
   const [done, setDone] = useShopState<string[]>(`pizza-done-${demo.state.today}`, () => []);
   const decisions = sortDecisions(brain.decisions).filter((d) => !done.includes(d.id));
   const weather = usePizzaWeather();
+  const navigate = useNavigate();
   const approve = (d: PizzaDecision) => {
+    if (d.kind === 'mail') { navigate('/pizza/demo/owner/marketing'); return; }
     if (d.kind === 'dispatch' && d.payload?.runIndex !== undefined) {
       const r = brain.runs[d.payload.runIndex];
       if (r) demo.dispatch(r.driverId, r.orderIds, r.minutes, r.miles);

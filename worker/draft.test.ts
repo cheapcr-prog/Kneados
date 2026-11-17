@@ -47,3 +47,16 @@ describe('/api/draft', () => {
     expect((await handleDraft(post(), env({ ANTHROPIC_API_KEY: undefined }), writes('x'), now)).status).toBe(503);
   });
 });
+
+describe('a postcard rewrite', () => {
+  const card = JSON.stringify({ kind: 'postcard', shop: 'Shoreline Slice Co.', current: 'Hi {name}, come back this week for free garlic bread with any pizza.', headline: 'Your usual is still hot.', about: 'Customers who stopped ordering. Offer: free garlic bread with any pizza.' });
+  const postcard = (body: object): CallModel => async (_k, _u, system) => ({ stop_reason: 'end_turn', content: [{ type: 'text', text: JSON.stringify(system?.includes('postcard') ? body : { text: 'wrong prompt' }) }], usage: { input_tokens: 400, output_tokens: 200 } });
+  it('uses the postcard instructions and returns a headline and message', async () => {
+    const res = await handleDraft(post(card), env(), postcard({ headline: 'We saved your seat.', text: 'Hi {name}, the oven misses you. Free garlic bread with any pizza this week.' }), now);
+    expect(await res.json()).toEqual({ headline: 'We saved your seat.', text: 'Hi {name}, the oven misses you. Free garlic bread with any pizza this week.' });
+  });
+  it('turns away a reply that drops the name blank', async () => {
+    const res = await handleDraft(post(card), env(), postcard({ headline: 'We saved your seat.', text: 'Hey there, the oven misses you. Free garlic bread with any pizza this week.' }), now);
+    expect(res.status).toBe(502);
+  });
+});

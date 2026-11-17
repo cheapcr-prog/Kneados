@@ -262,6 +262,32 @@ export interface Caller {
   punches?: number;
   freePizza?: number;
   favorite?: string;
+  /** An order this caller placed a short while ago and may be calling back about. */
+  recent?: RecentOrder;
+}
+
+/** An order placed on an earlier call that is still being made, on its way, or just finished. */
+export interface RecentOrder {
+  number: number;
+  fulfillment: 'pickup' | 'delivery';
+  /** When it was promised, in milliseconds. */
+  readyAt: number;
+  /** What was ordered, in plain words. */
+  summary: string;
+}
+
+/** How long after the promised time a call back is still most likely about that order. */
+export const RECENT_ORDER_MINUTES = 45;
+
+/**
+ * What a caller is told about the order they just placed. Written by code from the time the order was promised:
+ * the phone line does not see the oven, so it never claims a stage ("in the oven") it cannot know.
+ */
+export function recentStatus(recent: RecentOrder, now: number): string {
+  const clock = new Date(recent.readyAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: PIZZA_SHOP.timezone });
+  const delivery = recent.fulfillment === 'delivery';
+  if (now < recent.readyAt) return `Your order number ${recent.number} is being made and should ${delivery ? 'be at your door' : 'be ready for pickup'} around ${clock}.`;
+  return delivery ? `Your order number ${recent.number} was due at your door around ${clock}, so it should be there any minute.` : `Your order number ${recent.number} should be ready for pickup now.`;
 }
 
 /** Ticket lines back into the shape Claude edits, so "my usual" lands on the ticket exactly. */
@@ -644,6 +670,7 @@ export function turnContext(surface: Surface, caller: Caller, order: BotOrder, t
       ...(caller.address ? { savedAddress: caller.address } : {}),
       ...(caller.lastLines?.length ? { lastOrder: caller.lastLines.map(lineText).join('; ') + (caller.lastFulfillment ? `, ${caller.lastFulfillment}` : ''), lastOrderItems: linesToItems(caller.lastLines) } : {}),
       ...(caller.orders ? { orders: caller.orders } : {}),
+      ...(caller.recent ? { recentOrder: { number: caller.recent.number, items: caller.recent.summary, fulfillment: caller.recent.fulfillment, status: recentStatus(caller.recent, now.getTime()) } } : {}),
       ...(caller.punches !== undefined ? { rewards: `${caller.punches}/10 punches${caller.freePizza ? `, ${caller.freePizza} free pizza waiting (used at the counter)` : ''}` } : {}),
       ...(caller.favorite ? { favorite: SPECIALTY_BY_ID[caller.favorite]?.name ?? caller.favorite } : {}),
     },
@@ -665,7 +692,7 @@ export function turnContext(surface: Surface, caller: Caller, order: BotOrder, t
 }
 
 /** The first thing the AI says. Written here, not by Claude, so the phone is answered the moment it rings. */
-export function greeting(caller: Caller, surface: Surface): string {
+export function greeting(caller: Caller, surface: Surface, now = Date.now()): string {
   // The shop's name ends in a period ("Co."), so a sentence that ends with it needs no second one.
   // Out loud the shop is "Shoreline Slice": nobody says the "Co." on the phone, and a voice reads it badly.
   const spoken = PIZZA_SHOP.name.replace(/,? Co\.?$/, '');
@@ -678,6 +705,8 @@ export function greeting(caller: Caller, surface: Surface): string {
     return `Hi! ${shopIs} What can I get started for you? You can text your order like you'd say it, e.g. "large pepperoni, half mushroom, pickup".`;
   }
   if (!caller.phone) return `${hey} I'm the shop's AI assistant. What can I get started for you?`;
+  // Calling back right after ordering is usually about that order, so it is not met with "want your usual?".
+  if (caller.recent) return `Ciao${first ? ` ${first}` : ''}, thanks for calling ${spoken}! ${recentStatus(caller.recent, now)} Are you calling about that order?`;
   if (caller.known && first && usual) return `Ciao ${first}, thanks for calling ${spoken}! Want your usual, ${usual}${caller.lastFulfillment === 'delivery' && caller.address ? `, delivered to ${caller.address}` : ''}?`;
   return `${hey} I'm the shop's AI assistant. Is this for pickup or delivery?`;
 }

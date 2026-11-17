@@ -45,6 +45,7 @@ export class PhoneLine {
         const before = await store.get<SavedCustomer>(`customer:${phone}`);
         const saved: SavedCustomer = {
           name: order.order.name, items: order.order.items, fulfillment: order.order.fulfillment === 'delivery' ? 'delivery' : 'pickup', orders: (before?.orders ?? 0) + 1,
+          last: { number, at: order.at, minutes: order.minutes },
           address: order.order.fulfillment === 'delivery' ? order.address?.line ?? before?.address : before?.address,
         };
         await store.put(`customer:${phone}`, saved);

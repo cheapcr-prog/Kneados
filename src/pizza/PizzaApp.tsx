@@ -1,5 +1,6 @@
 import { Bike, Bot, ChefHat, ChevronDown, Delete, LayoutDashboard, LogOut, RotateCcw, ShoppingBag, Tablet, UserRound } from 'lucide-react';
-import { lazy, Suspense, useState } from 'react';
+import { Suspense, useState } from 'react';
+import { lazyFresh } from '../lib/freshLoad';
 import { Link, NavLink, Route, Routes, useNavigate } from 'react-router-dom';
 import { Logo } from '../components/DemoBar';
 import { useShopState } from '../data/local';
@@ -12,7 +13,7 @@ import { Dispatch } from './pages/Dispatch';
 import { PayInvoice } from './pages/Pay';
 import { AiOrders } from './pages/AiOrders';
 
-const PizzaOwner = lazy(() => import('./pages/Owner').then((m) => ({ default: m.PizzaOwner })));
+const PizzaOwner = lazyFresh(() => import('./pages/Owner').then((m) => ({ default: m.PizzaOwner })));
 
 const SCREENS = [
   { to: '/pizza/demo/shop', label: 'Shop website', icon: ShoppingBag },

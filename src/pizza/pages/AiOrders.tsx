@@ -6,7 +6,7 @@ import { formatPhone, money } from '../../lib/money';
 import { validLine } from '../phoneLine';
 import { PIZZA_SHOP, PIZZA_STAFF, SIDE_BY_ID, SPECIALTY_BY_ID, ZONES, type Address } from '../data';
 import { MINUTE, lineCents, pizzaDetails, pizzaTitle, quoteTime, upsells, type PizzaLine } from '../logic';
-import { EMPTY_ORDER, greeting, missing, needsLookup, quickReplies, rememberAddress, settle, ticketFor, turnContext, type BotOrder, type BotTurn, type Caller, type ShopNow, type Surface, type Ticket, type TranscriptLine } from '../orderbot';
+import { EMPTY_ORDER, greeting, asksStatus, missing, needsLookup, quickReplies, rememberAddress, settle, statusReply, ticketFor, turnContext, type BotOrder, type BotTurn, type Caller, type ShopNow, type Surface, type Ticket, type TranscriptLine } from '../orderbot';
 import { SAMPLES, type Sample } from '../orderbotSamples';
 import { PizzaArt } from '../PizzaArt';
 import { usePizzaBrain } from '../brain';
@@ -163,7 +163,8 @@ export function AiOrders() {
   const suggest = useCallback((t: Ticket) => upsells(t.lines, history, brain.facts.tomorrow.event ?? undefined).slice(0, 2).map((u) => `${u.title}. ${u.why}.`), [history, brain.facts.tomorrow.event]);
   const needs = missing(order, ticket, surface);
   const lastRow = rows[rows.length - 1];
-  const replies = phase === 'live' && lastRow?.who === 'ai' ? quickReplies(lastRow.text, order, ticket) : [];
+  const openOrder = caller.phone ? state.orders.some((o) => o.customer.phone === caller.phone && !o.scheduled && o.status !== 'done') : false;
+  const replies = phase === 'live' && lastRow?.who === 'ai' ? [...quickReplies(lastRow.text, order, ticket), ...(rows.length === 1 && openOrder ? ["Where's my order?"] : [])] : [];
 
   const reset = useCallback((nextPhase: Phase = 'idle') => {
     live.current.run++;
@@ -249,9 +250,18 @@ export function AiOrders() {
     const run = live.current.run;
     hush();
     const transcript: Row[] = [...live.current.rows, { who: 'customer', text: said }];
-    setRows(transcript); setDraft(''); setBusy(true); setError(null);
     const s = live.current.surface;
     const c = live.current.caller;
+    // "Where's my order?" is answered from the make line and dispatch right away. No AI is asked, so the answer is always the real stage.
+    if (!live.current.order.items.length && asksStatus(said)) {
+      const mine = c.phone ? [...state.orders].reverse().find((o) => o.customer.phone === c.phone && !o.scheduled && (o.status !== 'done' || Date.now() - Date.parse(o.doneAt ?? o.createdAt) < 3 * 60 * MINUTE)) : undefined;
+      const driver = mine?.driverId ? PIZZA_STAFF.find((x) => x.id === mine.driverId)?.name.split(' ')[0] : undefined;
+      const reply = mine ? statusReply(mine, Date.now(), driver) : c.phone ? "I don't see an open order for this number. Would you like to start one?" : "Your number is hidden, so I can't look up an order. What's the order number?";
+      setRows([...transcript, { who: 'ai', text: reply }]); setDraft(''); setError(null);
+      if (s === 'call') { await speak(reply, live.current.sound); if (live.current.run === run && handsFree.current) listen(); }
+      return;
+    }
+    setRows(transcript); setDraft(''); setBusy(true); setError(null);
     const before = ticketFor(live.current.order, c, shop);
     let turn: BotTurn | null = null;
     let problem: ApiError | null = null;
@@ -513,6 +523,7 @@ export function AiOrders() {
             <li>The whole menu: sizes, crusts, sauces, halves, extras, bake and cut notes.</li>
             <li>Tonight: wait is <b>{shop.quote(1)} min</b> pickup and <b>{shop.quote(1, 'B')} min</b> delivery{state.out.length ? `, and what is sold out (${state.out.length} item${state.out.length === 1 ? '' : 's'})` : ', and anything the kitchen marks sold out'}.</li>
             <li>The caller: name, usual order, saved address and rewards, from caller ID.</li>
+            <li>Where an order is: a customer who texts or asks about their order gets the live stage and time from the make line and drivers.</li>
             <li>Any real street address: looked up in the US Census address file the moment it is given, then measured from the shop for the delivery zone and fee.</li>
             <li>One add-on worth offering, picked from what actually sells here.</li>
             <li>Every price, tax, fee and wait time comes from KneadOS, not from the AI.</li>

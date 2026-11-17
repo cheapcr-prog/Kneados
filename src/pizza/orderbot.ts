@@ -13,7 +13,7 @@ import {
   ADDRESSES, CHEESES, CRUSTS, PIZZA_SHOP, SAUCES, SIDES, SIDE_BY_ID, SIZES, SPECIALTIES, SPECIALTY_BY_ID, TOPPINGS, TOPPING_BY_ID, ZONES,
   type Address, type CheeseId, type CrustId, type PizzaConfig, type SauceId, type Side, type SizeId,
 } from './data';
-import { NOTE_GROUPS, configFor, pizzaDetails, pizzaPrice, pizzaTitle, plainConfig, totals, zoneFor, type Line, type PizzaLine, type Totals } from './logic';
+import { NOTE_GROUPS, configFor, pizzaDetails, pizzaPrice, pizzaTitle, plainConfig, totals, zoneFor, type Line, type PizzaLine, type PizzaOrder, type Totals } from './logic';
 
 export type Surface = 'call' | 'text';
 
@@ -539,6 +539,34 @@ export function settle(turn: BotTurn, before: BotOrder, caller: Caller, shop: Sh
     else say = skipNameQuestion(oneQuestion(say), open);
   }
   return { say, order, ticket: t, outcome, placedSay: (number) => hideMachinery(fill(turn.say, t, { number })) };
+}
+
+/* ================================================================ "where's my order?" */
+
+/** True when the customer is asking about an order they already placed, not starting a new one. */
+export function asksStatus(said: string): boolean {
+  const s = said.toLowerCase().replace(/[’']/g, '');
+  return /\b(status|track(ing)?|eta)\b/.test(s)
+    || /\bwhere(s| is| are)?\b.*\b(order|pizzas?|food|delivery|driver)\b/.test(s)
+    || /\b(is|are) (it|my (order|pizzas?|food)) .*\b(ready|done|on (the|its) way|out|coming)\b/.test(s)
+    || /\b(how (much )?long(er)?|when)\b.*\b(order|pizzas?|food|delivery|here|ready|arrive)\b/.test(s)
+    || /\b(check|checking) (on )?(my|the|an) order\b/.test(s);
+}
+
+/** The order status a customer gets back, read straight from the make line and dispatch. No AI writes it. */
+export function statusReply(o: Pick<PizzaOrder, 'number' | 'status' | 'fulfillment' | 'promisedAt' | 'doneAt' | 'customer'>, now: number, driverName?: string): string {
+  const clock = (iso: string) => new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: PIZZA_SHOP.timezone });
+  const left = Math.ceil((Date.parse(o.promisedAt) - now) / 60_000);
+  const delivery = o.fulfillment === 'delivery';
+  const by = left > 0
+    ? `${delivery ? 'It should be at your door' : 'It should be ready'} by about ${clock(o.promisedAt)}, ${left} minute${left === 1 ? '' : 's'} from now.`
+    : `We told you ${clock(o.promisedAt)} and it is running a few minutes behind. Sorry about that, it is next up.`;
+  const head = `Order #${o.number}`;
+  if (o.status === 'done') return `${head} was ${delivery ? 'delivered' : 'picked up'}${o.doneAt ? ` at ${clock(o.doneAt)}` : ''}. If something is wrong with it, reply HELP and a manager will text you.`;
+  if (o.status === 'out') return `${head} is on the way${driverName ? ` with ${driverName}` : ''}${o.customer.address ? ` to ${o.customer.address}` : ''}. ${left > 0 ? `About ${left} minute${left === 1 ? '' : 's'} out.` : 'It should be there any minute.'} Track it: kneados.app/t/${o.number}`;
+  if (o.status === 'ready') return delivery ? `${head} is out of the oven, boxed and waiting for the next driver. ${by}` : `${head} is hot and ready at the counter.`;
+  if (o.status === 'oven') return `${head} is in the oven now. ${by}`;
+  return `${head} is on the make line. ${by}`;
 }
 
 /* ================================================================ what goes to Claude */

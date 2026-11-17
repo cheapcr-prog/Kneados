@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { DEFAULT_FRAUD } from '../lib/fraud';
 import { SIDE_BY_ID } from './data';
 import { configFor, pizzaPrice, type Line } from './logic';
-import { EMPTY_ORDER, TURN_SCHEMA, buildLines, fill, greeting, item, linesToItems, matchAddress, menuText, missing, offersWrongPayment, oneQuestion, orderPolicy, hideMachinery, needsLookup, parseTurn, quickReplies, rememberAddress, skipNameQuestion, ticketFor, turnContext, type BotOrder, type Caller, type ShopNow } from './orderbot';
+import { EMPTY_ORDER, TURN_SCHEMA, asksStatus, statusReply, buildLines, fill, greeting, item, linesToItems, matchAddress, menuText, missing, offersWrongPayment, oneQuestion, orderPolicy, hideMachinery, needsLookup, parseTurn, quickReplies, rememberAddress, skipNameQuestion, ticketFor, turnContext, type BotOrder, type Caller, type ShopNow } from './orderbot';
 import { SAMPLES } from './orderbotSamples';
 import { geocodeQuery, parseCensus } from './geocode';
 
@@ -297,5 +297,27 @@ describe('small talk fixes', () => {
     const open = [{ code: 'payment' as const, note: '', ask: 'How would you like to pay: a secure pay link by text or cash at the door?' }];
     expect(skipNameQuestion("Thanks, I've got 1746 Ximeno Ave down. What's your name for the order?", open)).toBe("Thanks, I've got 1746 Ximeno Ave down. How would you like to pay: a secure pay link by text or cash at the door?");
     expect(skipNameQuestion('What name should I put on the order?', [{ code: 'name', note: '', ask: 'x' }])).toBe('What name should I put on the order?');
+  });
+});
+
+describe("where's my order?", () => {
+  const base = { number: 2210, fulfillment: 'delivery' as const, promisedAt: '2026-11-17T04:30:00.000Z', customer: { name: 'Maya R.', phone: '5625550101', address: '210 Termino Ave' } };
+  const now = Date.parse('2026-11-17T04:18:00.000Z');
+
+  it('spots a status question and leaves an order alone', () => {
+    for (const q of ['status', "where's my order", 'Where is my pizza?', 'is my order ready', 'how much longer on my order', 'checking on my order', 'ETA?', 'track']) expect(asksStatus(q), q).toBe(true);
+    for (const q of ['large pepperoni for delivery', 'yes', 'how much is a large', 'do you deliver to Ximeno']) expect(asksStatus(q), q).toBe(false);
+  });
+
+  it('says the real stage and the time that is left', () => {
+    expect(statusReply({ ...base, status: 'new' }, now)).toBe('Order #2210 is on the make line. It should be at your door by about 8:30 PM, 12 minutes from now.');
+    expect(statusReply({ ...base, status: 'oven' }, now)).toContain('in the oven');
+    expect(statusReply({ ...base, status: 'out' }, now, 'Dev')).toContain('on the way with Dev to 210 Termino Ave. About 12 minutes out.');
+    expect(statusReply({ ...base, status: 'ready', fulfillment: 'pickup' }, now)).toBe('Order #2210 is hot and ready at the counter.');
+    expect(statusReply({ ...base, status: 'done', doneAt: '2026-11-17T04:10:00.000Z' }, now)).toContain('delivered at 8:10 PM');
+  });
+
+  it('is honest when the order is late', () => {
+    expect(statusReply({ ...base, status: 'oven' }, now + 20 * 60_000)).toContain('running a few minutes behind');
   });
 });

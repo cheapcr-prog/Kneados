@@ -312,7 +312,7 @@ export const INVENTORY: InvItem[] = [
   { id: 'mozz', name: 'Whole-milk mozzarella, shredded', unit: 'lb', supplier: 'Coastline Foodservice', pack: 20, packLabel: '4 x 5 lb case', packCents: 7180, onHand: 64, shelfDays: 21 },
   { id: 'sauce', name: 'Crushed tomatoes (#10 can)', unit: 'lb', supplier: 'Coastline Foodservice', pack: 39.6, packLabel: 'case of 6 cans', packCents: 3890, onHand: 52, shelfDays: 365 },
   { id: 'wings', name: 'Chicken wings, jumbo', unit: 'lb', supplier: 'Coastline Foodservice', pack: 40, packLabel: '40 lb case', packCents: 15600, onHand: 46, shelfDays: 5 },
-  { id: 'romaine', name: 'Romaine hearts', unit: 'lb', supplier: 'Westside Produce', pack: 12, packLabel: '12 lb case', packCents: 2640, onHand: 9, shelfDays: 7 },
+  { id: 'romaine', name: 'Romaine hearts', unit: 'lb', supplier: 'Westside Produce', pack: 12, packLabel: '12 lb case', packCents: 2640, onHand: 30, shelfDays: 7 },
   { id: 'box-S', name: 'Pizza box, 10 inch', unit: 'box', supplier: 'Pacific Paper & Box', pack: 50, packLabel: 'bundle of 50', packCents: 1900, onHand: 90, shelfDays: 3650 },
   { id: 'box-M', name: 'Pizza box, 14 inch', unit: 'box', supplier: 'Pacific Paper & Box', pack: 50, packLabel: 'bundle of 50', packCents: 2600, onHand: 140, shelfDays: 3650 },
   { id: 'box-L', name: 'Pizza box, 18 inch', unit: 'box', supplier: 'Pacific Paper & Box', pack: 50, packLabel: 'bundle of 50', packCents: 3400, onHand: 75, shelfDays: 3650 },

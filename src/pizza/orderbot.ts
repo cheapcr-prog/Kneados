@@ -13,6 +13,7 @@ import {
   ADDRESSES, CHEESES, CRUSTS, PIZZA_SHOP, SAUCES, SIDES, SIDE_BY_ID, SIZES, SPECIALTIES, SPECIALTY_BY_ID, TOPPINGS, TOPPING_BY_ID, ZONES,
   type Address, type CheeseId, type CrustId, type PizzaConfig, type SauceId, type Side, type SizeId,
 } from './data';
+import { applyDeals, type AppliedDeal, type Deal } from './deals';
 import { NOTE_GROUPS, configFor, pizzaDetails, pizzaPrice, pizzaTitle, plainConfig, totals, zoneFor, type Line, type PizzaLine, type PizzaOrder, type Totals } from './logic';
 
 export type Surface = 'call' | 'text';
@@ -370,6 +371,8 @@ export interface Ticket {
   address?: Address;
   quoteMinutes: number;
   policy: Policy;
+  /** Deals that came off this order, already taken out of the totals. */
+  deals: AppliedDeal[];
 }
 
 export interface ShopNow {
@@ -380,17 +383,20 @@ export interface ShopNow {
   fraud: FraudSettings;
   /** False on a line that cannot text a pay link yet (a real phone number before its texting is registered). */
   payLinks?: boolean;
+  /** Deals the owner approved that a customer can get this minute. Worked out by deals.ts, never by the AI. */
+  deals?: Deal[];
 }
 
 export function ticketFor(order: BotOrder, caller: Caller, shop: ShopNow): Ticket {
   const { lines, problems } = buildLines(order.items, shop.out);
   const address = order.fulfillment === 'delivery' ? matchAddress(order.address) : undefined;
   const zone = address ? zoneFor(address) : undefined;
-  const t = totals(lines, { zone: order.fulfillment === 'delivery' ? zone : undefined });
+  const off = applyDeals(lines, shop.deals ?? [], order.fulfillment);
+  const t = totals(lines, { zone: order.fulfillment === 'delivery' ? zone : undefined, discountCents: off.cents });
   const pies = lines.reduce((a, l) => a + (l.kind === 'pizza' ? l.qty : 0), 0);
   const quoteMinutes = shop.quote(Math.max(1, pies), order.fulfillment === 'delivery' ? zone ?? 'B' : undefined);
   const policy = orderPolicy({ totalCents: t.total, pies, fulfillment: order.fulfillment, caller, addressFound: !!zone, addressSaid: !!order.address.trim(), payLinks: shop.payLinks }, shop.fraud);
-  return { lines, problems, totals: t, zone, address, quoteMinutes, policy };
+  return { lines, problems, totals: t, zone, address, quoteMinutes, policy, deals: off.applied };
 }
 
 export type NeedCode = 'transfer' | 'items' | 'problem' | 'fulfillment' | 'address' | 'name' | 'payment' | 'payment_not_allowed';
@@ -643,7 +649,9 @@ export interface TurnContext {
   };
   /** The order as the AI left it last turn, worked out with real prices. */
   order: BotOrder;
-  ticket: { lines: string[]; subtotal: string; deliveryFee: string; total: string; readyInMinutes: number; deliveryZone?: string; addressFound?: string; problems: string[]; stillNeeded: string[] };
+  /** Deals running right now, each as the one sentence to say. Empty when there are none. */
+  dealsNow: string[];
+  ticket: { lines: string[]; subtotal: string; deliveryFee: string; total: string; readyInMinutes: number; deliveryZone?: string; addressFound?: string; problems: string[]; stillNeeded: string[]; dealsOnThisOrder?: string[] };
   rules: {
     allowedPayments: Payment[];
     /** The ways to pay for each kind of order, so the right ones are offered even when pickup or delivery is settled in this same turn. */
@@ -675,8 +683,10 @@ export function turnContext(surface: Surface, caller: Caller, order: BotOrder, t
       ...(caller.favorite ? { favorite: SPECIALTY_BY_ID[caller.favorite]?.name ?? caller.favorite } : {}),
     },
     order,
+    dealsNow: (shop.deals ?? []).map((d) => d.pitch),
     ticket: {
       lines: ticket.lines.map(lineText),
+      ...(ticket.deals.length ? { dealsOnThisOrder: ticket.deals.map((d) => `${d.title}: ${money(d.cents)} off, already in the total`) } : {}),
       subtotal: money(ticket.totals.subtotal),
       deliveryFee: money(ticket.totals.deliveryFee),
       total: money(ticket.totals.total),

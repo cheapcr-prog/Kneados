@@ -11,6 +11,8 @@ import { DOUGH_RECIPE, MILEAGE_CENTS, PIZZA_SHIFTS, PIZZA_SHOP, PIZZA_STAFF_BY_I
 import { APP_FEE_SHARE, CHANNEL_MIX, FIXED_MONTHLY, PACKS, packValue, piesIn, toppingPerPizza, type Channel } from '../logic';
 import type { PizzaBrain } from '../brain';
 import { usePizza } from '../store';
+import { useDeals } from '../dealsStore';
+import { BUSY_PIES, MAX_COST_SHARE, MAX_OFF_SHARE } from '../deals';
 import { invoiceState } from '../../lib/channels';
 import { INVOICE_TERMS_DAYS, payPath, reminderEmail } from '../logic';
 
@@ -201,6 +203,35 @@ export function GameDayPage({ brain }: { brain: PizzaBrain }) {
 
 /* ------------------------------------------------------------------ menu and prices */
 
+/** Deals worked out from stock that will spoil and hours that sit empty. The owner turns each one on. */
+function DealsCard({ brain }: { brain: PizzaBrain }) {
+  const { suggested, ids, toggle, onPhoneLine } = useDeals(brain.stock);
+  return (
+    <Card title="Deals from supply and demand" note={`Worked out from your stock, shelf life, recipes and the last six weeks of sales for this weekday. No deal takes more than ${pct(MAX_OFF_SHARE)} off, or pushes food cost past ${pct(MAX_COST_SHARE)} of the price. Stock and sales here are example data.`}>
+      {suggested.length === 0 && <p className="text-sm text-slate-500">No deal is worth running today: nothing is about to spoil and no stretch of the day is quiet enough.</p>}
+      <ul className="space-y-3">
+        {suggested.map((d) => {
+          const on = ids.includes(d.id);
+          return (
+            <li key={d.id} className="rounded-xl border border-slate-200 p-3">
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div>
+                  <p className="font-semibold">{d.title} <Pill tone={d.kind === 'use-up' ? 'amber' : 'blue'}>{d.kind === 'use-up' ? 'Supply' : 'Demand'}</Pill> {on && <Pill tone="green">On</Pill>}</p>
+                  <p className="mt-1 text-sm text-slate-600">{d.why}</p>
+                  {d.savesCents ? <p className="mt-1 text-xs text-slate-500">Food that would be thrown away: {money(d.savesCents)}.</p> : null}
+                  <p className="mt-1 text-xs text-slate-500">Customers hear: “{d.pitch}”</p>
+                </div>
+                <button onClick={() => toggle(d.id)} className={on ? btn.light : btn.green}>{on ? 'Turn off' : 'Turn on'}</button>
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+      <p className="mt-3 text-xs text-slate-500">A deal that is on is offered by the AI order taker when a customer asks, and comes off the order by itself. Deals pause while {BUSY_PIES} or more pizzas are waiting or baking.{onPhoneLine ? ' Your connected phone line gets the same deals.' : ''}</p>
+    </Card>
+  );
+}
+
 export function MenuPage({ brain }: { brain: PizzaBrain }) {
   const { history } = usePizza();
   const per = toppingPerPizza(history);
@@ -208,6 +239,7 @@ export function MenuPage({ brain }: { brain: PizzaBrain }) {
   const tops = Object.entries(per).sort((a, b) => b[1] - a[1]).slice(0, 10);
   return (
     <>
+      <DealsCard brain={brain} />
       <Card title="Best sellers, last 30 days">
         <ResponsiveContainer width="100%" height={220}>
           <BarChart data={sold} layout="vertical" margin={{ left: 40 }}>

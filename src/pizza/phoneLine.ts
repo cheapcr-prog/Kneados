@@ -5,6 +5,7 @@
  */
 import { DEFAULT_FRAUD } from '../lib/fraud';
 import type { Address } from './data';
+import { cleanDeals, type Deal } from './deals';
 import { MINUTE, type PizzaOrder } from './logic';
 import { rememberAddress, ticketFor, type BotOrder, type TranscriptLine } from './orderbot';
 
@@ -21,6 +22,8 @@ export interface PhoneOrder {
   last4: string;
   order: BotOrder;
   address?: Address;
+  /** Deals that were running when the order was placed. */
+  deals?: Deal[];
   transcript: TranscriptLine[];
 }
 export interface PhoneFeed { lastCallAt: string | null; orders: PhoneOrder[] }
@@ -54,14 +57,14 @@ export async function fetchFeed(line: string): Promise<PhoneFeed | null> {
 export function ticketFromPhone(p: PhoneOrder): Omit<PizzaOrder, 'id' | 'number'> {
   const o = p.order;
   if (o.fulfillment === 'delivery' && p.address) rememberAddress(o.address, p.address);
-  const t = ticketFor(o, { phone: '', known: false }, { quote: () => p.minutes, out: [], open: true, fraud: DEFAULT_FRAUD, payLinks: false });
+  const t = ticketFor(o, { phone: '', known: false }, { quote: () => p.minutes, out: [], open: true, fraud: DEFAULT_FRAUD, payLinks: false, deals: cleanDeals(p.deals) });
   const at = Date.parse(p.at) || Date.now();
   const delivery = o.fulfillment === 'delivery' && !!t.address && !!t.zone;
   return {
     channel: 'phone', fulfillment: delivery ? 'delivery' : 'pickup', createdAt: new Date(at).toISOString(), promisedAt: new Date(at + p.minutes * MINUTE).toISOString(),
     customer: { name: o.name.trim() || 'Phone order', phone: '', ...(delivery ? { address: t.address!.line, x: t.address!.x, y: t.address!.y, zone: t.zone } : {}) },
     lines: t.lines, ...t.totals, payment: o.payment === 'cash_at_door' ? 'cash' : 'card', status: 'new',
-    note: [o.note.trim(), o.payment === 'cash_at_door' ? 'Cash at the door' : 'Pays at the counter', p.last4 ? `Real call from a number ending ${p.last4}` : 'Real call, number hidden'].filter(Boolean).join(' · '),
+    note: [o.note.trim(), ...t.deals.map((d) => `Deal: ${d.title}`), o.payment === 'cash_at_door' ? 'Cash at the door' : 'Pays at the counter', p.last4 ? `Real call from a number ending ${p.last4}` : 'Real call, number hidden'].filter(Boolean).join(' · '),
     ai: { surface: 'call', transcript: p.transcript.map(({ who, text }) => ({ who, text })) },
   };
 }

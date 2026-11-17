@@ -325,3 +325,57 @@ describe('asking about deals (real call, 2026-11-16: it was handed off and the c
     expect(c.ended).toEqual(['transfer']);
   });
 });
+
+describe('deals on the phone (Elias, 2026-11-16: deals from supply and demand)', () => {
+  const caesar = { id: 'use-romaine', kind: 'use-up' as const, title: '$2 off Caesar Salad', why: 'w', pitch: 'Caesar Salad is $2 off today, down to $7.99.', offCents: 200, sideIds: ['caesar'] };
+  const slow = { id: 'slow-14', kind: 'slow-hours' as const, title: 't', why: 'w', pitch: 'Every large pizza is $4 off for pickup between 2pm and 4pm today.', offCents: 400, size: 'L' as const, pickupOnly: true, fromHour: 14, toHour: 16 };
+  // The test clock is noon in Long Beach, outside the slow-hours deal.
+  const withDeals = (turns: (BotTurn | null)[], busy?: { ahead: number; inOven: number }) => {
+    const c = call(turns);
+    c.deps.deals = [caesar, slow];
+    if (busy) c.deps.busy = busy;
+    return { ...c, session: new VoiceSession(callerFrom('5625550142', null, c.deps.now!()), c.deps) };
+  };
+
+  it('tells the AI only the deals running this minute', async () => {
+    const c = withDeals([{ say: 'Sure.', order: order({ items: [] }), action: 'continue' }]);
+    await c.session.heard('Hi.');
+    expect(c.prompts[0]).toContain('Caesar Salad is $2 off today');
+    expect(c.prompts[0]).not.toContain('between 2pm and 4pm');
+  });
+
+  it('says the deal itself when the AI tries to hand a deals question to a manager', async () => {
+    const c = withDeals([{ say: 'Let me get a manager.', order: order({ items: [] }), action: 'transfer' }]);
+    await c.session.heard('Any deals today?');
+    expect(c.ended).toEqual([]);
+    expect(c.said[0]).toBe('Caesar Salad is $2 off today, down to $7.99. What can I get started for you?');
+  });
+
+  it('offers nothing while the kitchen is slammed', async () => {
+    const c = withDeals([{ say: 'Let me get a manager.', order: order({ items: [] }), action: 'transfer' }], { ahead: 12, inOven: 6 });
+    await c.session.heard('Any deals today?');
+    expect(c.said[0]).toContain("don't have any deals running");
+  });
+
+  it('takes the deal off the order and sends it to the make line with the order', async () => {
+    const salad = order({ items: [item({ kind: 'side', side: 'caesar' })], fulfillment: 'pickup', name: 'Elias', payment: 'pay_at_pickup' });
+    const c = withDeals([{ say: 'Your order is in, number {number}, {total}.', order: salad, action: 'place_order' }]);
+    await c.session.heard('A Caesar salad for pickup, name is Elias, pay at the counter, that is it.');
+    expect(c.placed[0].order.deals?.map((d) => d.id)).toEqual(['use-romaine']);
+    const made = ticketFromPhone({ ...c.placed[0].order, id: 'ph-1', number: 7001 });
+    expect(made.subtotal).toBe(999 - 200);
+    expect(made.note).toContain('Deal: $2 off Caesar Salad');
+    expect(c.said[0]).toContain(`$${(made.total / 100).toFixed(2)}`);
+  });
+});
+
+describe('the phone line keeps the deals the owner turned on', () => {
+  it('checks them on the way in and hands them to the next call', async () => {
+    const store = new Map<string, unknown>();
+    const line = new PhoneLine({ storage: { get: async <T,>(k: string) => store.get(k) as T | undefined, put: async (k, v) => { store.set(k, v); } } });
+    const good = { id: 'use-romaine', kind: 'use-up', title: 't', why: 'w', pitch: 'p', offCents: 200, sideIds: ['caesar'] };
+    await line.fetch(new Request('https://line/deals', { method: 'POST', body: JSON.stringify([good, { ...good, id: 'too-deep', offCents: 900 }]) }));
+    const { deals } = (await (await line.fetch(new Request('https://line/ring?from=5625550142'))).json()) as { deals: { id: string }[] };
+    expect(deals.map((d) => d.id)).toEqual(['use-romaine']);
+  });
+});

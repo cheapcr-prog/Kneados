@@ -8,6 +8,7 @@ import type { Address } from '../src/pizza/data';
 import { PIZZA_SHOP, SPECIALTIES, SIDES, SIZES, TOPPINGS } from '../src/pizza/data';
 import { quoteTime, upsells } from '../src/pizza/logic';
 import { streetGuesses } from '../src/pizza/streets';
+import { dealsNow, type Deal } from '../src/pizza/deals';
 import {
   EMPTY_ORDER, RECENT_ORDER_MINUTES, asksStatus, buildLines, greeting, lineText, needsLookup, recentStatus, rememberAddress, settle, ticketFor, turnContext,
   type BotItem, type BotOrder, type BotTurn, type Caller, type ShopNow, type TranscriptLine,
@@ -158,11 +159,16 @@ export function kitchenLoad(orders: readonly Pick<PhoneOrder, 'at' | 'minutes' |
   return load;
 }
 
-export function lineShop(busy: KitchenLoad = { ahead: 0, inOven: 0 }): ShopNow {
+export function lineShop(busy: KitchenLoad = { ahead: 0, inOven: 0 }, deals: Deal[] = []): ShopNow {
   return {
     quote: (pies, zone) => quoteTime([], pies, { zone, cooks: 2, driversFreeInMin: 0, piesAhead: busy.ahead, piesInOven: busy.inOven }).minutes,
-    out: [], open: true, fraud: DEFAULT_FRAUD, payLinks: false,
+    out: [], open: true, fraud: DEFAULT_FRAUD, payLinks: false, deals,
   };
+}
+/** The hour of the day at the shop, with minutes as a fraction. */
+export function shopHour(now: number): number {
+  const [h, m] = new Date(now).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: PIZZA_SHOP.timezone }).split(':').map(Number);
+  return (h % 24) + m / 60;
 }
 export const LINE_SHOP: ShopNow = lineShop();
 
@@ -192,6 +198,8 @@ export interface PhoneOrder {
   last4: string;
   order: BotOrder;
   address?: Address;
+  /** The deals that were running when it was placed, so the make line prices it the way the caller heard it. */
+  deals?: Deal[];
   transcript: TranscriptLine[];
 }
 
@@ -207,6 +215,8 @@ export interface VoiceDeps {
   fillerAfterMs?: number;
   /** Phone orders still being made when this call came in, so the wait quoted is honest. */
   busy?: KitchenLoad;
+  /** Deals the owner approved for this line. Only the ones running this minute are offered. */
+  deals?: Deal[];
   /** One turn of the order taker. Null when the model could not answer. */
   model: (user: string) => Promise<BotTurn | null>;
   /** Real address lookup. Null: no such address. Undefined: the lookup failed. */
@@ -250,7 +260,8 @@ export class VoiceSession {
   private shop: ShopNow;
 
   constructor(readonly caller: Caller, private deps: VoiceDeps) {
-    this.shop = lineShop(deps.busy);
+    const busy = deps.busy ?? { ahead: 0, inOven: 0 };
+    this.shop = lineShop(busy, dealsNow(deps.deals ?? [], shopHour(deps.now?.() ?? Date.now()), busy.ahead + busy.inOven));
     this.transcript = [{ who: 'ai', text: greeting(caller, 'call', deps.now?.() ?? Date.now()) }];
   }
 
@@ -348,7 +359,8 @@ export class VoiceSession {
 
     // Asking about deals is not a reason to lose the call (a real call was handed off and ended over it, 2026-11-16).
     if (turn.action === 'transfer' && ASKS_DEALS.test(justSaid) && !WANTS_PERSON.test(justSaid)) {
-      turn = { ...turn, action: 'continue', say: NO_DEALS };
+      const running = (this.shop.deals ?? []).slice(0, 2).map((d) => d.pitch);
+      turn = { ...turn, action: 'continue', say: running.length ? `${running.join(' ')} What can I get started for you?` : NO_DEALS };
     }
 
     const done = settle(turn, this.order, this.caller, this.shop, 'call');
@@ -362,6 +374,7 @@ export class VoiceSession {
     const number = await this.deps.line.place({
       at, minutes: done.ticket.quoteMinutes, last4: this.caller.phone.slice(-4), order,
       ...(order.fulfillment === 'delivery' && done.ticket.address ? { address: done.ticket.address } : {}),
+      ...(done.ticket.deals.length ? { deals: this.shop.deals } : {}),
       transcript: [...this.transcript, { who: 'ai', text: done.say }],
     }, this.caller.phone);
     this.finish(done.placedSay(number), 'placed');

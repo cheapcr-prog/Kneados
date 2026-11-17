@@ -64,7 +64,7 @@ export function ticketFromPhone(p: PhoneOrder): Omit<PizzaOrder, 'id' | 'number'
   return {
     channel: 'phone', fulfillment: delivery ? 'delivery' : 'pickup', createdAt: new Date(at).toISOString(), promisedAt: new Date(at + p.minutes * MINUTE).toISOString(),
     customer: { name: o.name.trim() || 'Phone order', phone: '', ...(delivery ? { address: t.address!.line, x: t.address!.x, y: t.address!.y, zone: t.zone } : {}) },
-    lines: t.lines, ...t.totals, payment: o.payment === 'cash_at_door' ? 'cash' : 'card', status: 'new',
+    lines: t.lines, ...t.totals, payment: o.payment === 'cash_at_door' ? 'cash' : 'card', status: 'new', ...(t.deals.length ? { deals: t.deals } : {}),
     note: [o.note.trim(), ...t.deals.map((d) => `Deal: ${d.title}`), o.payment === 'cash_at_door' ? 'Cash at the door' : 'Pays at the counter', p.last4 ? `Real call from a number ending ${p.last4}` : 'Real call, number hidden'].filter(Boolean).join(' · '),
     ai: { surface: 'call', transcript: p.transcript.map(({ who, text }) => ({ who, text })) },
   };

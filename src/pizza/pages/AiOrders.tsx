@@ -189,6 +189,7 @@ export function AiOrders() {
       note: [o.note.trim(), o.payment === 'pay_link' ? 'Pay link sent' : o.payment === 'cash_at_door' ? 'Cash at the door' : 'Pays at the counter'].filter(Boolean).join(' · '),
       ...(o.payment === 'pay_link' ? { fraud: { flags: t.policy.idCheck ? ['Phone order paid by link: check photo ID'] : [], idCheck: t.policy.idCheck } } : {}),
       ai: { surface: s, transcript: transcript.map(({ who, text }) => ({ who, text })) },
+      ...(t.deals.length ? { deals: t.deals } : {}),
     }, { rewardPhone: c.phone });
     if (done && o.payment === 'pay_link' && c.phone) addTexts([{ to: c.phone, body: `${PIZZA_SHOP.name}: Pay for order #${done.number} (${money(t.totals.total)}) here: kneados.app/pay/${done.number}`, at: new Date().toISOString(), kind: 'paylink' }]);
     return done;

@@ -9,6 +9,7 @@ import { DRIVERS, PIZZA_SHIFTS, PIZZA_SHOP, PIZZA_STAFF_BY_ID, SIZES, SPECIALTY_
 import { APP_FEE_SHARE, MINUTE, doughPlan, draftOrders, lateBy, menuMargins, planRuns, piesIn, pnl, quoteTime, stockPlan, unitCost, type DraftPO, type PizzaOrder, type RunPlan, type StockLine } from './logic';
 import type { PizzaDemo } from './store';
 import { invoiceState } from '../lib/channels';
+import { mailRow, promoRow } from './marketing';
 import { estimate, mailingList, namedAudience, results, tracking } from './mail';
 
 export type PizzaArea = 'Money' | 'Make line' | 'Delivery' | 'Dough' | 'Stock' | 'Team' | 'Menu' | 'Customers' | 'Game day' | 'Waste' | 'Sales channels' | 'Marketing';
@@ -112,6 +113,15 @@ export function usePizzaBrain(demo: PizzaDemo, nowMs: number) {
           nextSuggested: { audience: 'customers who stopped ordering (45 days to a year)', cards: lapsedToMail, costCents: next.costCents, expectedOrders: next.expected, expectedProfitCents: next.netCents, responseRateUsed: Math.round(next.responseRate * 1000) / 1000 },
         };
       })(),
+      // Every campaign in every channel, measured the same way, so the owner can ask which marketing works.
+      marketing: (() => {
+        const foodShare = Math.round(money30.foodShare * 1000) / 1000;
+        const rows = [...state.campaigns.map((c) => mailRow(c, foodShare)), ...state.promos.map((p) => promoRow(p, foodShare))];
+        return {
+          rule: 'Each order counts for one campaign: its code first, then the ad link it came from, then the deal on the ticket. Profit = sales after discounts, less food cost, less free food, less money paid out.',
+          campaigns: rows.map((r) => ({ channel: r.channel, name: r.name, since: r.startedOn, paidOutCents: r.spendCents, discountsAndFreeFoodCents: r.giveawayCents, orders: r.orders, salesCents: r.salesCents, profitCents: r.profitCents, newCustomers: r.newCustomers, newWhoOrderedAgain: r.repeatCustomers })),
+        };
+      })(),
       rewards: { members: state.members.length, lapsed30Days: lapsed.length, rewardsWaiting: state.members.reduce((a, m) => a + m.rewards, 0) },
       companyInvoices: state.invoices.map((i) => ({ number: i.number, company: i.company, po: i.po ?? null, forWhat: i.memo, deliveredOn: i.serviceDate, due: i.due, totalCents: i.totalCents, status: invoiceState(i, state.today), paidOn: i.paidOn ?? null, remindersSent: i.reminders.length })),
       // Orders the AI took tonight on calls and by text, so the owner can ask how it is doing.
@@ -130,7 +140,7 @@ function fireSoon(o: PizzaOrder, now: number) {
 const dayDiff = (a: string, b: string) => Math.round((new Date(b).getTime() - new Date(a).getTime()) / 86_400_000);
 
 interface DecideIn {
-  facts: { tomorrow: { dayName: string; event: string | null; deliveries: number }; last30Days: { deliveryAppFeesCents: number; deliveryAppOrders: number; orders: number }; postcards: { nextSuggested: { cards: number; costCents: number; expectedOrders: number; expectedProfitCents: number; responseRateUsed: number } } };
+  facts: { tomorrow: { dayName: string; event: string | null; deliveries: number }; last30Days: { deliveryAppFeesCents: number; deliveryAppOrders: number; orders: number }; marketing: { campaigns: { channel: string; profitCents: number; orders: number; paidOutCents: number; newCustomers: number }[] }; postcards: { nextSuggested: { cards: number; costCents: number; expectedOrders: number; expectedProfitCents: number; responseRateUsed: number } } };
   late: { o: PizzaOrder; by: number }[];
   runs: RunPlan[];
   dough: ReturnType<typeof doughPlan>;
@@ -251,7 +261,13 @@ export function ruleAnswer(q: string, f: ReturnType<typeof usePizzaBrain>['facts
     if (!open.length) return say('Every company invoice is paid.');
     return say(`${open.length} company invoice${open.length === 1 ? ' is' : 's are'} unpaid, ${money(total)} in all. ${late.length ? `${late.map((i) => `${i.company} owes ${money(i.totalCents)} on invoice ${i.number}, due ${i.due}`).join('; ')}. That one is past due, so send a reminder today.` : 'None are past due yet.'}`, pick(['Money']));
   }
-  if (/postcard|mail|flyer|marketing|eddm|lob\b/.test(s)) {
+  if (/\bads?\b|google|instagram|facebook|meta|text blast|marketing|which (deal|campaign)|campaign/.test(s)) {
+    const byCh: Record<string, { profit: number; orders: number; spend: number; newC: number }> = {};
+    for (const c of f.marketing.campaigns) { const x = (byCh[c.channel] ??= { profit: 0, orders: 0, spend: 0, newC: 0 }); x.profit += c.profitCents; x.orders += c.orders; x.spend += c.paidOutCents; x.newC += c.newCustomers; }
+    const parts = Object.entries(byCh).sort((a, b) => b[1].profit - a[1].profit).map(([ch, x]) => `${ch}: ${x.orders} orders, ${money(x.profit)} profit after ${money(x.spend)} paid out, ${x.newC} new customers`);
+    return say(`By channel, best first. ${parts.join('; ')}.`, pick(['Marketing']));
+  }
+  if (/postcard|mail|flyer|eddm|lob\b/.test(s)) {
     const m = f.postcards.mailings;
     const n = f.postcards.nextSuggested;
     const lines = m.map((c) => `"${c.name}": ${c.cards} cards for ${money(c.costCents)}, ${c.ordersWithCode} orders with the code (${Math.round(c.responseRate * 1000) / 10}%), ${money(c.salesCents)} in sales, ${money(c.profitAfterMailCents)} profit after the mail${c.newCustomers ? `, ${c.newCustomers} new customers` : ''}`);
@@ -280,7 +296,7 @@ export function ruleAnswer(q: string, f: ReturnType<typeof usePizzaBrain>['facts
   return say(top.length ? `First: ${top[0].title.toLowerCase()}. ${top[0].why}` : 'Everything is on track right now.', top);
 }
 
-export const PIZZA_SUGGESTED = ['What should I do first?', 'How much dough tonight?', 'Are deliveries running late?', 'What needs ordering?', 'Where am I losing money?', 'Are we ready for game day?', 'Which companies owe us money?', 'Did the postcards pay off?'];
+export const PIZZA_SUGGESTED = ['What should I do first?', 'How much dough tonight?', 'Are deliveries running late?', 'What needs ordering?', 'Where am I losing money?', 'Are we ready for game day?', 'Which companies owe us money?', 'Did the postcards pay off?', 'Which marketing is working?'];
 export type PizzaBrain = ReturnType<typeof usePizzaBrain>;
 export { SPECIALTY_BY_ID };
 export type { SizeId };

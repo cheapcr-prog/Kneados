@@ -3,7 +3,8 @@ import { useFraud } from '../../components/Fraud';
 import { DECLINED_DEMO_CARD, GOOD_DEMO_CARD, demoCardOk, failedTries, orderRisk, triesLeft } from '../../lib/fraud';
 import { useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { OFFER_BY_ID, applyOffer, findCode, freeValue } from '../mail';
+import { OFFER_BY_ID, applyOffer, freeValue } from '../mail';
+import { findAd, findAnyCode } from '../marketing';
 import { useTick } from '../../components/Breaks';
 import { formatPhone, money } from '../../lib/money';
 import { ADDRESSES, PIZZA_SHOP, SIDES, SIDE_BY_ID, SIZES, SPECIALTIES, ZONES, type PizzaConfig, type SizeId } from '../data';
@@ -31,7 +32,12 @@ export function PizzaShop() {
   // A postcard's QR code opens the shop with its code, so it is already on the order at checkout.
   const [params] = useSearchParams();
   const mailParam = params.get('mail') ?? '';
-  const mailHit = mailParam ? findCode(mailParam, state.campaigns, state.today) : undefined;
+  const mailHit = mailParam ? findAnyCode(mailParam, state.campaigns, state.promos, state.today) : undefined;
+  // An ad link carries a tag naming the campaign. It is kept for this visit so the order is credited to the ad.
+  const utm = params.get('utm_campaign');
+  if (utm) { try { sessionStorage.setItem('kneados-pizza-ad', utm); } catch { /* storage blocked */ } }
+  const adTag = utm ?? (() => { try { return sessionStorage.getItem('kneados-pizza-ad'); } catch { return null; } })();
+  const ad = adTag ? findAd(adTag, state.promos, state.today) : undefined;
 
   const add = (l: Line) => {
     setCart((c) => [...c, l]);
@@ -46,8 +52,11 @@ export function PizzaShop() {
     <div className="min-h-full bg-[#fbf7ef] text-slate-900">
       {mailHit && (
         <div data-mail-banner className={`px-4 py-2.5 text-center text-sm font-semibold ${mailHit.used || mailHit.expired ? 'bg-amber-100 text-amber-900' : 'bg-emerald-600 text-white'}`}>
-          {mailHit.used ? `Postcard code ${mailHit.campaign.codes[mailHit.key]} was already used. Thanks for coming back!` : mailHit.expired ? `Postcard code ${mailHit.campaign.codes[mailHit.key]} has expired.` : `Thanks for scanning your postcard! ${OFFER_BY_ID[mailHit.campaign.offerId].label}. Code ${mailHit.campaign.codes[mailHit.key]} is already on your order.`}
+          {mailHit.used ? `Postcard code ${mailHit.campaign.codes[mailHit.key]} was already used. Thanks for coming back!` : mailHit.expired ? `Postcard code ${mailHit.campaign.codes[mailHit.key]} has expired.` : `${mailHit.channel === 'postcard' ? 'Thanks for scanning your postcard!' : 'Welcome back!'} ${OFFER_BY_ID[mailHit.campaign.offerId].label}. Code ${mailHit.campaign.codes[mailHit.key]} is already on your order.`}
         </div>
+      )}
+      {!mailHit && ad?.offerId && (
+        <div data-ad-banner className="bg-emerald-600 px-4 py-2.5 text-center text-sm font-semibold text-white">Welcome! {OFFER_BY_ID[ad.offerId].label}. Code {Object.values(ad.codes)[0]} is already on your order.</div>
       )}
       {/* Shop header */}
       <header className="relative overflow-hidden bg-[#10261c] text-white">
@@ -175,7 +184,7 @@ export function PizzaShop() {
       )}
 
       {open && (
-        <Checkout mailCode={mailHit ? mailHit.campaign.codes[mailHit.key] : ''} cart={cart} setCart={setCart} history={history} gameDay={brain.facts.tomorrow.event ?? undefined} onClose={() => setOpen(false)}
+        <Checkout adCampaignId={ad?.id} mailCode={mailHit ? mailHit.campaign.codes[mailHit.key] : ad?.offerId ? Object.values(ad.codes)[0] ?? '' : ''} cart={cart} setCart={setCart} history={history} gameDay={brain.facts.tomorrow.event ?? undefined} onClose={() => setOpen(false)}
           quote={(zone, pies) => quoteTime(state.orders.filter((o) => o.status !== 'done'), pies, { zone, cooks: brain.cooks, driversFreeInMin: brain.freeIn, piesAhead: demo.elsewhere.ahead, piesInOven: demo.elsewhere.inOven }).minutes}
           onPlace={(o, phone) => {
             const placedO = placeOrder(o, { rewardPhone: phone });
@@ -284,8 +293,8 @@ function PreorderButton({ pack, date, label }: { pack: string; date: string; lab
 
 const longDate = (iso: string) => new Date(`${iso}T12:00:00`).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
 
-function Checkout({ mailCode = '', cart, setCart, history, gameDay, onClose, onPlace, quote }: {
-  mailCode?: string; cart: Line[]; setCart: (f: (c: Line[]) => Line[]) => void; history: ReturnType<typeof usePizza>['history']; gameDay?: string;
+function Checkout({ adCampaignId, mailCode = '', cart, setCart, history, gameDay, onClose, onPlace, quote }: {
+  adCampaignId?: string; mailCode?: string; cart: Line[]; setCart: (f: (c: Line[]) => Line[]) => void; history: ReturnType<typeof usePizza>['history']; gameDay?: string;
   onClose: () => void; onPlace: (o: Omit<PizzaOrder, 'id' | 'number'>, rewardPhone?: string) => void; quote: (zone: 'A' | 'B' | 'C' | undefined, pies: number) => number;
 }) {
   const [mode, setMode] = useState<'pickup' | 'delivery'>('delivery');
@@ -298,9 +307,9 @@ function Checkout({ mailCode = '', cart, setCart, history, gameDay, onClose, onP
   const zone = mode === 'delivery' ? zoneFor(a) : undefined;
   const { state: shopState } = usePizza();
   const [code, setCode] = useState(mailCode);
-  const hit = code ? findCode(code, shopState.campaigns, shopState.today) : undefined;
+  const hit = code ? findAnyCode(code, shopState.campaigns, shopState.promos, shopState.today) : undefined;
   const promo = hit && !hit.used && !hit.expired ? applyOffer(hit.campaign.offerId, cart) : undefined;
-  const codeNote = !code ? '' : !hit ? (code.replace(/[^A-Za-z0-9]/g, '').length >= 7 ? 'That code is not one of ours.' : '') : hit.used ? 'That code was already used.' : hit.expired ? 'That code has expired.' : promo?.problem ?? `${OFFER_BY_ID[hit.campaign.offerId].label}. From the "${hit.campaign.name}" postcard.`;
+  const codeNote = !code ? '' : !hit ? (code.replace(/[^A-Za-z0-9]/g, '').length >= 7 ? 'That code is not one of ours.' : '') : hit.used ? 'That code was already used.' : hit.expired ? 'That code has expired.' : promo?.problem ?? `${OFFER_BY_ID[hit.campaign.offerId].label}. From "${hit.campaign.name}".`;
   const lines = promo && !promo.problem ? [...cart, ...promo.free] : cart;
   const discountCents = promo && !promo.problem ? promo.discountCents : 0;
   const pies = lines.reduce((n, l) => n + (l.kind === 'pizza' ? l.qty : 0), 0);
@@ -330,7 +339,7 @@ function Checkout({ mailCode = '', cart, setCart, history, gameDay, onClose, onP
     onPlace({
       channel: 'online', fulfillment: mode, createdAt: new Date(now).toISOString(), promisedAt: new Date(now + minutes * MINUTE).toISOString(),
       customer: { name, phone, ...(mode === 'delivery' ? { address: a.line, x: a.x, y: a.y, zone } : {}) },
-      lines, ...t, ...(promo && !promo.problem && hit ? { promo: { code: hit.campaign.codes[hit.key], campaignId: hit.campaign.id, discountCents: discountCents || freeValue(promo.free), viaQr: !!mailCode && code === mailCode } } : {}), payment: risk.payInPerson ? (mode === 'delivery' ? 'cash' : 'card') : 'online', status: 'new',
+      lines, ...t, ...(promo && !promo.problem && hit ? { promo: { code: hit.campaign.codes[hit.key], campaignId: hit.campaign.id, discountCents: discountCents || freeValue(promo.free), viaQr: !!mailCode && code === mailCode && hit.channel === 'postcard' } } : {}), ...(adCampaignId ? { adClick: { campaignId: adCampaignId } } : {}), payment: risk.payInPerson ? (mode === 'delivery' ? 'cash' : 'card') : 'online', status: 'new',
       ...(flagged || bankConfirmed ? { fraud: { flags: risk.flags.map((f) => f.label), idCheck: risk.idCheck, cardName: risk.payInPerson ? undefined : cardName.trim(), bankConfirmed } } : {}),
     }, rewards ? phone : undefined);
   };

@@ -159,10 +159,10 @@ export function AiOrders() {
   const active = useMemo(() => state.orders.filter((o) => o.status !== 'done'), [state.orders]);
   const { approved: approvedDeals } = useDeals(brain.stock);
   const shop: ShopNow = useMemo(() => ({
-    quote: (pies, zone) => quoteTime(active, pies, { zone, cooks: brain.cooks, driversFreeInMin: brain.freeIn }).minutes,
+    quote: (pies, zone) => quoteTime(active, pies, { zone, cooks: brain.cooks, driversFreeInMin: brain.freeIn, piesAhead: demo.elsewhere.ahead, piesInOven: demo.elsewhere.inOven }).minutes,
     out: state.out, open: true, fraud: fraud.settings,
     deals: dealsNow(approvedDeals, new Date().getHours() + new Date().getMinutes() / 60, active.filter((o) => o.status === 'new' || o.status === 'oven').reduce((a, o) => a + piesIn(o), 0)),
-  }), [active, brain.cooks, brain.freeIn, state.out, fraud.settings, approvedDeals]);
+  }), [active, brain.cooks, brain.freeIn, state.out, fraud.settings, approvedDeals, demo.elsewhere]);
   const ticket = useMemo(() => ticketFor(order, caller, shop), [order, caller, shop]);
   const suggest = useCallback((t: Ticket) => upsells(t.lines, history, brain.facts.tomorrow.event ?? undefined).slice(0, 2).map((u) => `${u.title}. ${u.why}.`), [history, brain.facts.tomorrow.event]);
   const needs = missing(order, ticket, surface);
@@ -565,7 +565,7 @@ function RealLine() {
       <h3 className="flex items-center gap-2 font-display text-lg font-bold"><Phone size={18} className="text-emerald-400" /> Real phone line</h3>
       {phoneLine ? (
         <>
-          <p className="mt-1 text-sm text-slate-300">Call <b className="text-white">{formatPhone(phoneLine)}</b> from any phone. The AI answers, takes the order by voice, and the ticket appears on the make line within a few seconds.</p>
+          <p className="mt-1 text-sm text-slate-300">Call <b className="text-white">{formatPhone(phoneLine)}</b> from any phone. The AI answers, takes the order by voice, and the ticket appears on the make line within a few seconds. The wait time it quotes counts every order on this make line: counter, website, text, delivery apps and phone.</p>
           <p className="mt-2 text-xs text-slate-400">
             {lastCallAt ? `Last call answered ${new Date(lastCallAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}.` : 'No call has reached this line yet.'} {fromCalls > 0 && `${fromCalls} order${fromCalls === 1 ? '' : 's'} from real calls on this screen.`}
           </p>

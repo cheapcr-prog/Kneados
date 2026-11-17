@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { addDays, isoDate } from '../lib/dates';
 import { addVisit } from '../lib/rewards';
 import type { RewardsMember } from '../data/types';
@@ -8,7 +8,8 @@ import {
   DEPOSIT_SHARE, type Channel, type DriverState, type Line, type OrderStatus, type PizzaDay, type PizzaOrder,
 } from './logic';
 import { mailingList, seedCampaigns, type MailCampaign } from './mail';
-import { PHONE_POLL_MS, fetchFeed, markSeen, saveLine, savedLine, seenOrders, ticketFromPhone } from './phoneLine';
+import { PHONE_POLL_MS, fetchFeed, markSeen, saveLine, savedLine, seenOrders, syncQueue, ticketFromPhone } from './phoneLine';
+import { further, queueLoad, ticketOf, type KitchenLoad, type QueueTicket } from './queue';
 
 const KEY = 'kneados-pizza-v1';
 
@@ -354,35 +355,78 @@ function usePizzaStore() {
   const [phoneLine, setLine] = useState(savedLine);
   const [lastCallAt, setLastCallAt] = useState<string | null>(null);
   const setPhoneLine = useCallback((number: string) => { saveLine(number); setLine(savedLine()); setLastCallAt(null); }, []);
+
+  // The shop's one make line lives on the server. This device sends it every ticket it changes (counter, website,
+  // text and app orders, and each tap on the make line) and takes back what other devices did: a stage another
+  // screen tapped, and the pizzas of orders this device has not seen, which its own quotes then count.
+  const orders = useRef(state.orders);
+  orders.current = state.orders;
+  const sent = useRef(new Map<string, string>());
+  const replaceNext = useRef(false);
+  const [elsewhere, setElsewhere] = useState<KitchenLoad>({ ahead: 0, inOven: 0 });
+  useEffect(() => { sent.current = new Map(); setElsewhere({ ahead: 0, inOven: 0 }); }, [phoneLine]);
+  const shareLine = useCallback(async (line: string, stopped: () => boolean) => {
+    const mine = orders.current.map(ticketOf);
+    const replace = replaceNext.current;
+    const changed = replace ? mine : mine.filter((t) => sent.current.get(t.id) !== JSON.stringify(t));
+    const queue = await syncQueue(line, changed, replace);
+    if (!queue || stopped()) return;
+    if (replace) { replaceNext.current = false; sent.current = new Map(); }
+    for (const t of changed) sent.current.set(t.id, JSON.stringify(t));
+    const local = new Map(orders.current.map((o) => [o.id, o]));
+    const ahead = queue.filter((t): t is QueueTicket => {
+      const o = local.get(t.id);
+      // The server is behind this device on a ticket (another device overwrote it): send ours again next time.
+      if (o && (o.createdAt !== t.createdAt || further(o.status, t.status))) sent.current.delete(t.id);
+      return !!o && o.createdAt === t.createdAt && further(t.status, o.status);
+    });
+    if (ahead.length) {
+      const by = new Map(ahead.map((t) => [t.id, t]));
+      setState((s) => ({
+        ...s, orders: s.orders.map((o) => {
+          const t = by.get(o.id);
+          if (!t || o.createdAt !== t.createdAt || !further(t.status, o.status)) return o;
+          const stamp = new Date().toISOString();
+          return { ...o, status: t.status, ovenAt: t.ovenAt ?? o.ovenAt ?? stamp, ...(further(t.status, 'oven') ? { readyAt: t.readyAt ?? o.readyAt ?? stamp } : {}), ...(further(t.status, 'ready') ? { outAt: t.outAt ?? o.outAt ?? stamp } : {}), ...(t.status === 'done' ? { doneAt: o.doneAt ?? stamp } : {}) };
+        }),
+      }));
+    }
+    const load = queueLoad(queue.filter((t) => !local.has(t.id)), Date.now(), true);
+    setElsewhere((e) => (e.ahead === load.ahead && e.inOven === load.inOven ? e : load));
+  }, []);
   useEffect(() => {
     if (!phoneLine) return;
     let stop = false;
     const check = async () => {
       if (document.hidden) return;
       const feed = await fetchFeed(phoneLine);
-      if (!feed || stop) return;
-      setLastCallAt(feed.lastCallAt);
-      const seen = new Set(seenOrders());
-      const fresh = feed.orders.filter((o) => !seen.has(o.id));
-      if (!fresh.length) return;
-      markSeen(fresh.map((o) => o.id));
-      for (const o of fresh) placeOrder(ticketFromPhone(o), { number: o.number });
+      if (stop) return;
+      if (feed) {
+        setLastCallAt(feed.lastCallAt);
+        const seen = new Set(seenOrders());
+        const fresh = feed.orders.filter((o) => !seen.has(o.id));
+        if (fresh.length) {
+          markSeen(fresh.map((o) => o.id));
+          for (const o of fresh) placeOrder(ticketFromPhone(o), { number: o.number });
+        }
+      }
+      await shareLine(phoneLine, () => stop);
     };
     void check();
     const id = setInterval(() => void check(), PHONE_POLL_MS);
     return () => { stop = true; clearInterval(id); };
-  }, [phoneLine, placeOrder]);
+  }, [phoneLine, placeOrder, shareLine]);
 
   const sendCampaign = useCallback((c: MailCampaign) => setState((s) => ({ ...s, campaigns: [c, ...s.campaigns] })), []);
   const addTexts = useCallback((list: Text[]) => setState((s) => ({ ...s, texts: [...list, ...s.texts] })), []);
   const setMembers = useCallback((members: RewardsMember[]) => setState((s) => ({ ...s, members })), []);
   const setRain = useCallback((rain: boolean) => setState((s) => (s.rain === rain ? s : { ...s, rain })), []);
-  const reset = useCallback(() => setState(fresh()), []);
+  const reset = useCallback(() => { replaceNext.current = true; setState(fresh()); }, []);
 
   const tomorrow = addDays(state.today, 1);
   const forecastFor = useCallback((date: string) => forecastDay(history, date, { rain: date === tomorrow ? state.rain : false, preorderPies: preorderPies(state.orders, date) }), [history, tomorrow, state.rain, state.orders]);
 
-  return { state, history, tomorrow, forecastFor, phoneLine, lastCallAt, setPhoneLine, placeOrder, setStatus, dispatch, driverBack, setDriverOn, sendPO, receivePO, bumpDough, toggleOut, addTexts, setMembers, setRain, reset, payInvoice, remindInvoice, sendCampaign };
+  return { state, history, tomorrow, forecastFor, phoneLine, lastCallAt, elsewhere, setPhoneLine, placeOrder, setStatus, dispatch, driverBack, setDriverOn, sendPO, receivePO, bumpDough, toggleOut, addTexts, setMembers, setRain, reset, payInvoice, remindInvoice, sendCampaign };
 }
 
 export type PizzaDemo = ReturnType<typeof usePizzaStore>;

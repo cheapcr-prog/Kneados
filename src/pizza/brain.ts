@@ -41,8 +41,8 @@ export function usePizzaBrain(demo: PizzaDemo, nowMs: number) {
     const drivers = DRIVERS.map((d) => state.drivers[d.id]);
     const freeIn = Math.min(...drivers.filter((d) => d.status !== 'off').map((d) => (d.status === 'in' ? 0 : Math.max(0, (at(d.backAt ?? now.toISOString()) - nowMs) / MINUTE))), 60);
     const cooks = PIZZA_SHIFTS.filter((s) => PIZZA_STAFF_BY_ID[s.staffId].role === 'cook' && s.start <= Math.max(17, hour) && s.end > Math.max(17, hour)).length || 1;
-    const quotePickup = quoteTime(active, 1, { cooks });
-    const quoteDelivery = quoteTime(active, 1, { cooks, zone: 'B', driversFreeInMin: freeIn });
+    const quotePickup = quoteTime(active, 1, { cooks, piesAhead: demo.elsewhere.ahead, piesInOven: demo.elsewhere.inOven });
+    const quoteDelivery = quoteTime(active, 1, { cooks, zone: 'B', driversFreeInMin: freeIn, piesAhead: demo.elsewhere.ahead, piesInOven: demo.elsewhere.inOven });
     const late = active.filter((o) => !o.scheduled).map((o) => ({ o, by: lateBy(o, nowMs) })).filter((x) => x.by > 0).sort((a, b) => b.by - a.by);
     const runs = planRuns(state.orders, drivers, nowMs);
 
@@ -121,7 +121,7 @@ export function usePizzaBrain(demo: PizzaDemo, nowMs: number) {
 
     const decisions = decide({ facts, late, runs, dough, pos, stock, margins, tossed14, lapsed: lapsed.map((m) => m.phone), state, tomorrowF, driversNeeded, driversScheduled, peakDeliveries });
     return { facts, decisions, quotePickup, quoteDelivery, late, runs, dough, stock, pos, tomorrowF, week, money30, margins, big, pre, cooks, freeIn };
-  }, [state, history, tomorrow, forecastFor, nowMs]);
+  }, [state, history, tomorrow, forecastFor, nowMs, demo.elsewhere]);
 }
 
 function fireSoon(o: PizzaOrder, now: number) {

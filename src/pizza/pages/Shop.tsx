@@ -176,7 +176,7 @@ export function PizzaShop() {
 
       {open && (
         <Checkout mailCode={mailHit ? mailHit.campaign.codes[mailHit.key] : ''} cart={cart} setCart={setCart} history={history} gameDay={brain.facts.tomorrow.event ?? undefined} onClose={() => setOpen(false)}
-          quote={(zone, pies) => quoteTime(state.orders.filter((o) => o.status !== 'done'), pies, { zone, cooks: brain.cooks, driversFreeInMin: brain.freeIn }).minutes}
+          quote={(zone, pies) => quoteTime(state.orders.filter((o) => o.status !== 'done'), pies, { zone, cooks: brain.cooks, driversFreeInMin: brain.freeIn, piesAhead: demo.elsewhere.ahead, piesInOven: demo.elsewhere.inOven }).minutes}
           onPlace={(o, phone) => {
             const placedO = placeOrder(o, { rewardPhone: phone });
             const configs = cart.flatMap((l) => (l.kind === 'pizza' ? Array.from({ length: l.qty }, () => l.config) : []));

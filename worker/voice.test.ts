@@ -310,3 +310,18 @@ describe('wait times count the phone orders already being made (Elias, 2026-11-1
     expect(busy).toEqual({ ahead: 3, inOven: 0 });
   });
 });
+
+describe('asking about deals (real call, 2026-11-16: it was handed off and the call ended)', () => {
+  it('says there are none and keeps taking the order', async () => {
+    const c = call([{ say: 'Let me get a manager to tell you what is running.', order: order({ items: [] }), action: 'transfer' }]);
+    await c.session.heard('What, um, what deals do you have?');
+    expect(c.ended).toEqual([]);
+    expect(c.said[0]).toBe("We don't have any deals running right now. What can I get started for you?");
+  });
+
+  it('still hands off when the caller asks for a manager', async () => {
+    const c = call([{ say: 'Let me get a manager for you.', order: order({ items: [] }), action: 'transfer' }]);
+    await c.session.heard('I want to talk to a manager about your deals.');
+    expect(c.ended).toEqual(['transfer']);
+  });
+});

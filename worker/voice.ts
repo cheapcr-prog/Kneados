@@ -76,8 +76,13 @@ const HINTS = [...new Set([...TOPPINGS.map((t) => t.name), ...SIZES.map((s) => s
  * mid-sentence ("a large... pepperoni pizza with pineapple") was taken as the end of what he was saying.
  * So: only real speech interrupts, at low sensitivity; "uh huh" and our own echo do not count; and the
  * caller's turn ends when the recognizer judges they are done, not at the first short silence.
+ *
+ * Second call (same night): replies felt slow and the line "got stuck". The log showed words spoken while the
+ * assistant was still talking were thrown away, so the caller waited for an answer that never came. Now speech
+ * during our reply is still reported to us, a short "yes" or "ok" is never filtered out, and the wait after
+ * the caller stops is shorter.
  */
-const LISTENING = 'interruptible="speech" welcomeGreetingInterruptible="speech" interruptSensitivity="low" ignoreBackchannel="true" echoPromptFiltering="true" turnDetection="true" eotThreshold="0.8" speechTimeout="1500"';
+const LISTENING = 'interruptible="speech" welcomeGreetingInterruptible="speech" interruptSensitivity="low" reportInputDuringAgentSpeech="speech" echoPromptFiltering="true" turnDetection="true" eotThreshold="0.7" speechTimeout="1000"';
 
 /** A natural voice for the few lines Twilio reads itself. Without it Twilio falls back to its old robot voice. */
 export const SAY_VOICE = 'Polly.Joanna-Generative';
@@ -141,7 +146,9 @@ export interface Line {
 
 export interface VoiceDeps {
   /** A private record of the call for the shop's own logs: what was heard, what was said, how long a reply took. */
-  log?: (entry: { event: 'heard' | 'said' | 'no_answer'; text: string; ms?: number }) => void;
+  log?: (entry: { event: 'heard' | 'said' | 'thought' | 'no_answer' | 'filler' | 'started_over'; text: string; ms?: number }) => void;
+  /** How long the caller hears nothing before a short "one sec". Tests set it; live it is FILLER_AFTER_MS. */
+  fillerAfterMs?: number;
   /** One turn of the order taker. Null when the model could not answer. */
   model: (user: string) => Promise<BotTurn | null>;
   /** Real address lookup. Null: no such address. Undefined: the lookup failed. */
@@ -158,6 +165,10 @@ export const VOICE_MAX_TURNS = 40;
 /** Roughly how long a sentence takes to say, so the call is not cut off mid-word. */
 export const speechMs = (text: string) => 1500 + text.length * 75;
 
+/** Dead air on a phone feels broken. If a reply is taking this long, the caller hears a short filler first. */
+export const FILLER_AFTER_MS = 1600;
+const FILLERS = ['One sec.', 'Okay, one moment.', 'Got it, one sec.'];
+
 /** One phone call, from the greeting to the order on the make line. */
 export class VoiceSession {
   order: BotOrder = EMPTY_ORDER;
@@ -165,6 +176,8 @@ export class VoiceSession {
   over = false;
   private turns = 0;
   private misses = 0;
+  /** Things the caller said that have not been answered yet. Said in a row, they are answered as one. */
+  private pending: string[] = [];
   private queue: Promise<void> = Promise.resolve();
 
   constructor(readonly caller: Caller, private deps: VoiceDeps) {
@@ -173,7 +186,9 @@ export class VoiceSession {
 
   /** The caller finished saying something. Turns are answered one at a time, in order. */
   heard(text: string): Promise<void> {
-    this.queue = this.queue.then(() => this.turn(text)).catch((error) => { console.error('Voice turn failed', error); });
+    const said = text.trim().slice(0, 500);
+    if (said) this.pending.push(said);
+    this.queue = this.queue.then(() => this.turn()).catch((error) => { console.error('Voice turn failed', error); });
     return this.queue;
   }
 
@@ -189,19 +204,41 @@ export class VoiceSession {
     this.deps.say(text);
   }
 
-  private async turn(text: string) {
-    const said = text.trim().slice(0, 500);
-    if (!said || this.over) return;
+  /** Everything waiting to be answered becomes one line of the conversation. */
+  private takePending(): boolean {
+    const said = this.pending.splice(0).join(' ').slice(0, 500);
+    if (!said) return false;
     this.transcript.push({ who: 'customer', text: said });
     this.deps.log?.({ event: 'heard', text: said });
-    const started = Date.now();
+    return true;
+  }
+
+  private async turn() {
+    if (this.over) { this.pending = []; return; }
+    if (!this.takePending()) return;
     if (++this.turns > VOICE_MAX_TURNS) return this.finish('Let me get someone to finish this with you.', 'transfer');
 
     const before = ticketFor(this.order, this.caller, LINE_SHOP);
     const suggestions = upsells(before.lines, []).slice(0, 2).map((u) => `${u.title}. ${u.why}.`);
     const context = turnContext('call', this.caller, this.order, before, LINE_SHOP, suggestions, new Date(this.deps.now?.() ?? Date.now()));
-    const turn = await this.deps.model(orderMessage({ surface: 'call', transcript: this.transcript.slice(-ORDER_MAX_TURNS), context }));
-    this.deps.log?.({ event: turn ? 'said' : 'no_answer', text: turn ? '(reply ready)' : '', ms: Date.now() - started });
+    let turn: BotTurn | null = null;
+    // If the caller says more while we are working out a reply, that reply is stale: start over with all of it.
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const started = Date.now();
+      const filler = setTimeout(() => {
+        const text = FILLERS[this.turns % FILLERS.length];
+        this.deps.log?.({ event: 'filler', text });
+        this.deps.say(text);
+      }, this.deps.fillerAfterMs ?? FILLER_AFTER_MS);
+      try {
+        turn = await this.deps.model(orderMessage({ surface: 'call', transcript: this.transcript.slice(-ORDER_MAX_TURNS), context }));
+      } finally {
+        clearTimeout(filler);
+      }
+      this.deps.log?.({ event: turn ? 'thought' : 'no_answer', text: '', ms: Date.now() - started });
+      if (attempt === 2 || !this.takePending()) break;
+      this.deps.log?.({ event: 'started_over', text: '' });
+    }
     if (!turn) {
       if (++this.misses >= 2) return this.finish("I'm sorry, I'm having trouble on my end. Let me get someone to help you.", 'transfer');
       return this.speak("Sorry, I missed that. Could you say it once more?");

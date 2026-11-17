@@ -22,5 +22,7 @@
   "durable_objects": { "bindings": [{ "name": "PHONE_LINE", "class_name": "PhoneLine" }] },
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["PhoneLine"] }],
   // Keep settings made in the dashboard, such as the secret, when a new version deploys.
-  "keep_vars": true
+  "keep_vars": true,
+  // Server logs, kept in the Cloudflare account: this is how a phone call is reviewed afterwards.
+  "observability": { "enabled": true }
 }

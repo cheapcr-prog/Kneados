@@ -133,7 +133,7 @@ describe('what the AI says', () => {
     expect(fill('Total {total}, fee {fee}, about {minutes} minutes. Order {number}.', t, { number: 2201 })).toBe(`Total $28.64, fee $2.99, about 35 minutes. Order 2201.`);
   });
   it('greets a regular with the usual and a new caller with a question', () => {
-    expect(greeting(regular, 'call')).toMatch(/^Hey Maya, thanks for calling Shoreline Slice! Want your usual, Large Pepperoni and Buffalo Wings, delivered to 210 Termino Ave\?/);
+    expect(greeting(regular, 'call')).toMatch(/^Ciao Maya, thanks for calling Shoreline Slice! Want your usual, Large Pepperoni and Buffalo Wings, delivered to 210 Termino Ave\?/);
     expect(greeting(stranger, 'call')).toMatch(/pickup or delivery/);
     expect(greeting(regular, 'text')).toMatch(/Reply YES/);
   });

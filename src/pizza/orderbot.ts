@@ -642,7 +642,7 @@ export function greeting(caller: Caller, surface: Surface): string {
   // The shop's name ends in a period ("Co."), so a sentence that ends with it needs no second one.
   // Out loud the shop is "Shoreline Slice": nobody says the "Co." on the phone, and a voice reads it badly.
   const spoken = PIZZA_SHOP.name.replace(/,? Co\.?$/, '');
-  const hey = `Hey, thanks for calling ${spoken}!`;
+  const hey = `Ciao, thanks for calling ${spoken}!`;
   const shopIs = `It's ${PIZZA_SHOP.name}${PIZZA_SHOP.name.endsWith('.') ? '' : '.'}`;
   const first = caller.name?.split(' ')[0];
   const usual = caller.lastLines?.length ? caller.lastLines.map(lineText).join(' and ').replace(/ \([^)]*\)/g, '') : '';
@@ -651,7 +651,7 @@ export function greeting(caller: Caller, surface: Surface): string {
     return `Hi! ${shopIs} What can I get started for you? You can text your order like you'd say it, e.g. "large pepperoni, half mushroom, pickup".`;
   }
   if (!caller.phone) return `${hey} I'm the shop's AI assistant. What can I get started for you?`;
-  if (caller.known && first && usual) return `Hey ${first}, thanks for calling ${spoken}! Want your usual, ${usual}${caller.lastFulfillment === 'delivery' && caller.address ? `, delivered to ${caller.address}` : ''}?`;
+  if (caller.known && first && usual) return `Ciao ${first}, thanks for calling ${spoken}! Want your usual, ${usual}${caller.lastFulfillment === 'delivery' && caller.address ? `, delivered to ${caller.address}` : ''}?`;
   return `${hey} I'm the shop's AI assistant. Is this for pickup or delivery?`;
 }
 

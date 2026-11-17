@@ -1,5 +1,6 @@
-import { lazy, Suspense, useEffect } from 'react';
+import { Suspense, useEffect } from 'react';
 import { Route, Routes, useLocation } from 'react-router-dom';
+import { lazyFresh } from './lib/freshLoad';
 import { DemoBar } from './components/DemoBar';
 import { EventSync } from './components/Events';
 import { SubscriptionSync } from './components/Subscriptions';
@@ -14,10 +15,10 @@ import { Shop } from './pages/Shop';
 import { PizzaLanding } from './pizza/pages/Landing';
 
 // Pizza mode is its own demo shop with its own screens, loaded only when opened.
-const PizzaDemoRoutes = lazy(() => import('./pizza/PizzaApp').then((m) => ({ default: m.PizzaDemoRoutes })));
+const PizzaDemoRoutes = lazyFresh(() => import('./pizza/PizzaApp').then((m) => ({ default: m.PizzaDemoRoutes })));
 
 // The owner dashboard carries the charting library, so it loads only when opened.
-const Owner = lazy(() => import('./pages/Owner').then((m) => ({ default: m.Owner })));
+const Owner = lazyFresh(() => import('./pages/Owner').then((m) => ({ default: m.Owner })));
 
 export function App() {
   const { pathname } = useLocation();

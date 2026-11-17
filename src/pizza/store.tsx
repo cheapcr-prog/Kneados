@@ -8,6 +8,7 @@ import {
   DEPOSIT_SHARE, type Channel, type DriverState, type Line, type OrderStatus, type PizzaDay, type PizzaOrder,
 } from './logic';
 import { mailingList, seedCampaigns, type MailCampaign } from './mail';
+import { creditFor, seedPromos, type PromoCampaign } from './marketing';
 import { PHONE_POLL_MS, fetchFeed, markSeen, saveLine, savedLine, seenOrders, ticketFromPhone } from './phoneLine';
 
 const KEY = 'kneados-pizza-v1';
@@ -39,6 +40,8 @@ export interface PizzaState {
   nextInvoice: number;
   /** Postcard mailings, newest first, with the orders their codes brought in. */
   campaigns: MailCampaign[];
+  /** Text blasts, ads and deals, with the orders each brought in. */
+  promos: PromoCampaign[];
 }
 
 /** Average ticket the seeded mailings were planned with, close to the generated history's. */
@@ -159,7 +162,7 @@ function fresh(now = Date.now()): PizzaState {
     today, orders, nextNumber: 2201, drivers, members: seedMembers(today), texts: [], onHand, pos: [],
     doughMade: { S: 0, M: 0, L: 0 }, out: [], rain: false,
     earlier: { orders: 41 + Math.floor(r() * 8), salesCents: 142000 + Math.floor(r() * 18000), tipsCents: 15600 },
-    invoices: seedInvoices(today, orders), nextInvoice: 1050, campaigns: seedMail(today),
+    invoices: seedInvoices(today, orders), nextInvoice: 1050, campaigns: seedMail(today), promos: seedPromos(today, SEED_TICKET_CENTS),
   };
 }
 
@@ -195,7 +198,8 @@ function load(): PizzaState {
       if (s.today === isoDate(new Date()) && Array.isArray(s.orders)) {
         const seen = Number(localStorage.getItem(SEEN)) || 0;
         const withInvoices = Array.isArray(s.invoices) ? s : { ...s, invoices: seedInvoices(s.today, s.orders), nextInvoice: 1050 };
-        const kept = Array.isArray(withInvoices.campaigns) ? withInvoices : { ...withInvoices, campaigns: seedMail(s.today) };
+        const withMail = Array.isArray(withInvoices.campaigns) ? withInvoices : { ...withInvoices, campaigns: seedMail(s.today) };
+        const kept = Array.isArray(withMail.promos) ? withMail : { ...withMail, promos: seedPromos(s.today, SEED_TICKET_CENTS) };
         // No last-seen time means an older save with stale clocks: start a fresh shift.
         return seen ? resume(kept, Date.now() - seen) : fresh();
       }
@@ -242,16 +246,27 @@ function usePizzaStore() {
         members = existing ? members.map((m) => (m.phone === phone ? member : m)) : [member, ...members];
         if (earnedReward) texts.push(...text(phone, pizzaRewardText(PIZZA_SHOP.name), 'reward'));
       }
-      // A postcard code on the order: count it against the mailing it came from.
-      const campaigns = order.promo ? s.campaigns.map((c) => (c.id !== order.promo!.campaignId ? c : {
-        ...c, redemptions: [...c.redemptions, {
-          code: order.promo!.code, orderNumber: order.number, date: s.today, name: order.customer.name || 'Guest', subtotalCents: order.subtotal, discountCents: order.promo!.discountCents,
-          channel: order.channel === 'online' ? (order.promo!.viaQr ? 'Website (QR code)' : 'Website (typed code)') : order.channel === 'phone' ? 'Phone' : 'Counter',
-          newCustomer: c.audience !== 'lapsed' && !s.members.some((m) => m.phone === order.customer.phone) && !s.orders.some((x) => x.customer.phone && x.customer.phone === order.customer.phone), live: true,
-        }],
-      })) : s.campaigns;
+      // Credit the order to the one campaign that brought it in: its code, else the ad link, else the deal on the ticket.
+      const isNew = !s.members.some((m) => m.phone === order.customer.phone) && !s.orders.some((x) => x.customer.phone && x.customer.phone === order.customer.phone);
+      const via = order.channel === 'online' ? (order.promo?.viaQr ? 'Website (QR code)' : order.promo ? 'Website (typed code)' : order.adClick ? 'Website (ad link)' : 'Website') : order.channel === 'phone' ? (order.ai ? 'AI phone line' : 'Phone') : 'Register';
+      const credit = creditFor({ promoCampaignId: order.promo?.campaignId, adCampaignId: order.adClick?.campaignId, dealIds: order.deals?.map((d) => d.id) });
+      const entry = (lapsed: boolean, code = '', discount = 0) => ({ code, orderNumber: order.number, date: s.today, name: order.customer.name || 'Guest', subtotalCents: order.subtotal, discountCents: discount, channel: via, newCustomer: !lapsed && isNew, live: true });
+      let campaigns = s.campaigns;
+      let promos = s.promos;
+      if (credit?.by === 'code' && s.campaigns.some((c) => c.id === credit.campaignId)) {
+        campaigns = s.campaigns.map((c) => (c.id === credit.campaignId ? { ...c, redemptions: [...c.redemptions, entry(c.audience === 'lapsed', order.promo!.code, order.promo!.discountCents)] } : c));
+      } else if (credit?.by === 'deal') {
+        const d = order.deals!.find((x) => x.id === credit.campaignId)!;
+        const off = order.deals!.reduce((a, x) => a + x.cents, 0);
+        const known = promos.some((p) => p.id === d.id);
+        const base: PromoCampaign = known ? promos.find((p) => p.id === d.id)! : { id: d.id, channel: 'deal', name: `Deal: ${d.title}`, startedOn: s.today, endsOn: addDays(s.today, 30), spendCents: 0, spendNote: 'No money paid out', dealOffCents: d.cents, codes: {}, oneUse: false, redemptions: [] };
+        const next = { ...base, redemptions: [...base.redemptions, entry(false, '', off)] };
+        promos = known ? promos.map((p) => (p.id === d.id ? next : p)) : [next, ...promos];
+      } else if (credit) {
+        promos = promos.map((p) => (p.id === credit.campaignId ? { ...p, redemptions: [...p.redemptions, entry(p.channel === 'text' && p.oneUse, order.promo?.code ?? '', order.promo?.discountCents ?? 0)] } : p));
+      }
       return {
-        ...s, campaigns, orders: [...s.orders, order], nextNumber: opts.number ? s.nextNumber : s.nextNumber + 1, texts: [...texts, ...s.texts], members,
+        ...s, campaigns, promos, orders: [...s.orders, order], nextNumber: opts.number ? s.nextNumber : s.nextNumber + 1, texts: [...texts, ...s.texts], members,
         invoices: invoice ? [invoice, ...s.invoices] : s.invoices, nextInvoice: invoice ? s.nextInvoice + 1 : s.nextInvoice,
       };
     });
@@ -374,6 +389,7 @@ function usePizzaStore() {
   }, [phoneLine, placeOrder]);
 
   const sendCampaign = useCallback((c: MailCampaign) => setState((s) => ({ ...s, campaigns: [c, ...s.campaigns] })), []);
+  const addPromo = useCallback((p: PromoCampaign) => setState((s) => ({ ...s, promos: [p, ...s.promos] })), []);
   const addTexts = useCallback((list: Text[]) => setState((s) => ({ ...s, texts: [...list, ...s.texts] })), []);
   const setMembers = useCallback((members: RewardsMember[]) => setState((s) => ({ ...s, members })), []);
   const setRain = useCallback((rain: boolean) => setState((s) => (s.rain === rain ? s : { ...s, rain })), []);
@@ -382,7 +398,7 @@ function usePizzaStore() {
   const tomorrow = addDays(state.today, 1);
   const forecastFor = useCallback((date: string) => forecastDay(history, date, { rain: date === tomorrow ? state.rain : false, preorderPies: preorderPies(state.orders, date) }), [history, tomorrow, state.rain, state.orders]);
 
-  return { state, history, tomorrow, forecastFor, phoneLine, lastCallAt, setPhoneLine, placeOrder, setStatus, dispatch, driverBack, setDriverOn, sendPO, receivePO, bumpDough, toggleOut, addTexts, setMembers, setRain, reset, payInvoice, remindInvoice, sendCampaign };
+  return { state, history, tomorrow, forecastFor, phoneLine, lastCallAt, setPhoneLine, placeOrder, setStatus, dispatch, driverBack, setDriverOn, sendPO, receivePO, bumpDough, toggleOut, addTexts, setMembers, setRain, reset, payInvoice, remindInvoice, sendCampaign, addPromo };
 }
 
 export type PizzaDemo = ReturnType<typeof usePizzaStore>;

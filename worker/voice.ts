@@ -9,7 +9,7 @@ import { PIZZA_SHOP, SPECIALTIES, SIDES, SIZES, TOPPINGS } from '../src/pizza/da
 import { quoteTime, upsells } from '../src/pizza/logic';
 import { streetGuesses } from '../src/pizza/streets';
 import {
-  EMPTY_ORDER, buildLines, greeting, needsLookup, rememberAddress, settle, ticketFor, turnContext,
+  EMPTY_ORDER, RECENT_ORDER_MINUTES, asksStatus, buildLines, greeting, lineText, needsLookup, recentStatus, rememberAddress, settle, ticketFor, turnContext,
   type BotItem, type BotOrder, type BotTurn, type Caller, type ShopNow, type TranscriptLine,
 } from '../src/pizza/orderbot';
 import { ORDER_MAX_TURNS, orderMessage } from './order';
@@ -145,11 +145,20 @@ export const LINE_SHOP: ShopNow = {
 };
 
 /** What the shop remembers about a number that has ordered on this line before. */
-export interface SavedCustomer { name: string; address?: string; items: BotItem[]; fulfillment: 'pickup' | 'delivery'; orders: number }
+export interface SavedCustomer {
+  name: string; address?: string; items: BotItem[]; fulfillment: 'pickup' | 'delivery'; orders: number;
+  /** Their latest order on this line: its number, when it was placed and the minutes it was quoted. */
+  last?: { number: number; at: string; minutes: number };
+}
 
-export function callerFrom(phone: string, saved: SavedCustomer | null): Caller {
+export function callerFrom(phone: string, saved: SavedCustomer | null, now = Date.now()): Caller {
   if (!saved) return { phone, known: false };
-  return { phone, known: true, name: saved.name, address: saved.address, lastLines: buildLines(saved.items, []).lines, lastFulfillment: saved.fulfillment, orders: saved.orders };
+  const lastLines = buildLines(saved.items, []).lines;
+  const readyAt = saved.last ? Date.parse(saved.last.at) + saved.last.minutes * 60_000 : NaN;
+  const recent = saved.last && now < readyAt + RECENT_ORDER_MINUTES * 60_000
+    ? { number: saved.last.number, fulfillment: saved.fulfillment, readyAt, summary: lastLines.map(lineText).join(' and ').replace(/ \([^)]*\)/g, '') }
+    : undefined;
+  return { phone, known: true, name: saved.name, address: saved.address, lastLines, lastFulfillment: saved.fulfillment, orders: saved.orders, ...(recent ? { recent } : {}) };
 }
 
 /** A phone order as the make line receives it. The caller's number is cut to its last four digits. */
@@ -211,7 +220,7 @@ export class VoiceSession {
   private queue: Promise<void> = Promise.resolve();
 
   constructor(readonly caller: Caller, private deps: VoiceDeps) {
-    this.transcript = [{ who: 'ai', text: greeting(caller, 'call') }];
+    this.transcript = [{ who: 'ai', text: greeting(caller, 'call', deps.now?.() ?? Date.now()) }];
   }
 
   /** The caller finished saying something. Turns are answered one at a time, in order. */
@@ -247,6 +256,12 @@ export class VoiceSession {
     if (this.over) { this.pending = []; return; }
     if (!this.takePending()) return;
     if (++this.turns > VOICE_MAX_TURNS) return this.finish('Let me get someone to finish this with you.', 'transfer');
+
+    // "Where's my order?" about the one they just placed is answered from the order itself, with no AI in between.
+    const justSaid = this.transcript[this.transcript.length - 1]?.text ?? '';
+    if (this.caller.recent && !this.order.items.length && asksStatus(justSaid)) {
+      return this.speak(`${recentStatus(this.caller.recent, this.deps.now?.() ?? Date.now())} Is there anything else I can help you with?`);
+    }
 
     const before = ticketFor(this.order, this.caller, LINE_SHOP);
     // Once the caller has said that is everything, nothing more is suggested.

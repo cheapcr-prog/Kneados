@@ -72,7 +72,7 @@ function call(turns: (BotTurn | null)[], saved: SavedCustomer | null = null) {
     end: (_ms, reason) => ended.push(reason),
     now: () => Date.UTC(2026, 10, 16, 20, 0),
   };
-  return { session: new VoiceSession(callerFrom('5625550142', saved), deps), deps, said, ended, placed, prompts };
+  return { session: new VoiceSession(callerFrom('5625550142', saved, deps.now!()), deps), deps, said, ended, placed, prompts };
 }
 
 describe('a phone call, start to make line', () => {
@@ -234,5 +234,51 @@ describe('a street name heard wrong (real call, 2026-11-16: "Eximino" for Ximeno
     const c = call([{ say: 'Got it. How would you like to pay?', order: order({ fulfillment: 'delivery', address: '1746 Eximino Avenue' }), action: 'continue' }]);
     await c.session.heard('1746 Eximino Avenue.');
     expect(c.said[0]).toContain("couldn't find");
+  });
+});
+
+describe('calling right back after ordering (Elias, 2026-11-16)', () => {
+  const now = Date.UTC(2026, 10, 16, 20, 0);
+  const saved = (minutesAgo: number): SavedCustomer => ({ name: 'Elias Solares', items: pie, fulfillment: 'pickup', orders: 2, last: { number: 7003, at: new Date(now - minutesAgo * 60_000).toISOString(), minutes: 15 } });
+
+  it('greets with the order just placed instead of offering the usual', () => {
+    const c = call([], saved(3));
+    const hello = c.session.transcript[0].text;
+    expect(hello).toContain('Your order number 7003 is being made and should be ready for pickup around');
+    expect(hello).toContain('Are you calling about that order?');
+    expect(hello).not.toContain('usual');
+    expect((hello.match(/\?/g) ?? []).length).toBe(1);
+  });
+
+  it('says it should be ready once the promised time has passed, and forgets it after a while', () => {
+    expect(call([], saved(20)).session.transcript[0].text).toContain('should be ready for pickup now');
+    expect(call([], saved(15 + 46)).session.transcript[0].text).toContain('Want your usual');
+  });
+
+  it('answers "where is my order" itself, without asking the AI', async () => {
+    const c = call([], saved(3));
+    await c.session.heard('Yeah, how long until my order is ready?');
+    expect(c.prompts).toHaveLength(0);
+    expect(c.said[0]).toContain('order number 7003');
+    expect(c.said[0]).toContain('anything else');
+  });
+
+  it('tells the AI about the recent order, and hands a problem to a person', async () => {
+    const c = call([{ say: "I'm so sorry about that, Elias. Let me get a team member to fix it.", order: order({ items: [] }), action: 'transfer' }], saved(3));
+    await c.session.heard('Yes, you forgot my garlic bread.');
+    expect(c.prompts[0]).toContain('recentOrder');
+    expect(c.prompts[0]).toContain('7003');
+    expect(c.ended).toEqual(['transfer']);
+  });
+});
+
+describe('the phone line remembers the latest order', () => {
+  it('saves its number and time with the caller', async () => {
+    const store = new Map<string, unknown>();
+    const line = new PhoneLine({ storage: { get: async <T,>(k: string) => store.get(k) as T | undefined, put: async (k, v) => { store.set(k, v); } } });
+    const at = new Date().toISOString();
+    await line.fetch(new Request('https://line/place', { method: 'POST', body: JSON.stringify({ order: { at, minutes: 15, last4: '0142', order: order({ fulfillment: 'pickup', name: 'Elias' }), transcript: [] }, phone: '5625550142' }) }));
+    const { customer } = (await (await line.fetch(new Request('https://line/ring?from=5625550142'))).json()) as { customer: SavedCustomer };
+    expect(customer.last).toEqual({ number: FIRST_PHONE_NUMBER, at, minutes: 15 });
   });
 });

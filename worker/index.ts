@@ -6,7 +6,7 @@ import { parseTurn, type BotTurn } from '../src/pizza/orderbot';
 import { GEOCODE_PER_VISITOR } from '../src/pizza/geocode';
 import { censusLookUp, findAddress, parseGeocodeBody, type GeocodeReply, type LookUp } from './geocode';
 import { PhoneLine, type LineNamespace } from './line';
-import { NOT_SET_UP, VoiceSession, callTicket, callerFrom, connectTwiml, doneTwiml, fromTwilio, readTicket, tenDigits, twiml, type SavedCustomer } from './voice';
+import { NOT_SET_UP, say, VoiceSession, callTicket, callerFrom, connectTwiml, doneTwiml, fromTwilio, readTicket, tenDigits, twiml, type SavedCustomer } from './voice';
 import { geocodeQuery } from '../src/pizza/geocode';
 import { greeting } from '../src/pizza/orderbot';
 
@@ -377,11 +377,11 @@ async function twilioForm(request: Request, env: Env): Promise<Record<string, st
 /** A call comes in: Twilio asks what to do. We answer with the greeting and hand the conversation to /api/voice/ws. */
 export async function handleVoice(request: Request, env: Env): Promise<Response> {
   if (request.method !== 'POST') return json({ error: 'bad' }, 405);
-  if (!voiceReady(env)) return twiml(`<Say>${NOT_SET_UP}</Say><Hangup/>`);
+  if (!voiceReady(env)) return twiml(`${say(NOT_SET_UP)}<Hangup/>`);
   const form = await twilioForm(request, env);
   if (!form) return json({ error: 'bad' }, 403);
   const to = tenDigits(form.To);
-  if (!to) return twiml(`<Say>${NOT_SET_UP}</Say><Hangup/>`);
+  if (!to) return twiml(`${say(NOT_SET_UP)}<Hangup/>`);
   const from = tenDigits(form.From);
   const { customer } = (await (await lineFor(env, to).fetch(`https://line/ring?from=${from}`)).json()) as { customer: SavedCustomer | null };
   const hello = greeting(callerFrom(from, customer), 'call');

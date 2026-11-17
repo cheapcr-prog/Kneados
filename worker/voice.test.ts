@@ -162,7 +162,7 @@ describe('a phone call, start to make line', () => {
 
   it('greets a returning caller by name with the usual', () => {
     const c = call([], { name: 'Elias', items: pie, fulfillment: 'pickup', orders: 2 });
-    expect(c.session.transcript[0].text).toContain('Hey Elias');
+    expect(c.session.transcript[0].text).toContain('Ciao Elias');
     expect(c.session.transcript[0].text).toContain('Large Pepperoni');
   });
 

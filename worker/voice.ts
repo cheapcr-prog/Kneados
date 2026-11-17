@@ -89,7 +89,9 @@ export const SAY_VOICE = 'Polly.Joanna-Generative';
 export const say = (text: string) => `<Say voice="${SAY_VOICE}" language="en-US">${xml(text)}</Say>`;
 
 /** The conversation's voice: ElevenLabs, which ConversationRelay includes at no extra charge. */
-const TALK_VOICE = 'UgBBYS2sOqTuMpoF3BR0';
+// Elias asked for a fun Italian voice (2026-11-16). This is ElevenLabs' native Italian voice, speaking our English lines,
+// so the accent is real. The plain American voice it replaced was 'UgBBYS2sOqTuMpoF3BR0'.
+const TALK_VOICE = 'uScy1bXtKz8vPzfdFsFw';
 
 export function connectTwiml(host: string, hello: string, ticket: string): Response {
   return twiml(
@@ -167,7 +169,7 @@ export const speechMs = (text: string) => 1500 + text.length * 75;
 
 /** Dead air on a phone feels broken. If a reply is taking this long, the caller hears a short filler first. */
 export const FILLER_AFTER_MS = 1600;
-const FILLERS = ['One sec.', 'Okay, one moment.', 'Got it, one sec.'];
+const FILLERS = ['Un momento!', 'Okay, one moment.', 'One sec, one sec.'];
 
 /** One phone call, from the greeting to the order on the make line. */
 export class VoiceSession {

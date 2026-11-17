@@ -46,6 +46,9 @@ describe('only Twilio may open a call', () => {
     // A stray noise must not cut the assistant off, and a pause mid-sentence must not end the caller's turn.
     expect(xml).toContain('interruptible="speech"');
     expect(xml).toContain('interruptSensitivity="low"');
+    // Words said while the assistant is talking must still reach us, and a bare "yes" must never be filtered out.
+    expect(xml).toContain('reportInputDuringAgentSpeech="speech"');
+    expect(xml).not.toContain('ignoreBackchannel');
     expect(xml).toContain('turnDetection="true"');
     expect(xml).toContain('Pineapple');
     expect(await doneTwiml('{"reason":"transfer"}').text()).toContain('manager');
@@ -69,7 +72,7 @@ function call(turns: (BotTurn | null)[], saved: SavedCustomer | null = null) {
     end: (_ms, reason) => ended.push(reason),
     now: () => Date.UTC(2026, 10, 16, 20, 0),
   };
-  return { session: new VoiceSession(callerFrom('5625550142', saved), deps), said, ended, placed, prompts };
+  return { session: new VoiceSession(callerFrom('5625550142', saved), deps), deps, said, ended, placed, prompts };
 }
 
 describe('a phone call, start to make line', () => {
@@ -123,6 +126,38 @@ describe('a phone call, start to make line', () => {
     expect(c.said[0]).toContain('say it once more');
     await c.session.heard('hello?');
     expect(c.ended).toEqual(['transfer']);
+  });
+
+  it('answers once when the caller says two things in a row, using the latest', async () => {
+    const pickup: BotTurn = { say: 'Pickup it is. What can I get started for you?', order: order({ items: [], fulfillment: 'pickup' }), action: 'continue' };
+    const delivery: BotTurn = { say: 'Delivery it is. What is the street address?', order: order({ items: [], fulfillment: 'delivery' }), action: 'continue' };
+    const c = call([]);
+    const replies = [pickup, delivery];
+    // The caller changes their mind while the first reply is still being worked out.
+    c.deps.model = async (user) => { c.prompts.push(user); if (c.prompts.length === 1) void c.session.heard('Actually delivery.'); return replies.shift() ?? null; };
+    await c.session.heard('For pickup.');
+    await c.session.heard('');
+    // The pickup reply was stale by the time it was ready, so the caller only hears the answer to everything they said.
+    expect(c.said).toEqual(['Delivery it is. What is the street address?']);
+    expect(c.prompts[1]).toContain('Actually delivery.');
+    expect(c.session.order.fulfillment).toBe('delivery');
+  });
+
+  it('says a short filler when a reply is slow, and not when it is quick', async () => {
+    const reply: BotTurn = { say: 'What can I get started for you?', order: order({ items: [], fulfillment: 'pickup' }), action: 'continue' };
+    const slow = call([]);
+    slow.deps.fillerAfterMs = 5;
+    slow.deps.model = () => new Promise((done) => setTimeout(() => done(reply), 40));
+    await slow.session.heard('pickup');
+    expect(slow.said.length).toBe(2);
+    expect(slow.said[0].length).toBeLessThan(20);
+    expect(slow.said[1]).toBe(reply.say);
+    // The filler is not part of the conversation the model sees.
+    expect(slow.session.transcript.some((l) => l.text === slow.said[0])).toBe(false);
+
+    const quick = call([reply]);
+    await quick.session.heard('pickup');
+    expect(quick.said).toEqual([reply.say]);
   });
 
   it('greets a returning caller by name with the usual', () => {

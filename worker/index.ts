@@ -190,6 +190,26 @@ const callOrder: CallModel = async (apiKey, user) => {
 };
 
 /**
+ * The same turn on the fast model, for phone calls only, where every second of silence is felt.
+ * Elias's second real call (2026-11-16) waited 2 to 4.5 seconds per reply on the model above.
+ * KneadOS still prices and checks every order itself, and any turn this model cannot answer in time
+ * goes to the model above instead.
+ */
+export const VOICE_FAST_MODEL = 'claude-haiku-5-5';
+const VOICE_FAST_TIMEOUT_MS = 5_000;
+const callOrderFast: CallModel = async (apiKey, user) => {
+  const client = new Anthropic({ apiKey, maxRetries: 0, timeout: VOICE_FAST_TIMEOUT_MS });
+  return client.messages.create({
+    model: VOICE_FAST_MODEL,
+    max_tokens: ORDER_MAX_TOKENS,
+    system: [{ type: 'text', text: ORDER_SYSTEM, cache_control: { type: 'ephemeral' } }],
+    thinking: { type: 'disabled' },
+    output_config: { effort: 'low', format: { type: 'json_schema', schema: TURN_SCHEMA } },
+    messages: [{ role: 'user', content: user }],
+  });
+};
+
+/**
  * POST takes the next thing a customer said on a call or in a text and returns what the AI says back
  * plus the whole order. It shares the chat's daily budget and has its own count per visitor.
  * Prices are never taken from the reply: the page (and, live, the server) works them out from the order.
@@ -400,7 +420,7 @@ interface ServerSocket { accept(): void; send(data: string): void; close(code?: 
 declare const WebSocketPair: { new (): { 0: unknown; 1: ServerSocket } };
 
 /** The live conversation: Twilio sends what the caller said as text, we send back what to say. */
-export function handleVoiceSocket(request: Request, env: Env, call: CallModel = callOrder): Response {
+export function handleVoiceSocket(request: Request, env: Env, call: CallModel = callOrder, fast: CallModel | null = call === callOrder ? callOrderFast : null): Response {
   if (request.headers.get('upgrade')?.toLowerCase() !== 'websocket') return json({ error: 'bad' }, 426);
   if (!voiceReady(env)) return json({ error: 'off' }, 503);
   const pair = new WebSocketPair();
@@ -416,12 +436,27 @@ export function handleVoiceSocket(request: Request, env: Env, call: CallModel = 
     const capMicros = Math.max(0, Number(env.DAILY_CAP_CENTS ?? DEFAULT_DAILY_CAP_CENTS) || 0) * 10_000;
     const spent = Number((await usage.get(spendKey)) ?? 0) || 0;
     if (spent >= capMicros) return null;
-    try {
-      const result = await call(env.ANTHROPIC_API_KEY!, user);
-      await usage.put(spendKey, String(spent + costMicros(result.usage, ORDER_MODEL)), { expirationTtl: 40 * DAY });
+    let spentNow = spent;
+    const ask = async (which: CallModel, name: string) => {
+      const result = await which(env.ANTHROPIC_API_KEY!, user);
+      spentNow += costMicros(result.usage, name);
+      await usage.put(spendKey, String(spentNow), { expirationTtl: 40 * DAY });
       if (result.stop_reason === 'refusal') return null;
       const text = result.content.find((b) => b.type === 'text')?.text;
       return text ? parseTurn(text) : null;
+    };
+    // The fast model answers first. Anything it cannot answer cleanly and in time goes to the careful one.
+    if (fast) {
+      try {
+        const quick = await ask(fast, VOICE_FAST_MODEL);
+        if (quick) return quick;
+        console.log(JSON.stringify({ voice: 'fast_model_no_answer' }));
+      } catch (error) {
+        console.log(JSON.stringify({ voice: 'fast_model_failed', detail: String(error).slice(0, 200) }));
+      }
+    }
+    try {
+      return await ask(call, ORDER_MODEL);
     } catch (error) {
       console.error('Voice turn failed', error);
       return null;

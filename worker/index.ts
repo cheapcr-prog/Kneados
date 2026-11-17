@@ -433,11 +433,14 @@ export function handleVoiceSocket(request: Request, env: Env, call: CallModel = 
     try { message = JSON.parse(String(event.data)); } catch { return; }
     if (message.type === 'setup') {
       void readTicket(env.TWILIO_AUTH_TOKEN!, message.customParameters?.t).then(async (ticket) => {
-        if (!ticket) { socket.close(1008, 'not a call we answered'); return; }
+        if (!ticket) { console.log(JSON.stringify({ voice: 'bad_ticket' })); socket.close(1008, 'not a call we answered'); return; }
         const line = lineFor(env, ticket.to);
         const { customer } = (await (await line.fetch(`https://line/ring?from=${ticket.from}`)).json()) as { customer: SavedCustomer | null };
+        const call4 = ticket.from.slice(-4);
+        console.log(JSON.stringify({ voice: 'call_started', caller: call4, known: Boolean(customer) }));
         session = new VoiceSession(callerFrom(ticket.from, customer), {
           model,
+          log: (entry) => console.log(JSON.stringify({ voice: entry.event, caller: call4, ...entry })),
           lookUp: async (said) => { try { return await findAddress(geocodeQuery(said) || said); } catch { return undefined; } },
           line: {
             place: async (order, phone) => ((await (await line.fetch('https://line/place', { method: 'POST', body: JSON.stringify({ order, phone }) })).json()) as { number: number }).number,
@@ -448,11 +451,13 @@ export function handleVoiceSocket(request: Request, env: Env, call: CallModel = 
       });
     } else if (message.type === 'prompt' && message.last !== false && typeof message.voicePrompt === 'string') {
       void session?.heard(message.voicePrompt);
+    } else if (message.type === 'error') {
+      console.log(JSON.stringify({ voice: 'twilio_error', detail: String((message as { description?: unknown }).description ?? '').slice(0, 300) }));
     } else if (message.type === 'interrupt' && typeof message.utteranceUntilInterrupt === 'string') {
       session?.interrupted(message.utteranceUntilInterrupt);
     }
   });
-  socket.addEventListener('close', () => { closed = true; });
+  socket.addEventListener('close', () => { closed = true; console.log(JSON.stringify({ voice: 'call_ended' })); });
   socket.addEventListener('error', () => { closed = true; });
   return new Response(null, { status: 101, webSocket: pair[0] } as ResponseInit);
 }

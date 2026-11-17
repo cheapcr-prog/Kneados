@@ -132,6 +132,8 @@ export interface Line {
 }
 
 export interface VoiceDeps {
+  /** A private record of the call for the shop's own logs: what was heard, what was said, how long a reply took. */
+  log?: (entry: { event: 'heard' | 'said' | 'no_answer'; text: string; ms?: number }) => void;
   /** One turn of the order taker. Null when the model could not answer. */
   model: (user: string) => Promise<BotTurn | null>;
   /** Real address lookup. Null: no such address. Undefined: the lookup failed. */
@@ -175,6 +177,7 @@ export class VoiceSession {
 
   private speak(text: string) {
     this.transcript.push({ who: 'ai', text });
+    this.deps.log?.({ event: 'said', text });
     this.deps.say(text);
   }
 
@@ -182,12 +185,15 @@ export class VoiceSession {
     const said = text.trim().slice(0, 500);
     if (!said || this.over) return;
     this.transcript.push({ who: 'customer', text: said });
+    this.deps.log?.({ event: 'heard', text: said });
+    const started = Date.now();
     if (++this.turns > VOICE_MAX_TURNS) return this.finish('Let me get someone to finish this with you.', 'transfer');
 
     const before = ticketFor(this.order, this.caller, LINE_SHOP);
     const suggestions = upsells(before.lines, []).slice(0, 2).map((u) => `${u.title}. ${u.why}.`);
     const context = turnContext('call', this.caller, this.order, before, LINE_SHOP, suggestions, new Date(this.deps.now?.() ?? Date.now()));
     const turn = await this.deps.model(orderMessage({ surface: 'call', transcript: this.transcript.slice(-ORDER_MAX_TURNS), context }));
+    this.deps.log?.({ event: turn ? 'said' : 'no_answer', text: turn ? '(reply ready)' : '', ms: Date.now() - started });
     if (!turn) {
       if (++this.misses >= 2) return this.finish("I'm sorry, I'm having trouble on my end. Let me get someone to help you.", 'transfer');
       return this.speak("Sorry, I missed that. Could you say it once more?");

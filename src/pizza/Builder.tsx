@@ -32,9 +32,10 @@ type Drag = { id: string; x0: number; y0: number; x: number; y: number; moving: 
  * Build your own pizza, or change a specialty, one step at a time the way the kitchen makes it:
  * dough, sauce, cheese, toppings, then the oven. Every step plays onto the pie as you pick it.
  * Toppings can be dragged onto the pie with a finger or a mouse: drop in the middle for the whole pie,
- * or on one side for a half. `guided={false}` shows every option at once for the counter register.
+ * or on one side for a half. The register uses the same builder with `fast`, so staff tap through it quickly.
+ * `guided={false}` shows every option at once.
  */
-export function Builder({ start, out = [], onAdd, addLabel = 'Add to order', dark = false, guided = true }: {
+export function Builder({ start, out = [], onAdd, addLabel = 'Add to order', dark = false, guided = true, fast = false }: {
   start?: { specialtyId?: string; config?: PizzaConfig };
   /** Toppings that are out of stock today. */
   out?: string[];
@@ -43,6 +44,8 @@ export function Builder({ start, out = [], onAdd, addLabel = 'Add to order', dar
   dark?: boolean;
   /** Step by step with the oven at the end (the website), or everything on one screen (the register). */
   guided?: boolean;
+  /** For staff on the register: picking a sauce or a cheese moves straight on to the next step. */
+  fast?: boolean;
 }) {
   const [specialtyId, setSpecialtyId] = useState<string | undefined>(start?.specialtyId);
   const [config, setConfig] = useState<PizzaConfig>(start?.config ?? (start?.specialtyId ? configFor(start.specialtyId) : plainConfig()));
@@ -54,6 +57,7 @@ export function Builder({ start, out = [], onAdd, addLabel = 'Add to order', dar
   const price = pizzaPrice(config, specialtyId);
   const sp = specialtyId ? SPECIALTY_BY_ID[specialtyId] : undefined;
 
+  const next = (to: number) => { if (fast && guided) window.setTimeout(() => setStep(to), 450); };
   const say = (text: string) => setCaption((c) => ({ text, n: c.n + 1 }));
   // The line under the pie says what just happened on the step you are on.
   const stepped = useRef(false);
@@ -211,7 +215,7 @@ export function Builder({ start, out = [], onAdd, addLabel = 'Add to order', dar
       {heading('Sauce')}
       <div className="mt-2 grid grid-cols-2 gap-2">
         {SAUCES.map((s) => (
-          <button key={s.id} onClick={() => { set({ sauce: s.id }); say(s.id === 'none' ? 'No sauce, just the dough' : `Ladled on the ${s.label.toLowerCase()}`); }} className={`${chip(config.sauce === s.id)} flex items-center gap-2`}>
+          <button key={s.id} onClick={() => { set({ sauce: s.id }); say(s.id === 'none' ? 'No sauce, just the dough' : `Ladled on the ${s.label.toLowerCase()}`); next(2); }} className={`${chip(config.sauce === s.id)} flex items-center gap-2`}>
             <span className="h-5 w-5 shrink-0 rounded-full ring-1 ring-black/10" style={{ background: s.color }} />{s.label}{s.extraCents ? ` +${money(s.extraCents)}` : ''}
           </button>
         ))}
@@ -233,7 +237,7 @@ export function Builder({ start, out = [], onAdd, addLabel = 'Add to order', dar
       {heading('Cheese')}
       <div className="mt-2 grid grid-cols-2 gap-2">
         {CHEESES.map((c) => (
-          <button key={c.id} onClick={() => { set({ cheese: c.id }); say(c.id === 'none' ? 'No cheese' : `Covered it in ${c.label.toLowerCase()}`); }} className={chip(config.cheese === c.id)}>
+          <button key={c.id} onClick={() => { set({ cheese: c.id }); say(c.id === 'none' ? 'No cheese' : `Covered it in ${c.label.toLowerCase()}`); next(3); }} className={chip(config.cheese === c.id)}>
             {c.label}{c.extra[config.size] ? ` +${money(c.extra[config.size])}` : ''}
           </button>
         ))}

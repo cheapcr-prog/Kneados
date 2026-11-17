@@ -3,6 +3,7 @@
  * make line the very next second: today's phone orders, the order number counter, and the callers who have
  * ordered before (so a regular is greeted by name and offered the usual).
  */
+import { cleanDeals, type Deal } from '../src/pizza/deals';
 import { kitchenLoad, type PhoneOrder, type SavedCustomer } from './voice';
 
 interface Storage {
@@ -31,7 +32,7 @@ export class PhoneLine {
       await store.put('lastCallAt', new Date().toISOString());
       const phone = url.searchParams.get('from') ?? '';
       const busy = kitchenLoad((await store.get<PhoneOrder[]>('orders')) ?? [], Date.now());
-      return reply({ customer: phone ? (await store.get<SavedCustomer>(`customer:${phone}`)) ?? null : null, busy });
+      return reply({ customer: phone ? (await store.get<SavedCustomer>(`customer:${phone}`)) ?? null : null, busy, deals: (await store.get<Deal[]>('deals')) ?? [] });
     }
     if (url.pathname === '/place' && request.method === 'POST') {
       const { order, phone } = (await request.json()) as { order: Omit<PhoneOrder, 'id' | 'number'>; phone: string };
@@ -53,6 +54,13 @@ export class PhoneLine {
       }
       return reply({ number });
     }
+    // The deals the owner turned on. They are checked again here, so the line never offers one outside the limits.
+    if (url.pathname === '/deals' && request.method === 'POST') {
+      const deals = cleanDeals(await request.json().catch(() => null));
+      await store.put('deals', deals);
+      return reply({ deals });
+    }
+    if (url.pathname === '/deals') return reply({ deals: (await store.get<Deal[]>('deals')) ?? [] });
     if (url.pathname === '/orders') {
       const since = url.searchParams.get('since') ?? '';
       const orders = ((await store.get<PhoneOrder[]>('orders')) ?? []).filter((o) => o.at > since);

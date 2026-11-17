@@ -5,11 +5,13 @@ import { useFraud } from '../../components/Fraud';
 import { formatPhone, money } from '../../lib/money';
 import { validLine } from '../phoneLine';
 import { PIZZA_SHOP, PIZZA_STAFF, SIDE_BY_ID, SPECIALTY_BY_ID, ZONES, type Address } from '../data';
-import { MINUTE, lineCents, pizzaDetails, pizzaTitle, quoteTime, upsells, type PizzaLine } from '../logic';
+import { MINUTE, lineCents, piesIn, pizzaDetails, pizzaTitle, quoteTime, upsells, type PizzaLine } from '../logic';
 import { EMPTY_ORDER, greeting, asksStatus, missing, needsLookup, quickReplies, rememberAddress, settle, statusReply, ticketFor, turnContext, type BotOrder, type BotTurn, type Caller, type ShopNow, type Surface, type Ticket, type TranscriptLine } from '../orderbot';
 import { SAMPLES, type Sample } from '../orderbotSamples';
 import { PizzaArt } from '../PizzaArt';
 import { usePizzaBrain } from '../brain';
+import { dealsNow } from '../deals';
+import { useDeals } from '../dealsStore';
 import { usePizza, type PizzaState } from '../store';
 
 /** A number nobody has ordered from, and a caller who hides theirs. */
@@ -155,10 +157,12 @@ export function AiOrders() {
   useEffect(() => () => { live.current.run++; hush(); rec.current?.abort(); }, []);
 
   const active = useMemo(() => state.orders.filter((o) => o.status !== 'done'), [state.orders]);
+  const { approved: approvedDeals } = useDeals(brain.stock);
   const shop: ShopNow = useMemo(() => ({
     quote: (pies, zone) => quoteTime(active, pies, { zone, cooks: brain.cooks, driversFreeInMin: brain.freeIn }).minutes,
     out: state.out, open: true, fraud: fraud.settings,
-  }), [active, brain.cooks, brain.freeIn, state.out, fraud.settings]);
+    deals: dealsNow(approvedDeals, new Date().getHours() + new Date().getMinutes() / 60, active.filter((o) => o.status === 'new' || o.status === 'oven').reduce((a, o) => a + piesIn(o), 0)),
+  }), [active, brain.cooks, brain.freeIn, state.out, fraud.settings, approvedDeals]);
   const ticket = useMemo(() => ticketFor(order, caller, shop), [order, caller, shop]);
   const suggest = useCallback((t: Ticket) => upsells(t.lines, history, brain.facts.tomorrow.event ?? undefined).slice(0, 2).map((u) => `${u.title}. ${u.why}.`), [history, brain.facts.tomorrow.event]);
   const needs = missing(order, ticket, surface);
@@ -494,6 +498,7 @@ export function AiOrders() {
             {ticket.lines.length > 0 && (
               <>
                 <dl className="tabular space-y-0.5 border-t border-slate-100 pt-2 text-sm">
+                  {ticket.deals.map((d) => <div key={d.id} className="flex justify-between text-emerald-700"><dt>Deal: {d.title}</dt><dd>-{money(d.cents)}</dd></div>)}
                   <div className="flex justify-between"><dt>Subtotal</dt><dd>{money(ticket.totals.subtotal)}</dd></div>
                   {ticket.totals.deliveryFee > 0 && <div className="flex justify-between"><dt>Delivery ({ZONES.find((z) => z.id === ticket.zone)?.label.split(',')[0]})</dt><dd>{money(ticket.totals.deliveryFee)}</dd></div>}
                   <div className="flex justify-between"><dt>Tax</dt><dd>{money(ticket.totals.tax)}</dd></div>

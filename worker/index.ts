@@ -8,6 +8,7 @@ import { censusLookUp, findAddress, parseGeocodeBody, type GeocodeReply, type Lo
 import { PhoneLine, type LineNamespace } from './line';
 import { NOT_SET_UP, say, VoiceSession, callTicket, callerFrom, connectTwiml, doneTwiml, fromTwilio, readTicket, tenDigits, twiml, type KitchenLoad, type SavedCustomer } from './voice';
 import { geocodeQuery } from '../src/pizza/geocode';
+import type { Deal } from '../src/pizza/deals';
 import { PRACTICE_CALLS, report, runPractice } from './practice';
 import { greeting } from '../src/pizza/orderbot';
 
@@ -495,12 +496,13 @@ export function handleVoiceSocket(request: Request, env: Env, call: CallModel = 
       void readTicket(env.TWILIO_AUTH_TOKEN!, message.customParameters?.t).then(async (ticket) => {
         if (!ticket) { console.log(JSON.stringify({ voice: 'bad_ticket' })); socket.close(1008, 'not a call we answered'); return; }
         const line = lineFor(env, ticket.to);
-        const { customer, busy } = (await (await line.fetch(`https://line/ring?from=${ticket.from}`)).json()) as { customer: SavedCustomer | null; busy?: KitchenLoad };
+        const { customer, busy, deals } = (await (await line.fetch(`https://line/ring?from=${ticket.from}`)).json()) as { customer: SavedCustomer | null; busy?: KitchenLoad; deals?: Deal[] };
         const call4 = ticket.from.slice(-4);
         console.log(JSON.stringify({ voice: 'call_started', caller: call4, known: Boolean(customer) }));
         session = new VoiceSession(callerFrom(ticket.from, customer), {
           model,
           busy,
+          deals,
           log: (entry) => console.log(JSON.stringify({ voice: entry.event, caller: call4, ...entry })),
           lookUp: async (said) => { try { return await findAddress(geocodeQuery(said) || said); } catch { return undefined; } },
           line: {
@@ -556,6 +558,18 @@ export async function handlePhoneOrders(request: Request, env: Env): Promise<Res
   return lineFor(env, line).fetch(`https://line/orders?since=${encodeURIComponent(since)}`);
 }
 
+/** Deals the owner turned on are sent to the shop's phone line, so callers are offered them. GET reads them back. */
+export async function handlePhoneDeals(request: Request, env: Env): Promise<Response> {
+  const line = tenDigits(new URL(request.url).searchParams.get('line') ?? '');
+  if (!line || !env.PHONE_LINE) return json({ error: 'bad' }, 400);
+  if (request.method === 'GET') return lineFor(env, line).fetch('https://line/deals');
+  if (request.method !== 'POST') return json({ error: 'bad' }, 405);
+  if (!sameOrigin(request)) return json({ error: 'bad' }, 403);
+  const body = await request.text();
+  if (body.length > 8000) return json({ error: 'bad' }, 413);
+  return lineFor(env, line).fetch('https://line/deals', { method: 'POST', body });
+}
+
 export default {
   async fetch(request: Request, env: Env, ctx: Ctx): Promise<Response> {
     const { pathname } = new URL(request.url);
@@ -568,6 +582,7 @@ export default {
     if (pathname === '/api/voice/ws') return handleVoiceSocket(request, env);
     if (pathname === '/api/voice/done') return handleVoiceDone(request, env);
     if (pathname === '/api/practice') return handlePractice(request, env);
+    if (pathname === '/api/phone-deals') return handlePhoneDeals(request, env);
     if (pathname === '/api/phone-orders') return handlePhoneOrders(request, env);
     if (pathname.startsWith('/api/')) return json({ error: 'bad' }, 404);
     return env.ASSETS.fetch(request);

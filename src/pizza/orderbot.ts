@@ -424,10 +424,10 @@ export function oneQuestion(say: string): string {
  */
 export function skipNameQuestion(say: string, open: Need[]): string {
   const q = say.lastIndexOf('?');
-  if (q < 0 || open.some((n) => n.code === 'name') || !open.length) return say;
+  if (q < 0 || open.some((n) => n.code === 'name')) return say;
   const start = Math.max(say.lastIndexOf('.', q), say.lastIndexOf('!', q), say.lastIndexOf('\n', q)) + 1;
   if (!/\bname\b/i.test(say.slice(start, q + 1))) return say;
-  return `${say.slice(0, start).trim()} ${open[0].ask}`.trim();
+  return `${say.slice(0, start).trim()} ${open[0]?.ask ?? 'Anything else?'}`.trim();
 }
 
 /** What the customer taps when an address cannot be delivered to. */
@@ -504,6 +504,20 @@ export interface Settled {
  * Takes what the AI wants to say and do, prices the order, checks every rule, and decides what really happens.
  * The web demo and the real phone line both run this, so an order is held to the same rules wherever it comes from.
  */
+/** What the customer hears when only one way to pay fits and they asked for another. */
+export const ONLY_WAY_TO_PAY = {
+  pay_at_pickup: 'No problem, you can pay with your card or cash at the counter when you pick up. Shall I place the order?',
+  cash_at_door: 'For this one it is cash at the door when it arrives. Shall I place the order?',
+};
+
+/** Takes the caller's first name out of the middle of the conversation ("Got it, Elias." becomes "Got it."). */
+export function nameSparingly(say: string, name: string | undefined): string {
+  const first = name?.trim().split(/\s+/)[0];
+  if (!first || first.length < 2) return say;
+  const n = first.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return say.replace(new RegExp(`,\\s*${n}(?=[\\s.!?,]|$)`, 'g'), '').replace(new RegExp(`(^|[.!?]\\s+)${n}[,!]\\s+(\\w)`, 'g'), (_m, lead: string, next: string) => `${lead}${next.toUpperCase()}`);
+}
+
 export function settle(turn: BotTurn, before: BotOrder, caller: Caller, shop: ShopNow, surface: Surface): Settled {
   let order = turn.order;
   let t = ticketFor(order, caller, shop);
@@ -511,6 +525,16 @@ export function settle(turn: BotTurn, before: BotOrder, caller: Caller, shop: Sh
   if (order.fulfillment && !order.payment && t.policy.payments.length === 1 && t.policy.payments[0] !== 'pay_link' && !(order.fulfillment === 'delivery' && t.policy.noDelivery)) {
     order = { ...order, payment: t.policy.payments[0] };
     t = ticketFor(order, caller, shop);
+  }
+  // A caller the shop already knows is never asked for a name: it goes on the order by itself.
+  if (caller.name && !order.name.trim()) order = { ...order, name: caller.name };
+  // The customer asked to pay a way this order cannot use and exactly one way fits: that one is set,
+  // and they are told plainly instead of being asked to choose from a list of one.
+  let onlyWay = '';
+  if (order.payment && !t.policy.payments.includes(order.payment) && t.policy.payments.length === 1 && t.policy.payments[0] !== 'pay_link') {
+    order = { ...order, payment: t.policy.payments[0] };
+    t = ticketFor(order, caller, shop);
+    onlyWay = ONLY_WAY_TO_PAY[order.payment as 'pay_at_pickup' | 'cash_at_door'];
   }
   const open = missing(order, t, surface);
   let say = hideMachinery(fill(turn.say, t));
@@ -521,8 +545,9 @@ export function settle(turn: BotTurn, before: BotOrder, caller: Caller, shop: Sh
     outcome = 'transfer';
   } else if (turn.action === 'place_order') {
     // The AI may only send an order that is complete and inside the shop's rules. Otherwise KneadOS asks for what is missing.
-    if (open.length) say = open[0].ask; else outcome = 'place';
+    if (open.length) say = open[0].ask; else if (onlyWay) say = onlyWay; else outcome = 'place';
   } else if (turn.action === 'end') outcome = 'end';
+  else if (onlyWay && !open.length) say = onlyWay;
   else {
     const pay = open.find((n) => n.code === 'payment_not_allowed');
     const address = open.find((n) => n.code === 'address');
@@ -538,6 +563,8 @@ export function settle(turn: BotTurn, before: BotOrder, caller: Caller, shop: Sh
     // One question at a time, so a plain "yes" always has one meaning.
     else say = skipNameQuestion(oneQuestion(say), open);
   }
+  // A first name in every reply sounds scripted. It stays in the goodbye when the order is placed.
+  if (surface === 'call' && outcome === 'continue') say = nameSparingly(say, caller.name);
   return { say, order, ticket: t, outcome, placedSay: (number) => hideMachinery(fill(turn.say, t, { number })) };
 }
 

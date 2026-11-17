@@ -168,8 +168,13 @@ export const VOICE_MAX_TURNS = 40;
 export const speechMs = (text: string) => 1500 + text.length * 75;
 
 /** Dead air on a phone feels broken. If a reply is taking this long, the caller hears a short filler first. */
-export const FILLER_AFTER_MS = 1600;
+// On the third real call this was 1600 ms and it fired on every turn, a fraction of a second before the
+// real reply, which sounded like a stutter. It is now only for a reply that is truly late.
+export const FILLER_AFTER_MS = 4000;
 const FILLERS = ['Un momento!', 'Okay, one moment.', 'One sec, one sec.'];
+
+/** The caller is finished adding things. */
+const DONE_ORDERING = /\b(that'?s (it|all|everything)|that is (it|all|everything)|that (would|will) be (it|all)|nothing else|no,? that'?s|complete (the|my) order|place (the|my|it)|i'?m (good|done|all set))\b/i;
 
 /** One phone call, from the greeting to the order on the make line. */
 export class VoiceSession {
@@ -221,7 +226,9 @@ export class VoiceSession {
     if (++this.turns > VOICE_MAX_TURNS) return this.finish('Let me get someone to finish this with you.', 'transfer');
 
     const before = ticketFor(this.order, this.caller, LINE_SHOP);
-    const suggestions = upsells(before.lines, []).slice(0, 2).map((u) => `${u.title}. ${u.why}.`);
+    // Once the caller has said that is everything, nothing more is suggested.
+    const wrappingUp = this.transcript.some((l) => l.who === 'customer' && DONE_ORDERING.test(l.text));
+    const suggestions = wrappingUp ? [] : upsells(before.lines, []).slice(0, 2).map((u) => `${u.title}. ${u.why}.`);
     const context = turnContext('call', this.caller, this.order, before, LINE_SHOP, suggestions, new Date(this.deps.now?.() ?? Date.now()));
     let turn: BotTurn | null = null;
     // If the caller says more while we are working out a reply, that reply is stale: start over with all of it.

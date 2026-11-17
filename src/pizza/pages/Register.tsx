@@ -65,7 +65,7 @@ export function PizzaRegister() {
   const a = ADDRESSES[addr];
   const zone = mode === 'delivery' ? zoneFor(a) : undefined;
   const pies = cart.reduce((n, l) => n + (l.kind === 'pizza' ? l.qty : 0), 0);
-  const q = quoteTime(state.orders.filter((o) => o.status !== 'done'), pies, { zone, cooks: brain.cooks, driversFreeInMin: brain.freeIn });
+  const q = quoteTime(state.orders.filter((o) => o.status !== 'done'), pies, { zone, cooks: brain.cooks, driversFreeInMin: brain.freeIn, piesAhead: demo.elsewhere.ahead, piesInOven: demo.elsewhere.inOven });
   const t = totals(cart, { zone });
   const ups = useMemo(() => upsells(cart, history, brain.facts.tomorrow.event ?? undefined), [cart, history, brain.facts.tomorrow.event]);
   const add = (l: Line) => setCart((c) => [...c, l]);

@@ -14,7 +14,7 @@ import {
   type Address, type CheeseId, type CrustId, type PizzaConfig, type SauceId, type Side, type SizeId,
 } from './data';
 import { applyDeals, type AppliedDeal, type Deal } from './deals';
-import { NOTE_GROUPS, configFor, pizzaDetails, pizzaPrice, pizzaTitle, plainConfig, totals, zoneFor, type Line, type PizzaLine, type PizzaOrder, type Totals } from './logic';
+import { NOTE_GROUPS, configFor, pizzaDetails, pizzaPrice, pizzaTitle, plainConfig, totals, zoneFor, type Line, type OrderStatus, type PizzaLine, type PizzaOrder, type Totals } from './logic';
 
 export type Surface = 'call' | 'text';
 
@@ -275,20 +275,33 @@ export interface RecentOrder {
   readyAt: number;
   /** What was ordered, in plain words. */
   summary: string;
+  /** Where it is on the make line, when the make line has it. Without it the answer goes by the promised time alone. */
+  stage?: OrderStatus;
 }
 
 /** How long after the promised time a call back is still most likely about that order. */
 export const RECENT_ORDER_MINUTES = 45;
 
 /**
- * What a caller is told about the order they just placed. Written by code from the time the order was promised:
- * the phone line does not see the oven, so it never claims a stage ("in the oven") it cannot know.
+ * What a caller is told about the order they just placed. Written by code. The stage ("in the oven", "out for
+ * delivery") is said only when the shop's make line has the order at that stage; otherwise the answer goes by the
+ * time the order was promised and claims nothing more.
  */
 export function recentStatus(recent: RecentOrder, now: number): string {
   const clock = new Date(recent.readyAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: PIZZA_SHOP.timezone });
   const delivery = recent.fulfillment === 'delivery';
-  if (now < recent.readyAt) return `Your order number ${recent.number} is being made and should ${delivery ? 'be at your door' : 'be ready for pickup'} around ${clock}.`;
-  return delivery ? `Your order number ${recent.number} was due at your door around ${clock}, so it should be there any minute.` : `Your order number ${recent.number} should be ready for pickup now.`;
+  const order = `Your order number ${recent.number}`;
+  const late = now >= recent.readyAt;
+  const due = delivery ? `at your door around ${clock}` : `ready for pickup around ${clock}`;
+  if (recent.stage === 'done') return delivery ? `${order} was marked delivered.` : `${order} was marked picked up.`;
+  if (recent.stage === 'out') return late ? `${order} is out for delivery and should be there any minute.` : `${order} is out for delivery and should be ${due}.`;
+  if (recent.stage === 'ready') return delivery ? `${order} is boxed and waiting for a driver${late ? '. It should be on its way very soon.' : `, and should be ${due}.`}` : `${order} is ready for pickup at the counter.`;
+  if (recent.stage === 'oven' || recent.stage === 'new') {
+    const where = recent.stage === 'oven' ? 'in the oven' : 'on the make line';
+    return late ? `${order} is running behind, I'm sorry. It is ${where} right now.` : `${order} is ${where} and should be ${due}.`;
+  }
+  if (!late) return `${order} is being made and should ${delivery ? 'be at your door' : 'be ready for pickup'} around ${clock}.`;
+  return delivery ? `${order} was due at your door around ${clock}, so it should be there any minute.` : `${order} should be ready for pickup now.`;
 }
 
 /** Ticket lines back into the shape Claude edits, so "my usual" lands on the ticket exactly. */

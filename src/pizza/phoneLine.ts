@@ -7,6 +7,7 @@ import { DEFAULT_FRAUD } from '../lib/fraud';
 import type { Address } from './data';
 import { cleanDeals, type Deal } from './deals';
 import { MINUTE, type PizzaOrder } from './logic';
+import type { QueueTicket, TicketIn } from './queue';
 import { rememberAddress, ticketFor, type BotOrder, type TranscriptLine } from './orderbot';
 
 const LINE_KEY = 'kneados-pizza-phone-line';
@@ -67,4 +68,14 @@ export function ticketFromPhone(p: PhoneOrder): Omit<PizzaOrder, 'id' | 'number'
     note: [o.note.trim(), ...t.deals.map((d) => `Deal: ${d.title}`), o.payment === 'cash_at_door' ? 'Cash at the door' : 'Pays at the counter', p.last4 ? `Real call from a number ending ${p.last4}` : 'Real call, number hidden'].filter(Boolean).join(' · '),
     ai: { surface: 'call', transcript: p.transcript.map(({ who, text }) => ({ who, text })) },
   };
+}
+
+/** Sends the tickets this device changed to the shop's one make line and gets the whole line back. */
+export async function syncQueue(line: string, tickets: TicketIn[], replace: boolean): Promise<QueueTicket[] | null> {
+  try {
+    const res = await fetch(`/api/kitchen?line=${encodeURIComponent(line)}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ tickets, replace }) });
+    if (!res.ok) return null;
+    const data = (await res.json()) as { queue?: QueueTicket[] };
+    return Array.isArray(data.queue) ? data.queue : null;
+  } catch { return null; }
 }

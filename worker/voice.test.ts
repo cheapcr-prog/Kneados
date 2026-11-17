@@ -284,15 +284,7 @@ describe('the phone line remembers the latest order', () => {
 });
 
 describe('wait times count the phone orders already being made (Elias, 2026-11-16)', () => {
-  const now = Date.UTC(2026, 10, 16, 20, 0);
   const pies = (qty: number) => order({ items: [item({ kind: 'pizza', specialty: 'pepperoni', size: 'L', qty })], fulfillment: 'pickup' });
-  const placed = (minutesAgo: number, minutes: number, qty: number) => ({ at: new Date(now - minutesAgo * 60_000).toISOString(), minutes, order: pies(qty) });
-
-  it('counts pizzas still waiting and pizzas baking, and drops orders that are ready', async () => {
-    const { kitchenLoad } = await import('./voice');
-    expect(kitchenLoad([placed(1, 20, 4), placed(10, 15, 2), placed(30, 15, 9)], now)).toEqual({ ahead: 4, inOven: 2 });
-    expect(kitchenLoad([{ at: new Date(now).toISOString(), minutes: 15, order: order({ items: [item({ kind: 'side', side: 'caesar' })] }) }], now)).toEqual({ ahead: 0, inOven: 0 });
-  });
 
   it('quotes a longer wait when the kitchen is busy', async () => {
     const { lineShop } = await import('./voice');
@@ -308,6 +300,45 @@ describe('wait times count the phone orders already being made (Elias, 2026-11-1
     await line.fetch(new Request('https://line/place', { method: 'POST', body: JSON.stringify({ order: { at: new Date().toISOString(), minutes: 20, last4: '0142', order: pies(3), transcript: [] }, phone: '5625550142' }) }));
     const { busy } = (await (await line.fetch(new Request('https://line/ring?from=5625550142'))).json()) as { busy: { ahead: number; inOven: number } };
     expect(busy).toEqual({ ahead: 3, inOven: 0 });
+  });
+
+  const lineWith = () => {
+    const store = new Map<string, unknown>();
+    return new PhoneLine({ storage: { get: async <T,>(k: string) => store.get(k) as T | undefined, put: async (k, v) => { store.set(k, v); } } });
+  };
+  const counter = (id: string, piesOn: number, status: string, extra: object = {}) => ({ id, number: Number(id.slice(3)), channel: 'counter', fulfillment: 'pickup', pies: piesOn, status, createdAt: new Date(Date.now() - 60_000).toISOString(), promisedAt: new Date(Date.now() + 20 * 60_000).toISOString(), drive: 0, ...extra });
+  const post = (line: PhoneLine, body: object) => line.fetch(new Request('https://line/queue', { method: 'POST', body: JSON.stringify(body) }));
+
+  it('counts counter and website orders too, once a make line screen sends them (Elias: "wait times should calculate all")', async () => {
+    const line = lineWith();
+    await line.fetch(new Request('https://line/place', { method: 'POST', body: JSON.stringify({ order: { at: new Date().toISOString(), minutes: 20, last4: '0142', order: pies(3), transcript: [] }, phone: '5625550142' }) }));
+    await post(line, { tickets: [counter('pz-2201', 4, 'new'), counter('pz-2202', 2, 'oven'), counter('pz-2203', 5, 'ready'), { ...counter('pz-2204', 9, 'new'), channel: 'online', scheduled: true }] });
+    const { busy } = (await (await line.fetch(new Request('https://line/ring?from=5625550199'))).json()) as { busy: { ahead: number; inOven: number } };
+    expect(busy).toEqual({ ahead: 7, inOven: 2 });
+  });
+
+  it('tells a caller the real stage of their order once the make line has tapped it', async () => {
+    const line = lineWith();
+    await line.fetch(new Request('https://line/place', { method: 'POST', body: JSON.stringify({ order: { at: new Date().toISOString(), minutes: 20, last4: '0142', order: pies(1), transcript: [] }, phone: '5625550142' }) }));
+    const ring = async () => (await (await line.fetch(new Request('https://line/ring?from=5625550142'))).json()) as { customer: SavedCustomer; stage?: 'new' | 'oven' };
+    // No make line screen is open yet, so the line claims no stage.
+    expect((await ring()).stage).toBeUndefined();
+    const { queue } = (await (await post(line, { tickets: [] })).json()) as { queue: { id: string; createdAt: string; promisedAt: string }[] };
+    const mine = queue.find((t) => t.id === `pz-${FIRST_PHONE_NUMBER}`)!;
+    await post(line, { tickets: [{ ...mine, status: 'oven', ovenAt: new Date().toISOString() }] });
+    const after = await ring();
+    expect(after.stage).toBe('oven');
+    const { callerFrom } = await import('./voice');
+    const { recentStatus } = await import('../src/pizza/orderbot');
+    expect(recentStatus(callerFrom('5625550142', after.customer, Date.now(), after.stage).recent!, Date.now())).toContain('is in the oven and should be ready for pickup around');
+  });
+
+  it('a stale screen cannot pull a pizza back out of the oven, and junk is refused', async () => {
+    const line = lineWith();
+    const t = counter('pz-2201', 2, 'oven');
+    await post(line, { tickets: [t] });
+    const { queue } = (await (await post(line, { tickets: [{ ...t, status: 'new' }, { id: 'x', pies: 9999 }, { ...counter('pz-2202', 500, 'new') }] })).json()) as { queue: { id: string; status: string }[] };
+    expect(queue.map((q) => `${q.id}:${q.status}`)).toEqual(['pz-2201:oven']);
   });
 });
 

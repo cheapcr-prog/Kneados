@@ -9,6 +9,7 @@ import { PhoneLine, type LineNamespace } from './line';
 import { NOT_SET_UP, say, VoiceSession, callTicket, callerFrom, connectTwiml, doneTwiml, fromTwilio, readTicket, tenDigits, twiml, type KitchenLoad, type SavedCustomer } from './voice';
 import { geocodeQuery } from '../src/pizza/geocode';
 import type { Deal } from '../src/pizza/deals';
+import type { OrderStatus } from '../src/pizza/logic';
 import { PRACTICE_CALLS, report, runPractice } from './practice';
 import { greeting } from '../src/pizza/orderbot';
 
@@ -423,8 +424,8 @@ export async function handleVoice(request: Request, env: Env): Promise<Response>
   const to = tenDigits(form.To);
   if (!to) return twiml(`${say(NOT_SET_UP)}<Hangup/>`);
   const from = tenDigits(form.From);
-  const { customer } = (await (await lineFor(env, to).fetch(`https://line/ring?from=${from}`)).json()) as { customer: SavedCustomer | null };
-  const hello = greeting(callerFrom(from, customer), 'call');
+  const { customer, stage } = (await (await lineFor(env, to).fetch(`https://line/ring?from=${from}`)).json()) as { customer: SavedCustomer | null; stage?: OrderStatus };
+  const hello = greeting(callerFrom(from, customer, Date.now(), stage), 'call');
   return connectTwiml(new URL(request.url).host, hello, await callTicket(env.TWILIO_AUTH_TOKEN!, from, to));
 }
 
@@ -496,10 +497,10 @@ export function handleVoiceSocket(request: Request, env: Env, call: CallModel = 
       void readTicket(env.TWILIO_AUTH_TOKEN!, message.customParameters?.t).then(async (ticket) => {
         if (!ticket) { console.log(JSON.stringify({ voice: 'bad_ticket' })); socket.close(1008, 'not a call we answered'); return; }
         const line = lineFor(env, ticket.to);
-        const { customer, busy, deals } = (await (await line.fetch(`https://line/ring?from=${ticket.from}`)).json()) as { customer: SavedCustomer | null; busy?: KitchenLoad; deals?: Deal[] };
+        const { customer, busy, deals, stage } = (await (await line.fetch(`https://line/ring?from=${ticket.from}`)).json()) as { customer: SavedCustomer | null; busy?: KitchenLoad; deals?: Deal[]; stage?: OrderStatus };
         const call4 = ticket.from.slice(-4);
         console.log(JSON.stringify({ voice: 'call_started', caller: call4, known: Boolean(customer) }));
-        session = new VoiceSession(callerFrom(ticket.from, customer), {
+        session = new VoiceSession(callerFrom(ticket.from, customer, Date.now(), stage), {
           model,
           busy,
           deals,
@@ -570,6 +571,20 @@ export async function handlePhoneDeals(request: Request, env: Env): Promise<Resp
   return lineFor(env, line).fetch('https://line/deals', { method: 'POST', body });
 }
 
+/**
+ * The shop's one make line. A make line screen posts the tickets it changed and gets the whole line back, so every
+ * device and the phone line quote from the same orders. Tickets carry no names, phone numbers or addresses.
+ */
+export async function handleKitchen(request: Request, env: Env): Promise<Response> {
+  const line = tenDigits(new URL(request.url).searchParams.get('line') ?? '');
+  if (!line || !env.PHONE_LINE) return json({ error: 'bad' }, 400);
+  if (request.method !== 'POST') return json({ error: 'bad' }, 405);
+  if (!sameOrigin(request)) return json({ error: 'bad' }, 403);
+  const body = await request.text();
+  if (body.length > 60_000) return json({ error: 'bad' }, 413);
+  return lineFor(env, line).fetch('https://line/queue', { method: 'POST', body });
+}
+
 export default {
   async fetch(request: Request, env: Env, ctx: Ctx): Promise<Response> {
     const { pathname } = new URL(request.url);
@@ -582,6 +597,7 @@ export default {
     if (pathname === '/api/voice/ws') return handleVoiceSocket(request, env);
     if (pathname === '/api/voice/done') return handleVoiceDone(request, env);
     if (pathname === '/api/practice') return handlePractice(request, env);
+    if (pathname === '/api/kitchen') return handleKitchen(request, env);
     if (pathname === '/api/phone-deals') return handlePhoneDeals(request, env);
     if (pathname === '/api/phone-orders') return handlePhoneOrders(request, env);
     if (pathname.startsWith('/api/')) return json({ error: 'bad' }, 404);

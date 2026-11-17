@@ -9,6 +9,9 @@ import { PIZZA_SHOP, SPECIALTIES, SIDES, SIZES, TOPPINGS } from '../src/pizza/da
 import { quoteTime, upsells } from '../src/pizza/logic';
 import { streetGuesses } from '../src/pizza/streets';
 import { dealsNow, type Deal } from '../src/pizza/deals';
+import type { OrderStatus } from '../src/pizza/logic';
+import type { KitchenLoad } from '../src/pizza/queue';
+export type { KitchenLoad };
 import {
   EMPTY_ORDER, RECENT_ORDER_MINUTES, asksStatus, buildLines, greeting, lineText, needsLookup, recentStatus, rememberAddress, settle, ticketFor, turnContext,
   type BotItem, type BotOrder, type BotTurn, type Caller, type ShopNow, type TranscriptLine,
@@ -137,28 +140,9 @@ export function doneTwiml(handoff: string | undefined): Response {
 /* ================================================================ the shop, as the server sees it */
 
 /**
- * The phone line has no browser, so it quotes from the oven and drive times with an empty make line,
- * uses the shop's default fraud settings, and cannot text a pay link until the number's texting is registered.
+ * The phone line has no browser. It quotes from the shop's one make line on the server (every kind of order is
+ * on it), uses the shop's default fraud settings, and cannot text a pay link until the number's texting is registered.
  */
-/** Pizzas from earlier phone orders that are still waiting to be made, or baking, right now. */
-export interface KitchenLoad { ahead: number; inOven: number }
-
-/**
- * What the phone line knows about the kitchen: the phone orders it took that are not ready yet. An order counts as
- * baking for its last minutes before the promised time, and as waiting on the make line before that. Counter and
- * online orders are not seen here until the make line itself lives on the server.
- */
-export function kitchenLoad(orders: readonly Pick<PhoneOrder, 'at' | 'minutes' | 'order'>[], now: number): KitchenLoad {
-  const load = { ahead: 0, inOven: 0 };
-  for (const o of orders) {
-    const readyAt = Date.parse(o.at) + o.minutes * 60_000;
-    const pies = o.order.items.filter((i) => i.kind === 'pizza').reduce((n, i) => n + Math.max(1, i.qty), 0);
-    if (!pies || !(now < readyAt)) continue;
-    if (now < readyAt - (PIZZA_SHOP.bakeMinutes + 2) * 60_000) load.ahead += pies; else load.inOven += pies;
-  }
-  return load;
-}
-
 export function lineShop(busy: KitchenLoad = { ahead: 0, inOven: 0 }, deals: Deal[] = []): ShopNow {
   return {
     quote: (pies, zone) => quoteTime([], pies, { zone, cooks: 2, driversFreeInMin: 0, piesAhead: busy.ahead, piesInOven: busy.inOven }).minutes,
@@ -179,12 +163,13 @@ export interface SavedCustomer {
   last?: { number: number; at: string; minutes: number };
 }
 
-export function callerFrom(phone: string, saved: SavedCustomer | null, now = Date.now()): Caller {
+/** `stage` is where the caller's latest order is on the make line, when the make line knows. */
+export function callerFrom(phone: string, saved: SavedCustomer | null, now = Date.now(), stage?: OrderStatus): Caller {
   if (!saved) return { phone, known: false };
   const lastLines = buildLines(saved.items, []).lines;
   const readyAt = saved.last ? Date.parse(saved.last.at) + saved.last.minutes * 60_000 : NaN;
   const recent = saved.last && now < readyAt + RECENT_ORDER_MINUTES * 60_000
-    ? { number: saved.last.number, fulfillment: saved.fulfillment, readyAt, summary: lastLines.map(lineText).join(' and ').replace(/ \([^)]*\)/g, '') }
+    ? { number: saved.last.number, fulfillment: saved.fulfillment, readyAt, summary: lastLines.map(lineText).join(' and ').replace(/ \([^)]*\)/g, ''), ...(stage ? { stage } : {}) }
     : undefined;
   return { phone, known: true, name: saved.name, address: saved.address, lastLines, lastFulfillment: saved.fulfillment, orders: saved.orders, ...(recent ? { recent } : {}) };
 }

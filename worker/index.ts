@@ -8,6 +8,7 @@ import { censusLookUp, findAddress, parseGeocodeBody, type GeocodeReply, type Lo
 import { PhoneLine, type LineNamespace } from './line';
 import { NOT_SET_UP, say, VoiceSession, callTicket, callerFrom, connectTwiml, doneTwiml, fromTwilio, readTicket, tenDigits, twiml, type SavedCustomer } from './voice';
 import { geocodeQuery } from '../src/pizza/geocode';
+import { PRACTICE_CALLS, report, runPractice } from './practice';
 import { greeting } from '../src/pizza/orderbot';
 
 export { PhoneLine };
@@ -423,19 +424,10 @@ export async function handleVoiceDone(request: Request, env: Env): Promise<Respo
 interface ServerSocket { accept(): void; send(data: string): void; close(code?: number, reason?: string): void; addEventListener(type: 'message' | 'close' | 'error', listener: (event: { data?: unknown }) => void): void }
 declare const WebSocketPair: { new (): { 0: unknown; 1: ServerSocket } };
 
-/** The live conversation: Twilio sends what the caller said as text, we send back what to say. */
-export function handleVoiceSocket(request: Request, env: Env, call: CallModel = callOrder, fast: CallModel | null = call === callOrder ? callOrderFast : null): Response {
-  if (request.headers.get('upgrade')?.toLowerCase() !== 'websocket') return json({ error: 'bad' }, 426);
-  if (!voiceReady(env)) return json({ error: 'off' }, 503);
-  const pair = new WebSocketPair();
-  const socket = pair[1];
-  socket.accept();
+/** One answer on a call: the fast model first, the careful one when it cannot answer. Counts what it spends. */
+function voiceModel(env: Env, call: CallModel, fast: CallModel | null) {
   const usage = env.USAGE!;
-  const send = (message: object) => { try { socket.send(JSON.stringify(message)); } catch { /* the caller hung up */ } };
-  let session: VoiceSession | null = null;
-  let closed = false;
-
-  const model = async (user: string) => {
+  return async (user: string) => {
     const spendKey = `spend:${budgetDay(new Date())}`;
     const capMicros = Math.max(0, Number(env.DAILY_CAP_CENTS ?? DEFAULT_DAILY_CAP_CENTS) || 0) * 10_000;
     const spent = Number((await usage.get(spendKey)) ?? 0) || 0;
@@ -466,6 +458,20 @@ export function handleVoiceSocket(request: Request, env: Env, call: CallModel = 
       return null;
     }
   };
+}
+
+/** The live conversation: Twilio sends what the caller said as text, we send back what to say. */
+export function handleVoiceSocket(request: Request, env: Env, call: CallModel = callOrder, fast: CallModel | null = call === callOrder ? callOrderFast : null): Response {
+  if (request.headers.get('upgrade')?.toLowerCase() !== 'websocket') return json({ error: 'bad' }, 426);
+  if (!voiceReady(env)) return json({ error: 'off' }, 503);
+  const pair = new WebSocketPair();
+  const socket = pair[1];
+  socket.accept();
+  const send = (message: object) => { try { socket.send(JSON.stringify(message)); } catch { /* the caller hung up */ } };
+  let session: VoiceSession | null = null;
+  let closed = false;
+
+  const model = voiceModel(env, call, fast);
 
   socket.addEventListener('message', (event) => {
     let message: { type?: string; customParameters?: { t?: unknown }; voicePrompt?: unknown; last?: boolean; utteranceUntilInterrupt?: unknown };
@@ -501,6 +507,29 @@ export function handleVoiceSocket(request: Request, env: Env, call: CallModel = 
   return new Response(null, { status: 101, webSocket: pair[0] } as ResponseInit);
 }
 
+/** Practice calls a day, across everyone. One full run is a call per script. */
+export const PRACTICE_CALLS_PER_DAY = 80;
+
+/**
+ * Practice calls. GET lists the scripts; POST ?id= runs one against the real phone assistant and says what it got wrong.
+ * Nothing reaches the make line. It spends from the same daily budget as real calls and has its own daily count.
+ */
+export async function handlePractice(request: Request, env: Env, call: CallModel = callOrder, fast: CallModel | null = call === callOrder ? callOrderFast : null, lookUp: LookUp = censusLookUp, now = new Date()): Promise<Response> {
+  const plain = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json', 'cache-control': 'no-store' } });
+  if (request.method === 'GET') return plain({ calls: PRACTICE_CALLS.map((c) => ({ id: c.id, title: c.title })) });
+  if (request.method !== 'POST') return json({ error: 'bad' }, 405);
+  if (!sameOrigin(request)) return json({ error: 'bad' }, 403);
+  if (!env.ANTHROPIC_API_KEY || !env.USAGE) return json({ error: 'off' }, 503);
+  const script = PRACTICE_CALLS.find((c) => c.id === new URL(request.url).searchParams.get('id'));
+  if (!script) return json({ error: 'bad' }, 400);
+  const countKey = `practice:${budgetDay(now)}`;
+  const ran = Number((await env.USAGE.get(countKey)) ?? 0) || 0;
+  if (ran >= PRACTICE_CALLS_PER_DAY) return json({ error: 'limit' }, 429);
+  await env.USAGE.put(countKey, String(ran + 1), { expirationTtl: 2 * DAY });
+  const result = await runPractice(script, voiceModel(env, call, fast), async (said) => { try { return await findAddress(geocodeQuery(said) || said, lookUp); } catch { return undefined; } });
+  return plain(report(script, result));
+}
+
 /** The make line asks for the phone orders it has not shown yet. Knowing the shop's phone number is what lets a browser see them. */
 export async function handlePhoneOrders(request: Request, env: Env): Promise<Response> {
   if (request.method !== 'GET') return json({ error: 'bad' }, 405);
@@ -522,6 +551,7 @@ export default {
     if (pathname === '/api/voice') return handleVoice(request, env);
     if (pathname === '/api/voice/ws') return handleVoiceSocket(request, env);
     if (pathname === '/api/voice/done') return handleVoiceDone(request, env);
+    if (pathname === '/api/practice') return handlePractice(request, env);
     if (pathname === '/api/phone-orders') return handlePhoneOrders(request, env);
     if (pathname.startsWith('/api/')) return json({ error: 'bad' }, 404);
     return env.ASSETS.fetch(request);

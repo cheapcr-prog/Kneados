@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { DEFAULT_FRAUD } from '../lib/fraud';
 import { SIDE_BY_ID } from './data';
 import { configFor, pizzaPrice, type Line } from './logic';
-import { EMPTY_ORDER, TURN_SCHEMA, asksStatus, statusReply, buildLines, fill, greeting, item, linesToItems, matchAddress, menuText, missing, offersWrongPayment, oneQuestion, orderPolicy, hideMachinery, needsLookup, parseTurn, quickReplies, rememberAddress, skipNameQuestion, ticketFor, turnContext, type BotOrder, type Caller, type ShopNow } from './orderbot';
+import { EMPTY_ORDER, TURN_SCHEMA, asksStatus, statusReply, buildLines, fill, greeting, item, linesToItems, matchAddress, menuText, missing, offersWrongPayment, oneQuestion, orderPolicy, hideMachinery, needsLookup, parseTurn, quickReplies, rememberAddress, skipNameQuestion, nameSparingly, settle, ONLY_WAY_TO_PAY, ticketFor, turnContext, type BotOrder, type Caller, type ShopNow } from './orderbot';
 import { SAMPLES } from './orderbotSamples';
 import { geocodeQuery, parseCensus } from './geocode';
 
@@ -319,5 +319,38 @@ describe("where's my order?", () => {
 
   it('is honest when the order is late', () => {
     expect(statusReply({ ...base, status: 'oven' }, now + 20 * 60_000)).toContain('running a few minutes behind');
+  });
+});
+
+describe('what a real call taught us (2026-11-16, third call)', () => {
+  const line: ShopNow = { quote: () => 15, out: [], open: true, fraud: DEFAULT_FRAUD, payLinks: false };
+  const elias: Caller = { phone: '5625550142', known: true, name: 'Elias', orders: 1 };
+  const pie = [item({ kind: 'pizza', specialty: 'pepperoni', size: 'L' })];
+  const order = (over: Partial<BotOrder>): BotOrder => ({ ...EMPTY_ORDER, items: pie, fulfillment: 'pickup', ...over });
+
+  it('never asks a known caller for a name', () => {
+    const done = settle({ say: 'Got it, pickup. What name should I put the order under?', order: order({}), action: 'continue' }, EMPTY_ORDER, elias, line, 'call');
+    expect(done.order.name).toBe('Elias');
+    expect(done.say).not.toMatch(/name/i);
+  });
+
+  it('tells a caller who wants to pay by card that the counter takes cards, instead of offering a list of one', () => {
+    const done = settle({ say: 'Sure, I will text you a link.', order: order({ payment: 'pay_link' }), action: 'continue' }, order({ payment: 'pay_at_pickup' }), elias, line, 'call');
+    expect(done.order.payment).toBe('pay_at_pickup');
+    expect(done.say).toBe(ONLY_WAY_TO_PAY.pay_at_pickup);
+    expect(done.say).not.toMatch(/Which works for you/);
+    // Even if the AI tries to place it in the same breath, the caller hears how they will pay first.
+    const eager = settle({ say: 'Order {number} is in!', order: order({ payment: 'pay_link' }), action: 'place_order' }, order({}), elias, line, 'call');
+    expect(eager.outcome).toBe('continue');
+  });
+
+  it('does not say the caller\'s first name in every reply', () => {
+    expect(nameSparingly('No problem, Elias. What would you like instead?', 'Elias')).toBe('No problem. What would you like instead?');
+    expect(nameSparingly('Anything else, Elias?', 'Elias')).toBe('Anything else?');
+    expect(nameSparingly('Of course, Elias! So far it is one pizza.', 'Elias R.')).toBe('Of course! So far it is one pizza.');
+    expect(nameSparingly('Elias, anything to drink?', 'Elias')).toBe('Anything to drink?');
+    expect(nameSparingly('Got it.', undefined)).toBe('Got it.');
+    const done = settle({ say: 'Perfetto, Elias. Anything else?', order: order({ payment: 'pay_at_pickup' }), action: 'continue' }, order({}), elias, line, 'call');
+    expect(done.say).toBe('Perfetto. Anything else?');
   });
 });

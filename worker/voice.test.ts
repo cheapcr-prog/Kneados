@@ -143,6 +143,16 @@ describe('a phone call, start to make line', () => {
     expect(c.session.order.fulfillment).toBe('delivery');
   });
 
+  it('stops suggesting add-ons once the caller says that is everything', async () => {
+    const more: BotTurn = { say: 'Anything else?', order: order({ fulfillment: 'pickup' }), action: 'continue' };
+    const c = call([more, more, more]);
+    await c.session.heard('a large pepperoni for pickup');
+    await c.session.heard('what sizes do you have');
+    await c.session.heard("That's it.");
+    expect(c.prompts[1]).not.toMatch(/"suggestions":\s*\[\s*\]/);
+    expect(c.prompts[2]).toMatch(/"suggestions":\s*\[\s*\]/);
+  });
+
   it('says a short filler when a reply is slow, and not when it is quick', async () => {
     const reply: BotTurn = { say: 'What can I get started for you?', order: order({ items: [], fulfillment: 'pickup' }), action: 'continue' };
     const slow = call([]);

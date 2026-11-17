@@ -232,6 +232,11 @@ const FILLERS = ['Un momento!', 'Okay, one moment.', 'One sec, one sec.'];
 /** The caller is finished adding things. */
 const DONE_ORDERING = /\b(that'?s (it|all|everything)|that is (it|all|everything)|that (would|will) be (it|all)|nothing else|no,? that'?s|complete (the|my) order|place (the|my|it)|i'?m (good|done|all set))\b/i;
 
+const ASKS_DEALS = /\b(deals?|coupons?|discounts?|promos?|promotions?|specials?|offers?)\b/i;
+const WANTS_PERSON = /\b(manager|person|human|someone|somebody|employee|representative|complain|complaint|refund)\b/i;
+/** The demo shop has no deals set up, so the line says so plainly instead of making one up. */
+export const NO_DEALS = "We don't have any deals running right now. What can I get started for you?";
+
 /** One phone call, from the greeting to the order on the make line. */
 export class VoiceSession {
   order: BotOrder = EMPTY_ORDER;
@@ -339,6 +344,11 @@ export class VoiceSession {
           this.deps.log?.({ event: 'address_fixed', text: `${heard} -> ${street}` });
         }
       }
+    }
+
+    // Asking about deals is not a reason to lose the call (a real call was handed off and ended over it, 2026-11-16).
+    if (turn.action === 'transfer' && ASKS_DEALS.test(justSaid) && !WANTS_PERSON.test(justSaid)) {
+      turn = { ...turn, action: 'continue', say: NO_DEALS };
     }
 
     const done = settle(turn, this.order, this.caller, this.shop, 'call');

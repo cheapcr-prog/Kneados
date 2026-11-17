@@ -147,6 +147,15 @@ export const PRACTICE_CALLS: PracticeCall[] = [
     check: (r) => must(r.outcome === 'transfer', `A 15 pizza order was not handed to a manager (call ended as "${r.outcome}").`),
   },
   {
+    id: 'asks-deals', title: 'Asking about deals does not end the call', saved: elias,
+    lines: ['No. What deals do you have right now?', 'Okay, a large pepperoni for pickup then.', "That's it."],
+    check: (r) => [
+      ...must(r.outcome === 'placed', `The order was not placed (call ended as "${r.outcome}").`),
+      ...must(pizzas(r.order).length === 1 && pizzas(r.order)[0]?.specialty === 'pepperoni' && pizzas(r.order)[0]?.size === 'L', 'The order is not one large pepperoni.'),
+      ...must(!anySaid(r, /\b(\d+ ?%|percent off|half off|buy one|two for|free (pizza|wings|soda|garlic))\b/i), 'It made up a deal.'),
+    ],
+  },
+  {
     id: 'just-questions', title: 'Questions that are not an order',
     lines: ['What time do you close tonight?', 'Do you have gluten-free crust?', 'Okay thanks, that is all I needed. Bye.'],
     check: (r) => [

@@ -1,4 +1,4 @@
-import { BarChart3, Bike, Mail, Check, ChefHat, ClipboardCheck, Gift, LayoutDashboard, MessageCircle, Package, Pizza, Send, Sparkles, Trophy, Users } from 'lucide-react';
+import { BarChart3, Bike, Mail, Megaphone, Check, ChefHat, ClipboardCheck, Gift, LayoutDashboard, MessageCircle, Package, Pizza, Send, Sparkles, Trophy, Users } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { NavLink, Route, Routes, useNavigate } from 'react-router-dom';
 import { FALLBACK_NOTE, useClaudeReady, type AskFailure } from '../../components/Ask';
@@ -11,6 +11,10 @@ import { PIZZA_SHOP } from '../data';
 import { PIZZA_SUGGESTED, briefingLines, ruleAnswer, sortDecisions, usePizzaBrain, type PizzaBrain, type PizzaDecision } from '../brain';
 import { usePizza } from '../store';
 import { MarketingPage } from './Marketing';
+import { ResultsPage } from './MarketingResults';
+import { mailCode } from '../mail';
+import { TEXT_CENTS } from '../marketing';
+import { addDays } from '../../lib/dates';
 import { DeliveryPage, DoughPage, GameDayPage, HealthPage, MenuPage, MoneyPage, PeoplePage, StockPage, TeamPage } from './OwnerPages';
 
 const NAV = [
@@ -23,6 +27,7 @@ const NAV = [
   { to: 'money', label: 'Money', icon: BarChart3 },
   { to: 'team', label: 'Team & tips', icon: Users },
   { to: 'customers', label: 'Rewards & texts', icon: Gift },
+  { to: 'results', label: 'Marketing results', icon: Megaphone },
   { to: 'marketing', label: 'Postcards', icon: Mail },
   { to: 'health', label: 'Health & safety', icon: ClipboardCheck },
 ];
@@ -52,6 +57,7 @@ export function PizzaOwner() {
           <Route path="money" element={<MoneyPage brain={brain} />} />
           <Route path="team" element={<TeamPage />} />
           <Route path="customers" element={<PeoplePage brain={brain} />} />
+          <Route path="results" element={<ResultsPage brain={brain} />} />
           <Route path="marketing" element={<MarketingPage brain={brain} />} />
           <Route path="health" element={<HealthPage />} />
         </Routes>
@@ -96,7 +102,11 @@ function Briefing({ brain }: { brain: PizzaBrain }) {
       if (po) demo.sendPO({ supplier: po.supplier, cents: po.cents, lines: po.lines.map((l) => ({ id: l.id, name: l.name, packs: l.packs, packLabel: l.packLabel, qty: l.packs * l.packSize })) });
     }
     if (d.kind === 'campaign' && d.payload?.phones) {
-      demo.addTexts(d.payload.phones.map((to) => ({ to, at: new Date().toISOString(), kind: 'campaign' as const, body: `${PIZZA_SHOP.name}: We miss you! Free garlic bread with any pizza this week. Use code SLICE${to.slice(-3)} online or say it on the phone. Reply STOP to opt out.` })));
+      // A text blast is tracked like any campaign: each member gets their own code, and orders with it are credited here.
+      const id = `text-${Date.now().toString(36)}`;
+      const codes = Object.fromEntries(d.payload.phones.map((to) => [to, mailCode(`${id}:${to}`, 'TX')]));
+      demo.addPromo({ id, channel: 'text', name: 'Text: we miss you, free garlic bread', startedOn: demo.state.today, endsOn: addDays(demo.state.today, 14), sent: d.payload.phones.length, spendCents: Math.round(d.payload.phones.length * TEXT_CENTS), spendNote: 'Texting fees', offerId: 'knots', codes, oneUse: true, redemptions: [] });
+      demo.addTexts(d.payload.phones.map((to) => ({ to, at: new Date().toISOString(), kind: 'campaign' as const, body: `${PIZZA_SHOP.name}: We miss you! Free garlic bread with any pizza for the next two weeks. Use code ${codes[to]} online or say it on the phone. Reply STOP to opt out.` })));
     }
     if (d.kind === 'invoice' && d.payload?.invoiceId) demo.remindInvoice(d.payload.invoiceId);
     if (d.kind === 'call') {
